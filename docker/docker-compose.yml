@@ -1,0 +1,7 @@
+services:
+  prelearning:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    volumes:
+      - ..:/app
