@@ -1,12 +1,33 @@
-.venv/
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
 .ipynb_checkpoints/
+.pytest_cache/
 
+# Virtual environments
+.venv/
+venv/
+env/
+conda-env/
+
+# Data and large files
 data/
-*.zip
-*.tar
-*.tar.gz
+datasets/
+checkpoints/
+outputs/
+runs/
+wandb/
 
-.env
+# Model weights
+*.pth
+*.pt
+*.ckpt
+*.onnx
+*.engine
+*.safetensors
+
+# Logs
+*.log
+
+# System files
 .DS_Store

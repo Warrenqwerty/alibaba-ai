@@ -1,0 +1,27 @@
+task: "fashion_instance_segmentation"
+
+model:
+  name: "mask_rcnn_baseline"
+  backbone: "resnet50_fpn"
+  pretrained: true
+  num_classes: 6
+
+categories:
+  0: "background"
+  1: "top"
+  2: "outerwear"
+  3: "pants"
+  4: "skirt"
+  5: "dress"
+
+inference:
+  score_threshold: 0.5
+  mask_threshold: 0.5
+  device: "cuda"
+
+training:
+  image_size: 1024
+  batch_size: 2
+  num_workers: 4
+  learning_rate: 0.0001
+  num_epochs: 20
