@@ -83,7 +83,9 @@ class DeepFashion2Dataset(Dataset):
             if mask.sum() == 0:
                 continue
 
-            box = item.get("bounding_box") or self._box_from_mask(mask)
+            box = self._resolve_box(item.get("bounding_box"), mask)
+            if box is None:
+                continue
             boxes.append([float(value) for value in box])
             labels.append(project_label)
             masks.append(mask)
@@ -154,3 +156,24 @@ class DeepFashion2Dataset(Dataset):
         if len(xs) == 0 or len(ys) == 0:
             return [0.0, 0.0, 0.0, 0.0]
         return [float(xs.min()), float(ys.min()), float(xs.max()), float(ys.max())]
+
+    @classmethod
+    def _resolve_box(
+        cls,
+        annotation_box: list[Any] | None,
+        mask: np.ndarray,
+    ) -> list[float] | None:
+        """Return a valid x1/y1/x2/y2 box, falling back to mask bounds."""
+        if annotation_box is not None and len(annotation_box) == 4:
+            box = [float(value) for value in annotation_box]
+            if cls._is_valid_box(box):
+                return box
+
+        mask_box = cls._box_from_mask(mask)
+        if cls._is_valid_box(mask_box):
+            return mask_box
+        return None
+
+    @staticmethod
+    def _is_valid_box(box: list[float]) -> bool:
+        return box[2] > box[0] and box[3] > box[1]

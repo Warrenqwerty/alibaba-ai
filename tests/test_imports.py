@@ -60,3 +60,31 @@ def test_deepfashion2_dataset_ignores_hidden_annotation_files(tmp_path):
 
     assert len(dataset) == 1
     assert dataset.annotation_paths[0].name == "000001.json"
+
+
+def test_deepfashion2_dataset_falls_back_from_invalid_annotation_box(tmp_path):
+    image_dir = tmp_path / "image"
+    anno_dir = tmp_path / "annos"
+    image_dir.mkdir()
+    anno_dir.mkdir()
+    Image.new("RGB", (8, 8)).save(image_dir / "000001.jpg")
+    (anno_dir / "000001.json").write_text(
+        """
+        {
+          "source": "000001.jpg",
+          "item1": {
+            "category_id": 1,
+            "bounding_box": [0, 0, 0, 0],
+            "segmentation": [[1, 1, 5, 1, 5, 5, 1, 5]]
+          }
+        }
+        """,
+        encoding="utf-8",
+    )
+
+    dataset = DeepFashion2Dataset(image_dir, anno_dir)
+    _, target = dataset[0]
+
+    assert target["boxes"].shape == (1, 4)
+    assert target["boxes"][0, 2] > target["boxes"][0, 0]
+    assert target["boxes"][0, 3] > target["boxes"][0, 1]
