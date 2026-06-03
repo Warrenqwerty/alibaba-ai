@@ -1,7 +1,17 @@
 ## DeepFashion2 For 3.1.1
 
 DeepFashion2 is the first dataset target for clothing detection and instance
-segmentation. The training script expects:
+segmentation.
+
+Local repo layout:
+
+- Root: `data/DeepFashion2`
+- Train images: `data/DeepFashion2/train/image`
+- Train annotations: `data/DeepFashion2/train/annos`
+- Validation images: `data/DeepFashion2/validation/image`
+- Validation annotations: `data/DeepFashion2/validation/annos`
+
+AutoDL layout:
 
 - Train images: `/root/autodl-tmp/datasets/DeepFashion2/train/image`
 - Train annotations: `/root/autodl-tmp/datasets/DeepFashion2/train/annos`

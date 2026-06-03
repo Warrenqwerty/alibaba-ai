@@ -23,3 +23,28 @@ def test_instance_segmentation_config_matches_prd_categories():
     }
     assert config["performance_target"]["max_latency_ms"] == 50
     assert config["performance_target"]["min_iou"] == 0.85
+
+
+def test_local_paths_config_points_to_repo_data_dir():
+    config = load_config(ROOT / "configs/paths.yaml")
+
+    assert config["data_root"] == "data"
+    assert config["deepfashion2"]["root"] == "data/DeepFashion2"
+    assert config["deepfashion2"]["train_image_dir"] == (
+        "data/DeepFashion2/train/image"
+    )
+    assert config["deepfashion2"]["train_anno_dir"] == (
+        "data/DeepFashion2/train/annos"
+    )
+
+
+def test_autodl_paths_config_points_to_autodl_storage():
+    config = load_config(ROOT / "configs/paths.autodl.yaml")
+
+    assert config["data_root"] == "/root/autodl-tmp/datasets"
+    assert config["deepfashion2"]["root"] == (
+        "/root/autodl-tmp/datasets/DeepFashion2"
+    )
+    assert config["deepfashion2"]["train_image_dir"] == (
+        "/root/autodl-tmp/datasets/DeepFashion2/train/image"
+    )

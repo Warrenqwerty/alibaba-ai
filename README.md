@@ -39,7 +39,7 @@ Train on AutoDL:
 ```bash
 python scripts/train/train_instance_segmentation.py \
   --model-config configs/model/instance_segmentation.yaml \
-  --paths-config configs/paths.yaml
+  --paths-config configs/paths.autodl.yaml
 ```
 
 Run inference with a trained checkpoint:

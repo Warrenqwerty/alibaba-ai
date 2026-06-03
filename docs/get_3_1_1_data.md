@@ -11,7 +11,19 @@ contains clothing boxes and instance masks. It is not fully public-direct:
   the dataset password. I cannot automatically fetch the archive without that
   password/account access.
 
-After you obtain the files, put them on AutoDL like this:
+After you obtain the files, keep them locally like this:
+
+```text
+data/DeepFashion2/
+  train/
+    image/
+    annos/
+  validation/
+    image/
+    annos/
+```
+
+On AutoDL, put them like this:
 
 ```text
 /root/autodl-tmp/datasets/DeepFashion2/
@@ -23,7 +35,7 @@ After you obtain the files, put them on AutoDL like this:
     annos/
 ```
 
-Then verify the expected paths:
+Then verify the expected AutoDL paths:
 
 ```bash
 ls /root/autodl-tmp/datasets/DeepFashion2/train/image | head
