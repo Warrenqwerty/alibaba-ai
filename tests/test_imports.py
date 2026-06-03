@@ -1,5 +1,7 @@
 import numpy as np
+from PIL import Image
 
+from fashion_mm.data_loaders import DeepFashion2Dataset
 from fashion_mm.data_loaders.deepfashion2 import DEEPFASHION2_TO_PROJECT_CATEGORY
 from fashion_mm.models.instance_segmentation import FashionInstance, SegmentationResult
 from fashion_mm.utils.image_io import load_rgb_image
@@ -40,3 +42,21 @@ def test_deepfashion2_category_mapping_collapses_to_prd_taxonomy():
     assert DEEPFASHION2_TO_PROJECT_CATEGORY[7] == 2
     assert DEEPFASHION2_TO_PROJECT_CATEGORY[9] == 3
     assert DEEPFASHION2_TO_PROJECT_CATEGORY[13] == 5
+
+
+def test_deepfashion2_dataset_ignores_hidden_annotation_files(tmp_path):
+    image_dir = tmp_path / "image"
+    anno_dir = tmp_path / "annos"
+    image_dir.mkdir()
+    anno_dir.mkdir()
+    Image.new("RGB", (4, 4)).save(image_dir / "000001.jpg")
+    (anno_dir / "000001.json").write_text(
+        '{"source": "000001.jpg"}',
+        encoding="utf-8",
+    )
+    (anno_dir / "._000001.json").write_bytes(b"\x00\x05\x16\x07binary")
+
+    dataset = DeepFashion2Dataset(image_dir, anno_dir)
+
+    assert len(dataset) == 1
+    assert dataset.annotation_paths[0].name == "000001.json"

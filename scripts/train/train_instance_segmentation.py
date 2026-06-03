@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
+
+if not os.environ.get("OMP_NUM_THREADS", "").isdigit():
+    os.environ["OMP_NUM_THREADS"] = "8"
 
 import torch
 from torch.utils.data import DataLoader

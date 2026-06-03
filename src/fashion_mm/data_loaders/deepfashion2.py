@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from json import JSONDecodeError
 from pathlib import Path
 from typing import Any
 
@@ -45,7 +46,11 @@ class DeepFashion2Dataset(Dataset):
             raise FileNotFoundError(f"Annotation directory not found: {self.anno_dir}")
 
         self.category_map = category_map or DEEPFASHION2_TO_PROJECT_CATEGORY
-        self.annotation_paths = sorted(self.anno_dir.glob("*.json"))
+        self.annotation_paths = [
+            path
+            for path in sorted(self.anno_dir.glob("*.json"))
+            if not path.name.startswith(".")
+        ]
         if not self.annotation_paths:
             raise ValueError(f"No DeepFashion2 annotations found in {self.anno_dir}")
 
@@ -54,8 +59,14 @@ class DeepFashion2Dataset(Dataset):
 
     def __getitem__(self, index: int) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
         annotation_path = self.annotation_paths[index]
-        with annotation_path.open("r", encoding="utf-8") as file:
-            annotation = json.load(file)
+        try:
+            with annotation_path.open("r", encoding="utf-8") as file:
+                annotation = json.load(file)
+        except (UnicodeDecodeError, JSONDecodeError) as error:
+            raise ValueError(
+                f"Invalid DeepFashion2 annotation file: {annotation_path}. "
+                "Remove hidden macOS resource files such as ._*.json if present."
+            ) from error
 
         image = self._load_image(annotation, annotation_path)
         width, height = image.size
