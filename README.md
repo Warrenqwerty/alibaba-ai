@@ -13,6 +13,8 @@ Current target:
 - 3.1.1 Fashion instance segmentation
 - Input: RGB fashion image
 - Output: clothing instance masks, bounding boxes, category labels
+- Classes: top, pants, skirt, outerwear, dress, shoes, bag, accessory
+- Target: single-image latency <= 50 ms, mask IoU >= 0.85
 
 ## Repository Structure
 
@@ -27,3 +29,23 @@ Current target:
 
 ```bash
 pip install -r requirements.txt
+pip install -e .
+```
+
+## 3.1.1 Usage
+
+Train on AutoDL:
+
+```bash
+python scripts/train/train_instance_segmentation.py \
+  --model-config configs/model/instance_segmentation.yaml \
+  --paths-config configs/paths.yaml
+```
+
+Run inference with a trained checkpoint:
+
+```bash
+python scripts/inference/predict_instance_segmentation.py image.jpg \
+  --checkpoint /root/autodl-tmp/checkpoints/instance_segmentation/epoch_020.pt \
+  --device cuda
+```

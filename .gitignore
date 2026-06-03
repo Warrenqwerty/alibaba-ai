@@ -11,12 +11,16 @@ env/
 conda-env/
 
 # Data and large files
-data/
-datasets/
-checkpoints/
-outputs/
-runs/
-wandb/
+/data/
+/dataset/
+/datasets/
+/configs/dataset/deepfashion2/
+/configs/dataset/fashionai/
+/docs/source_notes/
+/checkpoints/
+/outputs/
+/runs/
+/wandb/
 
 # Model weights
 *.pth

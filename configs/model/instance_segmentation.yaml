@@ -1,18 +1,21 @@
 task: "fashion_instance_segmentation"
 
 model:
-  name: "mask_rcnn_baseline"
+  name: "mask_rcnn_resnet50_fpn"
   backbone: "resnet50_fpn"
   pretrained: true
-  num_classes: 6
+  num_classes: 9
 
 categories:
   0: "background"
   1: "top"
-  2: "outerwear"
-  3: "pants"
-  4: "skirt"
+  2: "pants"
+  3: "skirt"
+  4: "outerwear"
   5: "dress"
+  6: "shoes"
+  7: "bag"
+  8: "accessory"
 
 inference:
   score_threshold: 0.5
@@ -24,4 +27,10 @@ training:
   batch_size: 2
   num_workers: 4
   learning_rate: 0.0001
+  weight_decay: 0.0001
   num_epochs: 20
+  log_interval: 50
+
+performance_target:
+  max_latency_ms: 50
+  min_iou: 0.85
