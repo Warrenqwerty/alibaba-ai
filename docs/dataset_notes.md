@@ -29,4 +29,14 @@ The adapter maps DeepFashion2 categories into the PRD taxonomy:
 Shoes, bags, and accessories are reserved in the model head for PRD completeness;
 they require additional labeled data beyond DeepFashion2.
 
+For DeepFashion2-only experiments, use:
+
+```bash
+configs/model/instance_segmentation_deepfashion2.yaml
+```
+
+This config trains only the five foreground classes available in DeepFashion2:
+top, pants, skirt, outerwear, and dress. Do not resume it from a 9-class PRD
+checkpoint, because the prediction heads have different shapes.
+
 See `docs/get_3_1_1_data.md` for dataset access status and AutoDL commands.

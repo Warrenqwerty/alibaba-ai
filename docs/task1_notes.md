@@ -22,7 +22,8 @@ Source requirements were summarized from the three project PDFs provided for the
 - Training is intended for the AutoDL 5090 server, not the Mac.
 - Local paths are centralized in `configs/paths.yaml`; AutoDL paths are in `configs/paths.autodl.yaml`.
 - Install the package in editable mode after dependencies: `pip install -e .`.
-- Use `configs/model/instance_segmentation.yaml` to tune batch size, workers, thresholds, epochs, and checkpoint behavior.
+- Use `configs/model/instance_segmentation_deepfashion2.yaml` for DeepFashion2-only experiments.
+- Keep `configs/model/instance_segmentation.yaml` as the PRD 8-class target config.
 
 ### Code Rules Remembered
 

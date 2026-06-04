@@ -25,6 +25,21 @@ def test_instance_segmentation_config_matches_prd_categories():
     assert config["performance_target"]["min_iou"] == 0.85
 
 
+def test_deepfashion2_config_uses_only_available_dataset_classes():
+    config = load_config(ROOT / "configs/model/instance_segmentation_deepfashion2.yaml")
+
+    assert config["model"]["num_classes"] == 6
+    assert config["categories"] == {
+        0: "background",
+        1: "top",
+        2: "pants",
+        3: "skirt",
+        4: "outerwear",
+        5: "dress",
+    }
+    assert config["training"]["num_epochs"] == 1
+
+
 def test_local_paths_config_points_to_repo_data_dir():
     config = load_config(ROOT / "configs/paths.yaml")
 

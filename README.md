@@ -38,7 +38,7 @@ Train on AutoDL:
 
 ```bash
 python scripts/train/train_instance_segmentation.py \
-  --model-config configs/model/instance_segmentation.yaml \
+  --model-config configs/model/instance_segmentation_deepfashion2.yaml \
   --paths-config configs/paths.autodl.yaml
 ```
 
