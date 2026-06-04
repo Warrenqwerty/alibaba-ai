@@ -8,7 +8,6 @@ from statistics import mean
 import numpy as np
 import torch
 from PIL import Image, ImageDraw
-from torchvision.transforms import functional as F
 
 from fashion_mm.data_loaders.deepfashion2 import DeepFashion2Dataset
 from fashion_mm.models.instance_segmentation import build_mask_rcnn
@@ -67,6 +66,16 @@ def best_iou_for_gt(
             continue
         best_iou = max(best_iou, mask_iou(pred_mask, gt_mask))
     return best_iou
+
+
+def summarize_ious(ious: list[float]) -> dict[str, float | int]:
+    """Summarize IoU values for all instances in one group."""
+    return {
+        "gt_instances": len(ious),
+        "mean_best_mask_iou": mean(ious) if ious else 0.0,
+        "recall_iou_50": mean([iou >= 0.5 for iou in ious]) if ious else 0.0,
+        "recall_iou_75": mean([iou >= 0.75 for iou in ious]) if ious else 0.0,
+    }
 
 
 def draw_visualization(
@@ -134,6 +143,12 @@ def main() -> None:
     max_images = min(args.max_images, len(dataset)) if args.max_images else len(dataset)
 
     gt_ious: list[float] = []
+    class_ious: dict[int, list[float]] = {
+        label_id: [] for label_id in categories if label_id != 0
+    }
+    class_pred_counts: dict[int, int] = {
+        label_id: 0 for label_id in categories if label_id != 0
+    }
     pred_counts: list[int] = []
     score_values: list[float] = []
     visualized = 0
@@ -154,7 +169,13 @@ def main() -> None:
         gt_masks = target["masks"].numpy().astype(bool)
         gt_labels = target["labels"].numpy()
         for gt_mask, gt_label in zip(gt_masks, gt_labels):
-            gt_ious.append(best_iou_for_gt(gt_mask, gt_label, pred_masks, pred_labels))
+            best_iou = best_iou_for_gt(gt_mask, gt_label, pred_masks, pred_labels)
+            gt_ious.append(best_iou)
+            class_ious.setdefault(int(gt_label), []).append(best_iou)
+
+        for pred_label in pred_labels:
+            label_id = int(pred_label)
+            class_pred_counts[label_id] = class_pred_counts.get(label_id, 0) + 1
 
         pred_counts.append(int(len(scores)))
         score_values.extend(float(score) for score in scores.tolist())
@@ -176,17 +197,21 @@ def main() -> None:
         if (index + 1) % 20 == 0:
             LOGGER.info("validated %s/%s images", index + 1, max_images)
 
+    per_class = {}
+    for label_id in sorted(class_ious):
+        class_summary = summarize_ious(class_ious[label_id])
+        class_summary["predictions"] = class_pred_counts.get(label_id, 0)
+        per_class[categories.get(label_id, str(label_id))] = class_summary
+
     metrics = {
         "checkpoint": args.checkpoint,
         "max_images": max_images,
         "score_threshold": score_threshold,
         "mask_threshold": mask_threshold,
-        "gt_instances": len(gt_ious),
-        "mean_best_mask_iou": mean(gt_ious) if gt_ious else 0.0,
-        "recall_iou_50": mean([iou >= 0.5 for iou in gt_ious]) if gt_ious else 0.0,
-        "recall_iou_75": mean([iou >= 0.75 for iou in gt_ious]) if gt_ious else 0.0,
+        **summarize_ious(gt_ious),
         "avg_predictions_per_image": mean(pred_counts) if pred_counts else 0.0,
         "avg_prediction_score": mean(score_values) if score_values else 0.0,
+        "per_class": per_class,
     }
 
     output_path = Path(args.output)
