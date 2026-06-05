@@ -15,8 +15,8 @@ categories:
   5: "dress"
 
 inference:
-  score_threshold: 0.5
-  mask_threshold: 0.5
+  score_threshold: 0.3
+  mask_threshold: 0.4
   device: "cuda"
 
 training:
@@ -27,6 +27,7 @@ training:
   weight_decay: 0.0001
   num_epochs: 1
   log_interval: 50
+  class_balanced_sampling: true
 
 performance_target:
   max_latency_ms: 50

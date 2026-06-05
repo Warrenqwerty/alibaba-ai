@@ -2,6 +2,7 @@ import numpy as np
 from PIL import Image
 
 from fashion_mm.data_loaders import DeepFashion2Dataset
+from fashion_mm.data_loaders import build_balanced_sampler
 from fashion_mm.data_loaders.deepfashion2 import DEEPFASHION2_TO_PROJECT_CATEGORY
 from fashion_mm.models.instance_segmentation import FashionInstance, SegmentationResult
 from fashion_mm.utils.image_io import load_rgb_image
@@ -88,3 +89,57 @@ def test_deepfashion2_dataset_falls_back_from_invalid_annotation_box(tmp_path):
     assert target["boxes"].shape == (1, 4)
     assert target["boxes"][0, 2] > target["boxes"][0, 0]
     assert target["boxes"][0, 3] > target["boxes"][0, 1]
+
+
+def test_deepfashion2_get_labels_maps_annotation_categories(tmp_path):
+    image_dir = tmp_path / "image"
+    anno_dir = tmp_path / "annos"
+    image_dir.mkdir()
+    anno_dir.mkdir()
+    Image.new("RGB", (8, 8)).save(image_dir / "000001.jpg")
+    (anno_dir / "000001.json").write_text(
+        """
+        {
+          "source": "000001.jpg",
+          "item1": {"category_id": 1},
+          "item2": {"category_id": 9}
+        }
+        """,
+        encoding="utf-8",
+    )
+
+    dataset = DeepFashion2Dataset(image_dir, anno_dir)
+
+    assert dataset.get_labels(0) == [1, 3]
+
+
+def test_balanced_sampler_upweights_rare_class_images(tmp_path):
+    image_dir = tmp_path / "image"
+    anno_dir = tmp_path / "annos"
+    image_dir.mkdir()
+    anno_dir.mkdir()
+    for index in range(3):
+        Image.new("RGB", (8, 8)).save(image_dir / f"{index + 1:06d}.jpg")
+
+    (anno_dir / "000001.json").write_text(
+        '{"source": "000001.jpg", "item1": {"category_id": 1}}',
+        encoding="utf-8",
+    )
+    (anno_dir / "000002.json").write_text(
+        '{"source": "000002.jpg", "item1": {"category_id": 1}}',
+        encoding="utf-8",
+    )
+    (anno_dir / "000003.json").write_text(
+        '{"source": "000003.jpg", "item1": {"category_id": 9}}',
+        encoding="utf-8",
+    )
+
+    dataset = DeepFashion2Dataset(image_dir, anno_dir)
+    sampler = build_balanced_sampler(
+        dataset,
+        {0: "background", 1: "top", 3: "skirt"},
+    )
+
+    weights = sampler.weights.tolist()
+    assert weights[2] > weights[0]
+    assert weights[2] > weights[1]

@@ -38,6 +38,9 @@ def test_deepfashion2_config_uses_only_available_dataset_classes():
         5: "dress",
     }
     assert config["training"]["num_epochs"] == 1
+    assert config["training"]["class_balanced_sampling"] is True
+    assert config["inference"]["score_threshold"] == 0.3
+    assert config["inference"]["mask_threshold"] == 0.4
 
 
 def test_local_paths_config_points_to_repo_data_dir():

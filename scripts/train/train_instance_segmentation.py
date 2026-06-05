@@ -11,6 +11,8 @@ import torch
 from torch.utils.data import DataLoader
 
 from fashion_mm.data_loaders import DeepFashion2Dataset
+from fashion_mm.data_loaders import build_balanced_sampler
+from fashion_mm.data_loaders.sampling import count_images_by_class
 from fashion_mm.models.instance_segmentation import build_mask_rcnn
 from fashion_mm.utils.config import load_config
 from fashion_mm.utils.logger import get_logger
@@ -44,10 +46,22 @@ def main() -> None:
         config["deepfashion2"]["train_image_dir"],
         config["deepfashion2"]["train_anno_dir"],
     )
+    categories = {int(key): value for key, value in config["categories"].items()}
+    sampler = None
+    shuffle = True
+    if bool(config["training"].get("class_balanced_sampling", False)):
+        LOGGER.info(
+            "Class-balanced sampler image counts: %s",
+            count_images_by_class(train_dataset, categories),
+        )
+        sampler = build_balanced_sampler(train_dataset, categories)
+        shuffle = False
+
     train_loader = DataLoader(
         train_dataset,
         batch_size=int(config["training"]["batch_size"]),
-        shuffle=True,
+        shuffle=shuffle,
+        sampler=sampler,
         num_workers=int(config["training"]["num_workers"]),
         collate_fn=collate_fn,
         pin_memory=device.type == "cuda",

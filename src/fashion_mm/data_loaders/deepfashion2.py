@@ -57,16 +57,19 @@ class DeepFashion2Dataset(Dataset):
     def __len__(self) -> int:
         return len(self.annotation_paths)
 
+    def get_labels(self, index: int) -> list[int]:
+        """Return project labels present in one annotation file."""
+        annotation = self._load_annotation(self.annotation_paths[index])
+        labels: list[int] = []
+        for item in self._iter_items(annotation):
+            project_label = self.category_map.get(int(item["category_id"]))
+            if project_label is not None:
+                labels.append(project_label)
+        return labels
+
     def __getitem__(self, index: int) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
         annotation_path = self.annotation_paths[index]
-        try:
-            with annotation_path.open("r", encoding="utf-8") as file:
-                annotation = json.load(file)
-        except (UnicodeDecodeError, JSONDecodeError) as error:
-            raise ValueError(
-                f"Invalid DeepFashion2 annotation file: {annotation_path}. "
-                "Remove hidden macOS resource files such as ._*.json if present."
-            ) from error
+        annotation = self._load_annotation(annotation_path)
 
         image = self._load_image(annotation, annotation_path)
         width, height = image.size
@@ -112,6 +115,20 @@ class DeepFashion2Dataset(Dataset):
             "iscrowd": torch.zeros((len(labels),), dtype=torch.int64),
         }
         return F.to_tensor(image), target
+
+    @staticmethod
+    def _load_annotation(annotation_path: Path) -> dict[str, Any]:
+        try:
+            with annotation_path.open("r", encoding="utf-8") as file:
+                data = json.load(file)
+        except (UnicodeDecodeError, JSONDecodeError) as error:
+            raise ValueError(
+                f"Invalid DeepFashion2 annotation file: {annotation_path}. "
+                "Remove hidden macOS resource files such as ._*.json if present."
+            ) from error
+        if not isinstance(data, dict):
+            raise ValueError(f"Invalid DeepFashion2 annotation mapping: {annotation_path}")
+        return data
 
     def _load_image(
         self,
