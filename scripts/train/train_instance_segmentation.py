@@ -45,6 +45,7 @@ def main() -> None:
     train_dataset = DeepFashion2Dataset(
         config["deepfashion2"]["train_image_dir"],
         config["deepfashion2"]["train_anno_dir"],
+        augmentation=config["training"].get("augmentation"),
     )
     categories = {int(key): value for key, value in config["categories"].items()}
     sampler = None

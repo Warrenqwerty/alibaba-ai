@@ -28,6 +28,13 @@ training:
   num_epochs: 1
   log_interval: 50
   class_balanced_sampling: true
+  augmentation:
+    enabled: true
+    horizontal_flip_prob: 0.5
+    scale_jitter: [0.85, 1.15]
+    brightness: 0.15
+    contrast: 0.15
+    saturation: 0.10
 
 performance_target:
   max_latency_ms: 50

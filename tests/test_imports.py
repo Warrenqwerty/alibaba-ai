@@ -143,3 +143,37 @@ def test_balanced_sampler_upweights_rare_class_images(tmp_path):
     weights = sampler.weights.tolist()
     assert weights[2] > weights[0]
     assert weights[2] > weights[1]
+
+
+def test_deepfashion2_horizontal_flip_augments_boxes_and_masks(tmp_path):
+    image_dir = tmp_path / "image"
+    anno_dir = tmp_path / "annos"
+    image_dir.mkdir()
+    anno_dir.mkdir()
+    Image.new("RGB", (8, 8)).save(image_dir / "000001.jpg")
+    (anno_dir / "000001.json").write_text(
+        """
+        {
+          "source": "000001.jpg",
+          "item1": {
+            "category_id": 1,
+            "bounding_box": [1, 1, 5, 5],
+            "segmentation": [[1, 1, 5, 1, 5, 5, 1, 5]]
+          }
+        }
+        """,
+        encoding="utf-8",
+    )
+
+    dataset = DeepFashion2Dataset(
+        image_dir,
+        anno_dir,
+        augmentation={
+            "enabled": True,
+            "horizontal_flip_prob": 1.0,
+        },
+    )
+    _, target = dataset[0]
+
+    assert target["boxes"][0].tolist() == [3.0, 1.0, 7.0, 5.0]
+    assert target["masks"][0, 1:6, 3:8].sum() > 0

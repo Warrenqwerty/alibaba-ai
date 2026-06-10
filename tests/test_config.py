@@ -41,6 +41,14 @@ def test_deepfashion2_config_uses_only_available_dataset_classes():
     assert config["training"]["class_balanced_sampling"] is True
     assert config["inference"]["score_threshold"] == 0.3
     assert config["inference"]["mask_threshold"] == 0.4
+    assert config["training"]["augmentation"] == {
+        "enabled": True,
+        "horizontal_flip_prob": 0.5,
+        "scale_jitter": [0.85, 1.15],
+        "brightness": 0.15,
+        "contrast": 0.15,
+        "saturation": 0.10,
+    }
 
 
 def test_local_paths_config_points_to_repo_data_dir():

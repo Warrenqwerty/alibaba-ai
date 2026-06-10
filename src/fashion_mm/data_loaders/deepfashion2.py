@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import json
+import random
 from json import JSONDecodeError
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import torch
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageEnhance
 from torch.utils.data import Dataset
 from torchvision.transforms import functional as F
 
@@ -37,6 +38,7 @@ class DeepFashion2Dataset(Dataset):
         image_dir: str | Path,
         anno_dir: str | Path,
         category_map: dict[int, int] | None = None,
+        augmentation: dict[str, Any] | None = None,
     ) -> None:
         self.image_dir = Path(image_dir)
         self.anno_dir = Path(anno_dir)
@@ -46,6 +48,7 @@ class DeepFashion2Dataset(Dataset):
             raise FileNotFoundError(f"Annotation directory not found: {self.anno_dir}")
 
         self.category_map = category_map or DEEPFASHION2_TO_PROJECT_CATEGORY
+        self.augmentation = augmentation or {}
         self.annotation_paths = [
             path
             for path in sorted(self.anno_dir.glob("*.json"))
@@ -93,6 +96,9 @@ class DeepFashion2Dataset(Dataset):
             labels.append(project_label)
             masks.append(mask)
 
+        image, masks, boxes = self._apply_augmentation(image, masks, boxes)
+        width, height = image.size
+
         if masks:
             mask_tensor = torch.as_tensor(np.stack(masks), dtype=torch.uint8)
             box_tensor = torch.as_tensor(boxes, dtype=torch.float32)
@@ -115,6 +121,98 @@ class DeepFashion2Dataset(Dataset):
             "iscrowd": torch.zeros((len(labels),), dtype=torch.int64),
         }
         return F.to_tensor(image), target
+
+    def _apply_augmentation(
+        self,
+        image: Image.Image,
+        masks: list[np.ndarray],
+        boxes: list[list[float]],
+    ) -> tuple[Image.Image, list[np.ndarray], list[list[float]]]:
+        if not bool(self.augmentation.get("enabled", False)):
+            return image, masks, boxes
+
+        image = self._apply_color_jitter(image)
+
+        scale_range = self.augmentation.get("scale_jitter")
+        if scale_range:
+            image, masks, boxes = self._apply_scale_jitter(
+                image,
+                masks,
+                boxes,
+                float(scale_range[0]),
+                float(scale_range[1]),
+            )
+
+        flip_prob = float(self.augmentation.get("horizontal_flip_prob", 0.0))
+        if random.random() < flip_prob:
+            image, masks, boxes = self._horizontal_flip(image, masks, boxes)
+
+        return image, masks, boxes
+
+    def _apply_color_jitter(self, image: Image.Image) -> Image.Image:
+        brightness = float(self.augmentation.get("brightness", 0.0))
+        contrast = float(self.augmentation.get("contrast", 0.0))
+        saturation = float(self.augmentation.get("saturation", 0.0))
+
+        if brightness > 0:
+            image = ImageEnhance.Brightness(image).enhance(
+                random.uniform(1.0 - brightness, 1.0 + brightness)
+            )
+        if contrast > 0:
+            image = ImageEnhance.Contrast(image).enhance(
+                random.uniform(1.0 - contrast, 1.0 + contrast)
+            )
+        if saturation > 0:
+            image = ImageEnhance.Color(image).enhance(
+                random.uniform(1.0 - saturation, 1.0 + saturation)
+            )
+        return image
+
+    @staticmethod
+    def _apply_scale_jitter(
+        image: Image.Image,
+        masks: list[np.ndarray],
+        boxes: list[list[float]],
+        min_scale: float,
+        max_scale: float,
+    ) -> tuple[Image.Image, list[np.ndarray], list[list[float]]]:
+        scale = random.uniform(min_scale, max_scale)
+        if abs(scale - 1.0) < 1e-3:
+            return image, masks, boxes
+
+        width, height = image.size
+        new_size = (max(1, round(width * scale)), max(1, round(height * scale)))
+        resized_image = image.resize(new_size, resample=Image.Resampling.BILINEAR)
+        resized_masks = [
+            np.asarray(
+                Image.fromarray(mask.astype(np.uint8) * 255).resize(
+                    new_size,
+                    resample=Image.Resampling.NEAREST,
+                )
+            )
+            > 0
+            for mask in masks
+        ]
+        resized_boxes = [
+            [box[0] * scale, box[1] * scale, box[2] * scale, box[3] * scale]
+            for box in boxes
+        ]
+        return resized_image, resized_masks, resized_boxes
+
+    @staticmethod
+    def _horizontal_flip(
+        image: Image.Image,
+        masks: list[np.ndarray],
+        boxes: list[list[float]],
+    ) -> tuple[Image.Image, list[np.ndarray], list[list[float]]]:
+        width, _ = image.size
+        flipped_image = image.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
+        flipped_masks = [np.fliplr(mask).copy() for mask in masks]
+        flipped_boxes = [
+            [width - box[2], box[1], width - box[0], box[3]]
+            for box in boxes
+        ]
+        return flipped_image, flipped_masks, flipped_boxes
 
     @staticmethod
     def _load_annotation(annotation_path: Path) -> dict[str, Any]:
