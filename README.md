@@ -42,10 +42,24 @@ python scripts/train/train_instance_segmentation.py \
   --paths-config configs/paths.autodl.yaml
 ```
 
+Current best DeepFashion2 checkpoint:
+
+```bash
+/root/autodl-tmp/checkpoints/deepfashion2_6class_soft_aug_epoch2/instance_segmentation/epoch_001.pt
+```
+
+Full validation result on DeepFashion2 validation:
+
+- Images: 32,153
+- Ground-truth instances: 52,490
+- Mean best mask IoU: 0.8547
+- Recall@0.75: 0.8937
+- Inference thresholds: score >= 0.3, mask >= 0.4
+
 Run inference with a trained checkpoint:
 
 ```bash
 python scripts/inference/predict_instance_segmentation.py image.jpg \
-  --checkpoint /root/autodl-tmp/checkpoints/instance_segmentation/epoch_020.pt \
+  --checkpoint /root/autodl-tmp/checkpoints/deepfashion2_6class_soft_aug_epoch2/instance_segmentation/epoch_001.pt \
   --device cuda
 ```

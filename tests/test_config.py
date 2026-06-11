@@ -44,10 +44,10 @@ def test_deepfashion2_config_uses_only_available_dataset_classes():
     assert config["training"]["augmentation"] == {
         "enabled": True,
         "horizontal_flip_prob": 0.5,
-        "scale_jitter": [0.85, 1.15],
-        "brightness": 0.15,
-        "contrast": 0.15,
-        "saturation": 0.10,
+        "scale_jitter": [0.95, 1.05],
+        "brightness": 0.08,
+        "contrast": 0.08,
+        "saturation": 0.05,
     }
 
 
