@@ -43,7 +43,9 @@ def collect_images(image_dir: Path, max_images: int | None) -> list[Path]:
     image_paths = [
         path
         for path in sorted(image_dir.iterdir())
-        if path.is_file() and path.suffix.lower() in IMAGE_SUFFIXES
+        if path.is_file()
+        and not path.name.startswith(".")
+        and path.suffix.lower() in IMAGE_SUFFIXES
     ]
     if max_images is not None:
         image_paths = image_paths[:max_images]

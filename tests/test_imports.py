@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import numpy as np
 from PIL import Image
 
@@ -177,3 +179,28 @@ def test_deepfashion2_horizontal_flip_augments_boxes_and_masks(tmp_path):
 
     assert target["boxes"][0].tolist() == [3.0, 1.0, 7.0, 5.0]
     assert target["masks"][0, 1:6, 3:8].sum() > 0
+
+
+def test_batch_prediction_skips_hidden_image_metadata_files(tmp_path):
+    import importlib.util
+
+    script_path = (
+        Path(__file__).resolve().parents[1]
+        / "scripts"
+        / "inference"
+        / "batch_predict_instance_segmentation.py"
+    )
+    spec = importlib.util.spec_from_file_location("batch_predict", script_path)
+    assert spec is not None
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+
+    image_dir = tmp_path / "image"
+    image_dir.mkdir()
+    Image.new("RGB", (8, 8)).save(image_dir / "000001.jpg")
+    (image_dir / "._000001.jpg").write_text("not a real image", encoding="utf-8")
+
+    image_paths = module.collect_images(image_dir, max_images=None)
+
+    assert [path.name for path in image_paths] == ["000001.jpg"]
