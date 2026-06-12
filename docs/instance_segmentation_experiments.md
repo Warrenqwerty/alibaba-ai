@@ -70,6 +70,30 @@ python scripts/eval/validate_instance_segmentation.py \
   --vis-count 30
 ```
 
+### Test Split
+
+The DeepFashion2 test JSON files contain image metadata only:
+
+- `keypoints_test_information.json`
+- `retrieval_test_consumer_information.json`
+- `retrieval_test_shop_information.json`
+
+Their `annotations` lists are empty, and they do not include segmentation masks,
+boxes, or category ids. Therefore local IoU evaluation on the test split is not
+possible. For the test split, run batch inference and inspect saved predictions
+and visualizations.
+
+```bash
+python scripts/inference/batch_predict_instance_segmentation.py \
+  --image-dir /root/autodl-tmp/datasets/DeepFashion2/test/test/image \
+  --model-config configs/model/instance_segmentation_deepfashion2.yaml \
+  --checkpoint /root/autodl-tmp/checkpoints/deepfashion2_6class_soft_aug_epoch2/instance_segmentation/epoch_001.pt \
+  --device cuda \
+  --output outputs/test_deepfashion2_predictions.json \
+  --vis-dir outputs/test_deepfashion2_vis \
+  --vis-count 100
+```
+
 ### Experiment Notes
 
 - The stronger augmentation setting improved some rare classes but reduced the
