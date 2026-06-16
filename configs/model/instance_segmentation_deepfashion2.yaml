@@ -28,6 +28,16 @@ training:
   num_epochs: 1
   log_interval: 50
   class_balanced_sampling: true
+  hard_mining:
+    enabled: false
+    path: "outputs/failure_analysis/failure_cases_1000.json"
+    weight_multiplier: 2.0
+    reasons:
+      - "dress_confused_as_top"
+      - "top_confused_as_dress"
+      - "low_iou_dress"
+      - "low_iou_top"
+      - "low_iou_pants"
   augmentation:
     enabled: true
     horizontal_flip_prob: 0.5

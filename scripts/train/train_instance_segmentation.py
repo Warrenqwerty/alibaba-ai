@@ -55,7 +55,11 @@ def main() -> None:
             "Class-balanced sampler image counts: %s",
             count_images_by_class(train_dataset, categories),
         )
-        sampler = build_balanced_sampler(train_dataset, categories)
+        sampler = build_balanced_sampler(
+            train_dataset,
+            categories,
+            hard_case_config=config["training"].get("hard_mining"),
+        )
         shuffle = False
 
     train_loader = DataLoader(

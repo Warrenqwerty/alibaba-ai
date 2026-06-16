@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import numpy as np
@@ -6,6 +7,7 @@ from PIL import Image
 from fashion_mm.data_loaders import DeepFashion2Dataset
 from fashion_mm.data_loaders import build_balanced_sampler
 from fashion_mm.data_loaders.deepfashion2 import DEEPFASHION2_TO_PROJECT_CATEGORY
+from fashion_mm.data_loaders.sampling import build_hard_case_weights
 from fashion_mm.models.instance_segmentation import FashionInstance, SegmentationResult
 from fashion_mm.utils.image_io import load_rgb_image
 
@@ -145,6 +147,51 @@ def test_balanced_sampler_upweights_rare_class_images(tmp_path):
     weights = sampler.weights.tolist()
     assert weights[2] > weights[0]
     assert weights[2] > weights[1]
+
+
+def test_hard_case_weights_upweight_selected_failure_images(tmp_path):
+    image_dir = tmp_path / "image"
+    anno_dir = tmp_path / "annos"
+    image_dir.mkdir()
+    anno_dir.mkdir()
+    for index in range(2):
+        Image.new("RGB", (8, 8)).save(image_dir / f"{index + 1:06d}.jpg")
+        (anno_dir / f"{index + 1:06d}.json").write_text(
+            '{"source": "%06d.jpg", "item1": {"category_id": 1}}' % (index + 1),
+            encoding="utf-8",
+        )
+
+    hard_case_path = tmp_path / "failure_cases.json"
+    hard_case_path.write_text(
+        json.dumps(
+            {
+                "cases": [
+                    {
+                        "image": "000002.jpg",
+                        "reason": "dress_confused_as_top",
+                    },
+                    {
+                        "image": "000001.jpg",
+                        "reason": "ignored_reason",
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    dataset = DeepFashion2Dataset(image_dir, anno_dir)
+    weights = build_hard_case_weights(
+        dataset,
+        {
+            "enabled": True,
+            "path": str(hard_case_path),
+            "reasons": ["dress_confused_as_top"],
+            "weight_multiplier": 3.0,
+        },
+    )
+
+    assert weights == [1.0, 3.0]
 
 
 def test_deepfashion2_horizontal_flip_augments_boxes_and_masks(tmp_path):

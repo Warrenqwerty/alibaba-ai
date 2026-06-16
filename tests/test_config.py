@@ -39,6 +39,18 @@ def test_deepfashion2_config_uses_only_available_dataset_classes():
     }
     assert config["training"]["num_epochs"] == 1
     assert config["training"]["class_balanced_sampling"] is True
+    assert config["training"]["hard_mining"] == {
+        "enabled": False,
+        "path": "outputs/failure_analysis/failure_cases_1000.json",
+        "weight_multiplier": 2.0,
+        "reasons": [
+            "dress_confused_as_top",
+            "top_confused_as_dress",
+            "low_iou_dress",
+            "low_iou_top",
+            "low_iou_pants",
+        ],
+    }
     assert config["inference"]["score_threshold"] == 0.3
     assert config["inference"]["mask_threshold"] == 0.4
     assert config["training"]["augmentation"] == {
