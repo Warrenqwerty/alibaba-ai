@@ -204,3 +204,53 @@ def test_batch_prediction_skips_hidden_image_metadata_files(tmp_path):
     image_paths = module.collect_images(image_dir, max_images=None)
 
     assert [path.name for path in image_paths] == ["000001.jpg"]
+
+
+def test_failure_analysis_classifies_confusion_and_misses():
+    import importlib.util
+
+    script_path = (
+        Path(__file__).resolve().parents[1]
+        / "scripts"
+        / "eval"
+        / "analyze_instance_segmentation_failures.py"
+    )
+    spec = importlib.util.spec_from_file_location("failure_analysis", script_path)
+    assert spec is not None
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+
+    assert (
+        module.classify_failure_reason(
+            "dress",
+            "top",
+            best_any_iou=0.52,
+            best_same_iou=0.10,
+            low_iou_threshold=0.75,
+            miss_iou_threshold=0.3,
+        )
+        == "dress_confused_as_top"
+    )
+    assert (
+        module.classify_failure_reason(
+            "outerwear",
+            None,
+            best_any_iou=0.05,
+            best_same_iou=0.05,
+            low_iou_threshold=0.75,
+            miss_iou_threshold=0.3,
+        )
+        == "missed_outerwear"
+    )
+    assert (
+        module.classify_failure_reason(
+            "top",
+            "top",
+            best_any_iou=0.82,
+            best_same_iou=0.82,
+            low_iou_threshold=0.75,
+            miss_iou_threshold=0.3,
+        )
+        is None
+    )
