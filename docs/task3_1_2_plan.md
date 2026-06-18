@@ -72,6 +72,11 @@ name keypoints as "collar", "cuff", "hem", etc. Therefore the first baseline
 should treat DeepFashion2 local regions as weak supervision derived from spatial
 rules and landmarks, not as perfect semantic part labels.
 
+The rule-based rectangles in the first demo are not suitable as training labels.
+They are only sanity-check proposals. The real 3.1.2 training signal should come
+from DeepFashion2 masks and landmarks, then be converted into weak local-region
+pseudo labels.
+
 FashionAI-Attributes is still needed for the broader attribute pipeline in
 3.1.3, and may help define part-related query words such as collar and sleeve.
 However, FashionAI attributes are image/attribute labels rather than pixel-level
@@ -219,6 +224,21 @@ python scripts/inference/predict_local_region.py \
 
 The visualization uses blue for the selected whole garment instance and orange
 for the localized query region.
+
+### Landmark Inspection Utility
+
+Before training a learned 3.1.2 model, inspect DeepFashion2 landmarks and map
+numeric landmark ids to semantic parts. Use:
+
+```bash
+python scripts/data/visualize_deepfashion2_landmarks.py \
+  --image /root/autodl-tmp/datasets/DeepFashion2/validation/image/000003.jpg \
+  --annotation /root/autodl-tmp/datasets/DeepFashion2/validation/annos/000003.json \
+  --output outputs/deepfashion2_landmarks_000003.jpg
+```
+
+Visible landmarks are drawn in green, occluded landmarks in orange, and each
+point is labeled with its DeepFashion2 landmark index.
 
 ### Risks
 
