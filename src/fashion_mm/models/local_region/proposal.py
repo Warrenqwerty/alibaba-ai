@@ -93,10 +93,10 @@ def _region_window(
     window = np.zeros((height, width), dtype=bool)
 
     if region == "neckline":
-        wx1 = x1 + int(box_width * 0.20)
-        wx2 = x1 + int(box_width * 0.80)
+        wx1 = x1 + int(box_width * 0.22)
+        wx2 = x1 + int(box_width * 0.78)
         wy1 = y1
-        wy2 = y1 + int(box_height * 0.30)
+        wy2 = y1 + int(box_height * 0.18)
         window[wy1:wy2, wx1:wx2] = True
     elif region == "hem":
         wy1 = y1 + int(box_height * 0.75)

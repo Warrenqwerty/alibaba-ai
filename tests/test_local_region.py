@@ -35,7 +35,8 @@ def test_propose_neckline_region_is_clipped_by_garment_mask():
 
     assert proposal.status == "ok"
     assert proposal.box is not None
-    assert proposal.box[1] < 35
+    assert proposal.box[1] < 25
+    assert proposal.box[3] <= 25
     assert proposal.mask.sum() > 0
     assert np.logical_and(proposal.mask, ~garment_mask).sum() == 0
 
