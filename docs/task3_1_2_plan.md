@@ -202,6 +202,24 @@ be staged:
 5. Decide whether to build a small human-labeled validation set before training
    any learned region localizer.
 
+### Current Baseline Usage
+
+The first rule-based 3.1.2 inference script is:
+
+```bash
+python scripts/inference/predict_local_region.py \
+  /path/to/image.jpg \
+  "这件衣服的领口" \
+  --model-config configs/model/instance_segmentation_deepfashion2.yaml \
+  --checkpoint /root/autodl-tmp/checkpoints/deepfashion2_6class_hard_mining/instance_segmentation/epoch_001.pt \
+  --device cuda \
+  --output outputs/local_region_sample.json \
+  --vis-output outputs/local_region_sample.jpg
+```
+
+The visualization uses blue for the selected whole garment instance and orange
+for the localized query region.
+
 ### Risks
 
 - DeepFashion2 landmarks are not directly named by semantic region in the local
