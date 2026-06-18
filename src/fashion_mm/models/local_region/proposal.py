@@ -18,7 +18,7 @@ class LocalRegionProposal:
     mask: np.ndarray
     box: tuple[float, float, float, float] | None
     confidence: float
-    source: Literal["rule_baseline"]
+    source: Literal["rule_baseline", "landmark_pseudo_label"]
     status: Literal["ok", "empty_region", "unsupported_region", "unknown_region"]
     reason: str | None = None
 
