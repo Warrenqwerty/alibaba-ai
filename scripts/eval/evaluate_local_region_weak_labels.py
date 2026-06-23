@@ -165,10 +165,10 @@ def summarize_records(records: list[dict[str, Any]]) -> dict[str, Any]:
         for record in records
         if record.get("garment_iou") is not None
     ]
-    by_region: dict[str, list[float]] = defaultdict(list)
+    by_region: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for record in records:
         if record.get("weak_iou") is not None:
-            by_region[record["parsed_region"]].append(record["weak_iou"])
+            by_region[record["parsed_region"]].append(record)
 
     summary: dict[str, Any] = {
         "num_records": len(records),
@@ -182,14 +182,32 @@ def summarize_records(records: list[dict[str, Any]]) -> dict[str, Any]:
         },
         "by_region": {
             region: {
-                "num_records": len(values),
-                "avg_weak_iou": mean(values),
+                "num_records": len(region_records),
+                "weak_label_source_counts": dict(
+                    Counter(
+                        record["weak_label_source"]
+                        for record in region_records
+                        if record.get("weak_label_source") is not None
+                    )
+                ),
+                "avg_garment_iou": _mean_record_value(
+                    region_records,
+                    "garment_iou",
+                ),
+                "avg_weak_iou": _mean_record_value(region_records, "weak_iou"),
                 "weak_hit_at": {
-                    str(threshold): _hit_rate(values, threshold)
+                    str(threshold): _hit_rate(
+                        [
+                            record["weak_iou"]
+                            for record in region_records
+                            if record.get("weak_iou") is not None
+                        ],
+                        threshold,
+                    )
                     for threshold in WEAK_IOU_THRESHOLDS
                 },
             }
-            for region, values in sorted(by_region.items())
+            for region, region_records in sorted(by_region.items())
         },
     }
     return summary
@@ -290,6 +308,11 @@ def _hit_rate(values: list[float], threshold: float) -> float:
     if not values:
         return 0.0
     return sum(value >= threshold for value in values) / len(values)
+
+
+def _mean_record_value(records: list[dict[str, Any]], key: str) -> float:
+    values = [record[key] for record in records if record.get(key) is not None]
+    return mean(values) if values else 0.0
 
 
 if __name__ == "__main__":

@@ -370,4 +370,9 @@ def test_local_region_weak_eval_summarizes_records():
     assert summary["avg_garment_iou"] == 0.7
     assert summary["avg_weak_iou"] == 0.4
     assert summary["weak_hit_at"]["0.3"] == 2 / 3
+    assert summary["by_region"]["neckline"]["weak_label_source_counts"] == {
+        "landmark_pseudo_label": 1,
+        "rule_baseline": 1,
+    }
+    assert summary["by_region"]["neckline"]["avg_garment_iou"] == 0.7
     assert summary["by_region"]["neckline"]["avg_weak_iou"] == 0.4

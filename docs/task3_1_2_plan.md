@@ -170,6 +170,9 @@ be staged:
      - Hit@0.3: 0.4333 (+0.0600).
      - Hit@0.5: 0.1933 (+0.0066).
      - By region: hem 0.3753, neckline 0.3138, shoulder 0.2759.
+     - Diagnostics: weak labels are mostly landmark-derived (130/150), and
+       average garment IoU is 0.8329, so the remaining gap is mainly local
+       region localization rather than failed garment handoff.
    - This confirms the weak metric is sensitive enough for heuristic iteration,
      but the remaining gap should be handled by learned text-region matching.
 
