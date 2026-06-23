@@ -11,8 +11,9 @@ Stage 1: Fine-grained visual foundation module.
 Current target:
 
 - 3.1.1 Fashion instance segmentation
+- 3.1.2 Language-guided local-region localization
 - Input: RGB fashion image
-- Output: clothing instance masks, bounding boxes, category labels
+- Output: clothing instance masks, local-region masks, bounding boxes, category labels
 - Classes: top, pants, skirt, outerwear, dress, shoes, bag, accessory
 - Target: single-image latency <= 50 ms, mask IoU >= 0.85
 
@@ -62,4 +63,28 @@ Run inference with a trained checkpoint:
 python scripts/inference/predict_instance_segmentation.py image.jpg \
   --checkpoint /root/autodl-tmp/checkpoints/deepfashion2_6class_soft_aug_epoch2/instance_segmentation/epoch_001.pt \
   --device cuda
+```
+
+## 3.1.2 Usage
+
+Run language-guided local-region localization:
+
+```bash
+python scripts/inference/predict_local_region.py image.jpg "右侧的口袋" \
+  --checkpoint /root/autodl-tmp/checkpoints/deepfashion2_6class_hard_mining/instance_segmentation/epoch_001.pt \
+  --device cuda \
+  --output outputs/local_region_sample.json \
+  --vis-output outputs/local_region_sample.jpg
+```
+
+Run a small AutoDL sanity evaluation:
+
+```bash
+python scripts/eval/evaluate_local_region_queries.py \
+  --image-dir /root/autodl-tmp/datasets/DeepFashion2/validation/image \
+  --checkpoint /root/autodl-tmp/checkpoints/deepfashion2_6class_hard_mining/instance_segmentation/epoch_001.pt \
+  --device cuda \
+  --max-images 20 \
+  --output /root/autodl-tmp/outputs/local_region_query_eval.json \
+  --vis-dir /root/autodl-tmp/outputs/local_region_vis
 ```
