@@ -46,8 +46,27 @@ def test_propose_neckline_region_is_clipped_by_garment_mask():
     assert proposal.status == "ok"
     assert proposal.box is not None
     assert proposal.box[1] < 25
-    assert proposal.box[3] <= 25
+    assert proposal.box[3] <= 30
     assert proposal.mask.sum() > 0
+    assert np.logical_and(proposal.mask, ~garment_mask).sum() == 0
+
+
+def test_propose_shoulder_region_uses_shallow_upper_band():
+    garment_mask = np.zeros((100, 100), dtype=bool)
+    garment_mask[10:90, 10:90] = True
+
+    proposal = propose_local_region(
+        garment_mask,
+        garment_box=(10, 10, 90, 90),
+        region="shoulder",
+    )
+
+    assert proposal.status == "ok"
+    assert proposal.box is not None
+    assert proposal.box[1] == 10
+    assert proposal.box[3] <= 30
+    assert proposal.box[0] == 10
+    assert proposal.box[2] == 90
     assert np.logical_and(proposal.mask, ~garment_mask).sum() == 0
 
 

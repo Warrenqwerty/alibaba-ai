@@ -158,6 +158,13 @@ be staged:
    - Use DeepFashion2 landmarks and garment masks to approximate regions such as
      neckline, hem, shoulder, waist.
    - Measure whether the returned region overlaps the weakly derived target.
+   - Current 50-image AutoDL weak-label baseline:
+     - Average weak IoU: 0.2884.
+     - Hit@0.3: 0.3733.
+     - Hit@0.5: 0.1867.
+     - By region: hem 0.3753, neckline 0.2895, shoulder 0.2003.
+   - The next heuristic iteration should focus on shoulder geometry first,
+     because it is the weakest landmark-aligned region.
 
 3. Human-labeled evaluation set:
    - Manually label a small set, e.g. 100-300 image-query pairs.

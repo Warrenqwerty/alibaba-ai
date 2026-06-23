@@ -136,10 +136,10 @@ def _region_window(
     window = np.zeros((height, width), dtype=bool)
 
     if region == "neckline":
-        wx1 = x1 + int(box_width * 0.22)
-        wx2 = x1 + int(box_width * 0.78)
+        wx1 = x1 + int(box_width * 0.16)
+        wx2 = x1 + int(box_width * 0.84)
         wy1 = y1
-        wy2 = y1 + int(box_height * 0.18)
+        wy2 = y1 + int(box_height * 0.22)
         window[wy1:wy2, wx1:wx2] = True
     elif region == "hem":
         wy1 = y1 + int(box_height * 0.75)
@@ -150,11 +150,8 @@ def _region_window(
         window[wy1:wy2, x1:x2] = True
     elif region == "shoulder":
         wy1 = y1
-        wy2 = y1 + int(box_height * 0.35)
-        left_x2 = x1 + int(box_width * 0.35)
-        right_x1 = x1 + int(box_width * 0.65)
-        window[wy1:wy2, x1:left_x2] = True
-        window[wy1:wy2, right_x1:x2] = True
+        wy2 = y1 + int(box_height * 0.22)
+        window[wy1:wy2, x1:x2] = True
     elif region == "cuff":
         wy1 = y1 + int(box_height * 0.25)
         wy2 = y1 + int(box_height * 0.90)
