@@ -337,14 +337,37 @@ def test_local_region_weak_eval_summarizes_records():
 
     summary = module.summarize_records(
         [
-            {"status": "ok", "parsed_region": "neckline", "weak_iou": 0.6},
-            {"status": "ok", "parsed_region": "neckline", "weak_iou": 0.2},
-            {"status": "ok", "parsed_region": "hem", "weak_iou": 0.4},
+            {
+                "status": "ok",
+                "parsed_region": "neckline",
+                "weak_label_source": "landmark_pseudo_label",
+                "garment_iou": 0.8,
+                "weak_iou": 0.6,
+            },
+            {
+                "status": "ok",
+                "parsed_region": "neckline",
+                "weak_label_source": "rule_baseline",
+                "garment_iou": 0.6,
+                "weak_iou": 0.2,
+            },
+            {
+                "status": "ok",
+                "parsed_region": "hem",
+                "weak_label_source": "landmark_pseudo_label",
+                "garment_iou": 0.7,
+                "weak_iou": 0.4,
+            },
         ]
     )
 
     assert summary["num_records"] == 3
     assert summary["status_counts"] == {"ok": 3}
+    assert summary["weak_label_source_counts"] == {
+        "landmark_pseudo_label": 2,
+        "rule_baseline": 1,
+    }
+    assert summary["avg_garment_iou"] == 0.7
     assert summary["avg_weak_iou"] == 0.4
     assert summary["weak_hit_at"]["0.3"] == 2 / 3
     assert summary["by_region"]["neckline"]["avg_weak_iou"] == 0.4

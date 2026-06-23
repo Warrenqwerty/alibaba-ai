@@ -165,6 +165,13 @@ be staged:
      - By region: hem 0.3753, neckline 0.2895, shoulder 0.2003.
    - The next heuristic iteration should focus on shoulder geometry first,
      because it is the weakest landmark-aligned region.
+   - After shoulder/neckline geometry tuning:
+     - Average weak IoU: 0.3217 (+0.0333).
+     - Hit@0.3: 0.4333 (+0.0600).
+     - Hit@0.5: 0.1933 (+0.0066).
+     - By region: hem 0.3753, neckline 0.3138, shoulder 0.2759.
+   - This confirms the weak metric is sensitive enough for heuristic iteration,
+     but the remaining gap should be handled by learned text-region matching.
 
 3. Human-labeled evaluation set:
    - Manually label a small set, e.g. 100-300 image-query pairs.

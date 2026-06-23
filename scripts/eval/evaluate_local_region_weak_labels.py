@@ -150,10 +150,20 @@ def mask_iou(mask_a: np.ndarray, mask_b: np.ndarray) -> float:
 def summarize_records(records: list[dict[str, Any]]) -> dict[str, Any]:
     """Summarize weak-label local-region evaluation records."""
     status_counts = Counter(record["status"] for record in records)
+    weak_label_sources = Counter(
+        record["weak_label_source"]
+        for record in records
+        if record.get("weak_label_source") is not None
+    )
     weak_ious = [
         record["weak_iou"]
         for record in records
         if record.get("weak_iou") is not None
+    ]
+    garment_ious = [
+        record["garment_iou"]
+        for record in records
+        if record.get("garment_iou") is not None
     ]
     by_region: dict[str, list[float]] = defaultdict(list)
     for record in records:
@@ -163,6 +173,8 @@ def summarize_records(records: list[dict[str, Any]]) -> dict[str, Any]:
     summary: dict[str, Any] = {
         "num_records": len(records),
         "status_counts": dict(status_counts),
+        "weak_label_source_counts": dict(weak_label_sources),
+        "avg_garment_iou": mean(garment_ious) if garment_ious else 0.0,
         "avg_weak_iou": mean(weak_ious) if weak_ious else 0.0,
         "weak_hit_at": {
             str(threshold): _hit_rate(weak_ious, threshold)
