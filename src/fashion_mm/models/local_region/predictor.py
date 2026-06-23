@@ -6,10 +6,11 @@ from typing import Any
 
 from fashion_mm.models.instance_segmentation.result import FashionInstance
 from fashion_mm.models.instance_segmentation.result import SegmentationResult
-from fashion_mm.models.local_region.proposal import LocalRegionProposal
-from fashion_mm.models.local_region.proposal import propose_local_region
+from fashion_mm.models.local_region.proposal import generate_open_vocab_candidates
 from fashion_mm.models.local_region.query import ParsedRegionQuery
 from fashion_mm.models.local_region.query import parse_region_query
+from fashion_mm.models.local_region.ranker import HeuristicRegionRanker
+from fashion_mm.models.local_region.ranker import RankedRegionCandidate
 
 
 @dataclass(frozen=True)
@@ -18,12 +19,14 @@ class LocalRegionResult:
 
     query: ParsedRegionQuery
     selected_instance: FashionInstance | None
-    proposal: LocalRegionProposal | None
+    proposal: RankedRegionCandidate | None
+    candidates: list[RankedRegionCandidate]
+    ranker_backend: str
     status: str
     reason: str | None
     latency_ms: float
 
-    def to_dict(self, include_mask: bool = False) -> dict[str, Any]:
+    def to_dict(self, include_mask: bool = False, max_candidates: int = 5) -> dict[str, Any]:
         return {
             "query": {
                 "text": self.query.query,
@@ -41,6 +44,11 @@ class LocalRegionResult:
                 if self.proposal is not None
                 else None
             ),
+            "candidate_regions": [
+                candidate.to_dict(include_mask=False)
+                for candidate in self.candidates[:max_candidates]
+            ],
+            "ranker_backend": self.ranker_backend,
             "status": self.status,
             "reason": self.reason,
             "latency_ms": self.latency_ms,
@@ -54,15 +62,6 @@ def localize_region_from_instances(
     """Localize a queried local region from existing garment instances."""
     start = time.perf_counter()
     parsed_query = parse_region_query(query)
-    if parsed_query.region is None:
-        return _result(
-            parsed_query,
-            None,
-            None,
-            "unknown_region",
-            "query does not mention a supported local clothing region",
-            start,
-        )
 
     selected_instance = select_garment_instance(segmentation, parsed_query)
     if selected_instance is None:
@@ -70,23 +69,29 @@ def localize_region_from_instances(
             parsed_query,
             None,
             None,
+            [],
+            HeuristicRegionRanker.backend_name,
             "no_garment_instance",
             "no garment instance matched the query",
             start,
         )
 
-    proposal = propose_local_region(
+    candidates = generate_open_vocab_candidates(
         selected_instance.mask,
         selected_instance.box,
-        parsed_query.region,
     )
-    status = "ok" if proposal.status == "ok" else proposal.status
+    ranker = HeuristicRegionRanker()
+    ranked_candidates = ranker.rank(parsed_query, candidates)
+    proposal = ranked_candidates[0] if ranked_candidates else None
+    status = "ok" if proposal is not None else "no_region_candidate"
     return _result(
         parsed_query,
         selected_instance,
         proposal,
+        ranked_candidates,
+        ranker.backend_name,
         status,
-        proposal.reason,
+        proposal.proposal.reason if proposal is not None else "no candidate regions generated",
         start,
     )
 
@@ -115,7 +120,9 @@ def select_garment_instance(
 def _result(
     query: ParsedRegionQuery,
     selected_instance: FashionInstance | None,
-    proposal: LocalRegionProposal | None,
+    proposal: RankedRegionCandidate | None,
+    candidates: list[RankedRegionCandidate],
+    ranker_backend: str,
     status: str,
     reason: str | None,
     start: float,
@@ -124,6 +131,8 @@ def _result(
         query=query,
         selected_instance=selected_instance,
         proposal=proposal,
+        candidates=candidates,
+        ranker_backend=ranker_backend,
         status=status,
         reason=reason,
         latency_ms=(time.perf_counter() - start) * 1000.0,

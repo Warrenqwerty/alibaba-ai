@@ -82,9 +82,9 @@ FashionAI-Attributes is still needed for the broader attribute pipeline in
 However, FashionAI attributes are image/attribute labels rather than pixel-level
 local-region masks, so it is not enough by itself for 3.1.2 mask supervision.
 
-### Proposed Baseline Direction
+### Final Baseline Direction
 
-Use a three-stage baseline:
+Use a PRD-aligned open-vocabulary grounding baseline:
 
 1. Whole-garment grounding from 3.1.1:
    - Run the frozen instance segmentation model.
@@ -93,52 +93,26 @@ Use a three-stage baseline:
    - If no garment class is mentioned, use the highest-confidence clothing
      instance or all candidate instances.
 
-2. Query-to-region parsing:
-   - Map Chinese query keywords to canonical region names.
-   - Examples:
-     - "领口", "衣领", "领型" -> `neckline`
-     - "袖口", "袖子末端" -> `cuff`
-     - "下摆", "裙摆" -> `hem`
-     - "口袋" -> `pocket`
-     - "肩部", "肩线" -> `shoulder`
-     - "腰部", "腰线" -> `waist`
-     - "图案", "印花", "花纹" -> `pattern`
-     - "装饰", "纽扣", "拉链", "珠片" -> `decoration`
+2. Open candidate generation inside the garment:
+   - Generate multiple generic candidate masks, not only training-time fixed
+     parts.
+   - Current candidates include whole garment, upper/lower/left/right/center
+     spatial regions, neckline, hem, shoulder, waist, left/right cuff, and
+     pattern-like full-garment candidates.
+   - Landmarks and fixed part rules are helper candidate generators, not the
+     final task definition.
 
-3. Region proposal inside garment mask:
-   - First version: deterministic geometric proposals clipped by the garment
-     mask.
-   - Later version: learned text-region matching using DINOv2/CLIP-style
-     features or a phrase grounding model.
+3. Text-region matching:
+   - First version: lightweight heuristic ranker that scores candidates from
+     raw Chinese query text and spatial/attribute words.
+   - Target version: DINOv2 region features plus a text encoder, following the
+     PRD direction of "区域特征与文本特征相似度匹配".
+   - This should support open descriptions such as "左边的袖口", "碎花图案",
+     "衣服上的拉链", and "外套里面的内搭" better than fixed-part
+     classification.
 
-### First Baseline Region Rules
-
-The goal of the first baseline is to create a measurable, debuggable pipeline
-before training a heavier language-grounded model.
-
-For one selected garment mask and bounding box:
-
-| Region | Initial proposal rule |
-| --- | --- |
-| neckline | upper 20-30% of garment mask, centered around top-middle |
-| cuff | left/right side regions around sleeve ends, when garment is top/dress/outerwear |
-| hem | lower 20-25% of garment mask |
-| shoulder | upper-left and upper-right mask regions |
-| waist | horizontal band around 45-60% height of garment box |
-| pocket | no reliable deterministic rule; mark as unsupported or use model-based proposal |
-| pattern | visible full garment mask by default, later refined by texture/CLIP matching |
-| decoration | unsupported in rule baseline unless detected by later attribute/local feature model |
-
-For unsupported or ambiguous regions, return a structured fallback:
-
-```json
-{
-  "status": "unsupported_region",
-  "reason": "pocket/decoration requires learned local detector or extra labels"
-}
-```
-
-This is better than returning misleading masks.
+This means the old fixed-region parser is no longer the main decision maker.
+It is only a helper for candidate scoring.
 
 ### Suggested Output Schema
 
@@ -244,8 +218,11 @@ point is labeled with its DeepFashion2 landmark index.
 
 - DeepFashion2 landmarks are not directly named by semantic region in the local
   metadata, so weak labels may be noisy.
-- Rule-based geometry can work for neckline/hem/waist but is weak for pocket,
-  pattern, and decoration.
+- The current heuristic ranker is only a prototype. It makes the interface
+  open-vocabulary, but true PRD performance requires learned visual-text
+  similarity using DINOv2/CLIP-style features or a stronger grounding model.
+- Rule-based candidates can cover neckline/hem/waist, but pocket, pattern,
+  decoration, zipper, button, and relation queries need visual feature matching.
 - PRD latency target is tight; a heavy grounding model may exceed 30 ms unless
   cached or optimized.
 - Query ambiguity is common. Example: "这件衣服的设计" is too broad and should
@@ -253,13 +230,14 @@ point is labeled with its DeepFashion2 landmark index.
 
 ### Recommended Immediate Next Step
 
-Implement the rule-based 3.1.2 baseline first:
+Implement the open-vocabulary baseline first:
 
-- query parser
-- selected-garment instance handoff from 3.1.1
-- geometry-based local region proposal
-- visualization script
+- keep selected-garment instance handoff from 3.1.1
+- generate multiple region candidates inside the garment
+- rank candidates against raw natural-language query text
+- visualize selected region plus top candidate scores
+- then replace the heuristic ranker with DINOv2/text-feature similarity when
+  model weights and runtime dependencies are available
 
-This creates a working pipeline and makes failure cases visible. After that, we
-can decide whether to train a learned local-region model or move directly toward
-3.1.3 attribute extraction for supported regions.
+This matches the PRD more closely than fixed-part segmentation, while keeping
+the current code measurable and easy to debug.

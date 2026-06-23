@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from collections.abc import Iterable
 from typing import Literal
 
 import numpy as np
@@ -8,6 +9,21 @@ import numpy as np
 
 SUPPORTED_RULE_REGIONS = {"neckline", "cuff", "hem", "shoulder", "waist", "pattern"}
 UNSUPPORTED_RULE_REGIONS = {"pocket", "decoration"}
+OPEN_VOCAB_CANDIDATE_REGIONS = (
+    "whole_garment",
+    "upper",
+    "lower",
+    "left",
+    "right",
+    "center",
+    "neckline",
+    "hem",
+    "shoulder",
+    "waist",
+    "left_cuff",
+    "right_cuff",
+    "pattern",
+)
 
 
 @dataclass(frozen=True)
@@ -18,7 +34,7 @@ class LocalRegionProposal:
     mask: np.ndarray
     box: tuple[float, float, float, float] | None
     confidence: float
-    source: Literal["rule_baseline", "landmark_pseudo_label"]
+    source: Literal["rule_baseline", "landmark_pseudo_label", "open_vocab_candidate"]
     status: Literal["ok", "empty_region", "unsupported_region", "unknown_region"]
     reason: str | None = None
 
@@ -79,6 +95,28 @@ def propose_local_region(
     )
 
 
+def generate_open_vocab_candidates(
+    garment_mask: np.ndarray,
+    garment_box: tuple[float, float, float, float] | list[float],
+    regions: Iterable[str] = OPEN_VOCAB_CANDIDATE_REGIONS,
+) -> list[LocalRegionProposal]:
+    """Generate generic region candidates for language-guided matching.
+
+    These candidates are intentionally not limited to training-time part names.
+    A later DINOv2/CLIP ranker can score them against arbitrary query text.
+    """
+    mask = np.asarray(garment_mask, dtype=bool)
+    if mask.ndim != 2:
+        raise ValueError(f"garment_mask must be 2D, got shape {mask.shape}")
+
+    candidates: list[LocalRegionProposal] = []
+    for region in regions:
+        proposal = _propose_open_vocab_candidate(mask, garment_box, region)
+        if proposal.status == "ok":
+            candidates.append(proposal)
+    return candidates
+
+
 def _region_window(
     region: str,
     x1: int,
@@ -119,6 +157,110 @@ def _region_window(
         right_x1 = x1 + int(box_width * 0.78)
         window[wy1:wy2, x1:left_x2] = True
         window[wy1:wy2, right_x1:x2] = True
+    return window
+
+
+def _propose_open_vocab_candidate(
+    garment_mask: np.ndarray,
+    garment_box: tuple[float, float, float, float] | list[float],
+    region: str,
+) -> LocalRegionProposal:
+    if region == "whole_garment":
+        region_mask = garment_mask.copy()
+    elif region == "pattern":
+        region_mask = garment_mask.copy()
+    elif region in {"neckline", "hem", "shoulder", "waist"}:
+        baseline_region = "neckline" if region == "neckline" else region
+        proposal = propose_local_region(garment_mask, garment_box, baseline_region)
+        return _as_open_vocab_source(proposal)
+    elif region in {"left_cuff", "right_cuff"}:
+        region_mask = garment_mask & _single_side_cuff_window(
+            garment_box,
+            garment_mask.shape,
+            side="left" if region == "left_cuff" else "right",
+        )
+    else:
+        x1, y1, x2, y2 = _clip_box(garment_box, garment_mask.shape)
+        region_mask = garment_mask & _generic_spatial_window(
+            region,
+            x1,
+            y1,
+            x2,
+            y2,
+            garment_mask.shape,
+        )
+
+    box = _mask_to_box(region_mask)
+    if box is None:
+        return _empty_result(region, garment_mask.shape, "empty_region", "empty candidate")
+    return LocalRegionProposal(
+        region=region,
+        mask=region_mask,
+        box=box,
+        confidence=_candidate_confidence(region),
+        source="open_vocab_candidate",
+        status="ok",
+    )
+
+
+def _as_open_vocab_source(proposal: LocalRegionProposal) -> LocalRegionProposal:
+    return LocalRegionProposal(
+        region=proposal.region,
+        mask=proposal.mask,
+        box=proposal.box,
+        confidence=proposal.confidence,
+        source="open_vocab_candidate",
+        status=proposal.status,
+        reason=proposal.reason,
+    )
+
+
+def _generic_spatial_window(
+    region: str,
+    x1: int,
+    y1: int,
+    x2: int,
+    y2: int,
+    image_shape: tuple[int, int],
+) -> np.ndarray:
+    height, width = image_shape
+    box_width = max(x2 - x1, 1)
+    box_height = max(y2 - y1, 1)
+    window = np.zeros((height, width), dtype=bool)
+
+    if region == "upper":
+        window[y1 : y1 + int(box_height * 0.45), x1:x2] = True
+    elif region == "lower":
+        window[y1 + int(box_height * 0.55) : y2, x1:x2] = True
+    elif region == "left":
+        window[y1:y2, x1 : x1 + int(box_width * 0.45)] = True
+    elif region == "right":
+        window[y1:y2, x1 + int(box_width * 0.55) : x2] = True
+    elif region == "center":
+        wx1 = x1 + int(box_width * 0.25)
+        wx2 = x1 + int(box_width * 0.75)
+        wy1 = y1 + int(box_height * 0.25)
+        wy2 = y1 + int(box_height * 0.75)
+        window[wy1:wy2, wx1:wx2] = True
+    return window
+
+
+def _single_side_cuff_window(
+    box: tuple[float, float, float, float] | list[float],
+    image_shape: tuple[int, int],
+    side: Literal["left", "right"],
+) -> np.ndarray:
+    x1, y1, x2, y2 = _clip_box(box, image_shape)
+    height, width = image_shape
+    box_width = max(x2 - x1, 1)
+    box_height = max(y2 - y1, 1)
+    window = np.zeros((height, width), dtype=bool)
+    wy1 = y1 + int(box_height * 0.25)
+    wy2 = y1 + int(box_height * 0.90)
+    if side == "left":
+        window[wy1:wy2, x1 : x1 + int(box_width * 0.24)] = True
+    else:
+        window[wy1:wy2, x1 + int(box_width * 0.76) : x2] = True
     return window
 
 
@@ -168,3 +310,17 @@ def _rule_confidence(region: str) -> float:
         "shoulder": 0.62,
         "cuff": 0.58,
     }.get(region, 0.50)
+
+
+def _candidate_confidence(region: str) -> float:
+    return {
+        "whole_garment": 0.45,
+        "upper": 0.50,
+        "lower": 0.50,
+        "left": 0.48,
+        "right": 0.48,
+        "center": 0.46,
+        "pattern": 0.50,
+        "left_cuff": 0.55,
+        "right_cuff": 0.55,
+    }.get(region, _rule_confidence(region))
