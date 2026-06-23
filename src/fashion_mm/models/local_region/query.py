@@ -11,7 +11,9 @@ REGION_KEYWORDS = {
     "shoulder": ("肩部", "肩线", "肩膀"),
     "waist": ("腰部", "腰线", "收腰"),
     "pattern": ("图案", "印花", "花纹", "纹理"),
-    "decoration": ("装饰", "纽扣", "扣子", "拉链", "珠片", "亮片"),
+    "zipper": ("拉链", "拉锁"),
+    "button": ("纽扣", "扣子"),
+    "decoration": ("装饰", "珠片", "亮片", "刺绣", "蝴蝶结"),
 }
 
 GARMENT_KEYWORDS = {
@@ -22,6 +24,29 @@ GARMENT_KEYWORDS = {
     "dress": ("连衣裙", "裙装"),
 }
 
+SPATIAL_KEYWORDS = {
+    "left": ("左边", "左侧", "左面", "左"),
+    "right": ("右边", "右侧", "右面", "右"),
+    "upper": ("上方", "上面", "上半", "顶部"),
+    "lower": ("下方", "下面", "下半", "底部"),
+    "center": ("中间", "中央", "正面", "前面"),
+}
+
+ATTRIBUTE_KEYWORDS = {
+    "floral": ("碎花", "花朵", "花卉"),
+    "stripe": ("条纹", "竖条", "横条"),
+    "plaid": ("格纹", "格子"),
+    "shiny": ("亮片", "珠片", "闪光"),
+    "embroidered": ("刺绣", "绣花"),
+}
+
+RELATION_KEYWORDS = {
+    "outer": ("外套", "外层", "外面"),
+    "inner": ("内搭", "里面", "内层", "里层"),
+}
+
+OPEN_VOCAB_REGIONS = set(REGION_KEYWORDS)
+
 
 @dataclass(frozen=True)
 class ParsedRegionQuery:
@@ -31,6 +56,9 @@ class ParsedRegionQuery:
     region: str | None
     garment_hint: str | None
     is_supported_region: bool
+    spatial_hints: tuple[str, ...]
+    attribute_hints: tuple[str, ...]
+    relation_hints: tuple[str, ...]
 
 
 def parse_region_query(query: str) -> ParsedRegionQuery:
@@ -42,7 +70,10 @@ def parse_region_query(query: str) -> ParsedRegionQuery:
         query=query,
         region=region,
         garment_hint=garment_hint,
-        is_supported_region=region in {"neckline", "cuff", "hem", "shoulder", "waist", "pattern"},
+        is_supported_region=region in OPEN_VOCAB_REGIONS,
+        spatial_hints=_all_keyword_matches(normalized, SPATIAL_KEYWORDS),
+        attribute_hints=_all_keyword_matches(normalized, ATTRIBUTE_KEYWORDS),
+        relation_hints=_all_keyword_matches(normalized, RELATION_KEYWORDS),
     )
 
 
@@ -51,3 +82,11 @@ def _first_keyword_match(text: str, keyword_map: dict[str, tuple[str, ...]]) -> 
         if any(keyword in text for keyword in keywords):
             return name
     return None
+
+
+def _all_keyword_matches(text: str, keyword_map: dict[str, tuple[str, ...]]) -> tuple[str, ...]:
+    return tuple(
+        name
+        for name, keywords in keyword_map.items()
+        if any(keyword in text for keyword in keywords)
+    )

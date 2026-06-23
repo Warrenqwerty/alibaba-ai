@@ -22,7 +22,12 @@ OPEN_VOCAB_CANDIDATE_REGIONS = (
     "waist",
     "left_cuff",
     "right_cuff",
+    "left_pocket",
+    "right_pocket",
+    "zipper",
+    "button",
     "pattern",
+    "decoration",
 )
 
 
@@ -179,6 +184,18 @@ def _propose_open_vocab_candidate(
             garment_mask.shape,
             side="left" if region == "left_cuff" else "right",
         )
+    elif region in {"left_pocket", "right_pocket"}:
+        region_mask = garment_mask & _single_side_pocket_window(
+            garment_box,
+            garment_mask.shape,
+            side="left" if region == "left_pocket" else "right",
+        )
+    elif region == "zipper":
+        region_mask = garment_mask & _vertical_trim_window(garment_box, garment_mask.shape)
+    elif region == "button":
+        region_mask = garment_mask & _button_placket_window(garment_box, garment_mask.shape)
+    elif region == "decoration":
+        region_mask = garment_mask & _decoration_window(garment_box, garment_mask.shape)
     else:
         x1, y1, x2, y2 = _clip_box(garment_box, garment_mask.shape)
         region_mask = garment_mask & _generic_spatial_window(
@@ -264,6 +281,79 @@ def _single_side_cuff_window(
     return window
 
 
+def _single_side_pocket_window(
+    box: tuple[float, float, float, float] | list[float],
+    image_shape: tuple[int, int],
+    side: Literal["left", "right"],
+) -> np.ndarray:
+    x1, y1, x2, y2 = _clip_box(box, image_shape)
+    height, width = image_shape
+    box_width = max(x2 - x1, 1)
+    box_height = max(y2 - y1, 1)
+    window = np.zeros((height, width), dtype=bool)
+    wy1 = y1 + int(box_height * 0.42)
+    wy2 = y1 + int(box_height * 0.78)
+    if side == "left":
+        wx1 = x1 + int(box_width * 0.08)
+        wx2 = x1 + int(box_width * 0.42)
+    else:
+        wx1 = x1 + int(box_width * 0.58)
+        wx2 = x1 + int(box_width * 0.92)
+    window[wy1:wy2, wx1:wx2] = True
+    return window
+
+
+def _vertical_trim_window(
+    box: tuple[float, float, float, float] | list[float],
+    image_shape: tuple[int, int],
+) -> np.ndarray:
+    x1, y1, x2, y2 = _clip_box(box, image_shape)
+    height, width = image_shape
+    box_width = max(x2 - x1, 1)
+    box_height = max(y2 - y1, 1)
+    window = np.zeros((height, width), dtype=bool)
+    wx1 = x1 + int(box_width * 0.45)
+    wx2 = x1 + int(box_width * 0.55)
+    wy1 = y1 + int(box_height * 0.12)
+    wy2 = y1 + int(box_height * 0.88)
+    window[wy1:wy2, wx1:wx2] = True
+    return window
+
+
+def _button_placket_window(
+    box: tuple[float, float, float, float] | list[float],
+    image_shape: tuple[int, int],
+) -> np.ndarray:
+    x1, y1, x2, y2 = _clip_box(box, image_shape)
+    height, width = image_shape
+    box_width = max(x2 - x1, 1)
+    box_height = max(y2 - y1, 1)
+    window = np.zeros((height, width), dtype=bool)
+    wx1 = x1 + int(box_width * 0.43)
+    wx2 = x1 + int(box_width * 0.57)
+    wy1 = y1 + int(box_height * 0.18)
+    wy2 = y1 + int(box_height * 0.72)
+    window[wy1:wy2, wx1:wx2] = True
+    return window
+
+
+def _decoration_window(
+    box: tuple[float, float, float, float] | list[float],
+    image_shape: tuple[int, int],
+) -> np.ndarray:
+    x1, y1, x2, y2 = _clip_box(box, image_shape)
+    height, width = image_shape
+    box_width = max(x2 - x1, 1)
+    box_height = max(y2 - y1, 1)
+    window = np.zeros((height, width), dtype=bool)
+    wx1 = x1 + int(box_width * 0.18)
+    wx2 = x1 + int(box_width * 0.82)
+    wy1 = y1 + int(box_height * 0.15)
+    wy2 = y1 + int(box_height * 0.65)
+    window[wy1:wy2, wx1:wx2] = True
+    return window
+
+
 def _clip_box(
     box: tuple[float, float, float, float] | list[float],
     image_shape: tuple[int, int],
@@ -323,4 +413,9 @@ def _candidate_confidence(region: str) -> float:
         "pattern": 0.50,
         "left_cuff": 0.55,
         "right_cuff": 0.55,
+        "left_pocket": 0.52,
+        "right_pocket": 0.52,
+        "zipper": 0.50,
+        "button": 0.50,
+        "decoration": 0.48,
     }.get(region, _rule_confidence(region))

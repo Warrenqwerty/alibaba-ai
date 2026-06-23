@@ -33,6 +33,9 @@ class LocalRegionResult:
                 "region": self.query.region,
                 "garment_hint": self.query.garment_hint,
                 "is_supported_region": self.query.is_supported_region,
+                "spatial_hints": list(self.query.spatial_hints),
+                "attribute_hints": list(self.query.attribute_hints),
+                "relation_hints": list(self.query.relation_hints),
             },
             "selected_instance": (
                 self.selected_instance.to_dict(include_mask=False)

@@ -97,14 +97,16 @@ Use a PRD-aligned open-vocabulary grounding baseline:
    - Generate multiple generic candidate masks, not only training-time fixed
      parts.
    - Current candidates include whole garment, upper/lower/left/right/center
-     spatial regions, neckline, hem, shoulder, waist, left/right cuff, and
-     pattern-like full-garment candidates.
+     spatial regions, neckline, hem, shoulder, waist, left/right cuff,
+     left/right pocket, zipper, button, decoration, and pattern-like
+     full-garment candidates.
    - Landmarks and fixed part rules are helper candidate generators, not the
      final task definition.
 
 3. Text-region matching:
    - First version: lightweight heuristic ranker that scores candidates from
-     raw Chinese query text and spatial/attribute words.
+     raw Chinese query text, spatial words, attribute words, relation words,
+     and part words.
    - Target version: DINOv2 region features plus a text encoder, following the
      PRD direction of "区域特征与文本特征相似度匹配".
    - This should support open descriptions such as "左边的袖口", "碎花图案",
@@ -119,7 +121,14 @@ It is only a helper for candidate scoring.
 ```json
 {
   "image": "000001.jpg",
-  "query": "这件衣服的领口",
+  "query": {
+    "text": "这件衣服的领口",
+    "region": "neckline",
+    "garment_hint": "top",
+    "spatial_hints": [],
+    "attribute_hints": [],
+    "relation_hints": []
+  },
   "selected_instance": {
     "label": "top",
     "score": 0.94,

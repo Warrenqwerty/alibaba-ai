@@ -19,13 +19,18 @@ REGION_TEXT_HINTS = {
     "waist": ("腰部", "腰线", "收腰"),
     "left_cuff": ("左边袖口", "左侧袖口", "左袖口"),
     "right_cuff": ("右边袖口", "右侧袖口", "右袖口"),
+    "left_pocket": ("左边口袋", "左边的口袋", "左侧口袋", "左侧的口袋", "左口袋"),
+    "right_pocket": ("右边口袋", "右边的口袋", "右侧口袋", "右侧的口袋", "右口袋"),
+    "zipper": ("拉链", "拉锁"),
+    "button": ("纽扣", "扣子"),
     "pattern": ("图案", "印花", "花纹", "纹理", "碎花", "条纹", "格纹"),
+    "decoration": ("装饰", "珠片", "亮片", "刺绣", "蝴蝶结"),
 }
 
 REGION_EQUIVALENTS = {
     "cuff": ("left_cuff", "right_cuff"),
-    "decoration": ("center", "upper", "whole_garment"),
-    "pocket": ("left", "right", "center"),
+    "decoration": ("decoration", "center", "upper", "whole_garment"),
+    "pocket": ("left_pocket", "right_pocket", "left", "right", "center"),
 }
 
 
@@ -95,14 +100,14 @@ class HeuristicRegionRanker:
     def _spatial_score(self, text: str, region: str) -> float:
         score = 0.0
         if any(term in text for term in ("左边", "左侧", "左面", "左")):
-            if region in {"left", "left_cuff"}:
+            if region in {"left", "left_cuff", "left_pocket"}:
                 score += 0.9
-            if region in {"right", "right_cuff"}:
+            if region in {"right", "right_cuff", "right_pocket"}:
                 score -= 0.4
         if any(term in text for term in ("右边", "右侧", "右面", "右")):
-            if region in {"right", "right_cuff"}:
+            if region in {"right", "right_cuff", "right_pocket"}:
                 score += 0.9
-            if region in {"left", "left_cuff"}:
+            if region in {"left", "left_cuff", "left_pocket"}:
                 score -= 0.4
         if any(term in text for term in ("上方", "上面", "上半", "顶部")) and region in {
             "upper",
@@ -120,8 +125,12 @@ class HeuristicRegionRanker:
     def _attribute_score(self, text: str, region: str) -> float:
         if any(term in text for term in ("碎花", "印花", "图案", "花纹", "条纹", "格纹")):
             return 0.8 if region == "pattern" else 0.0
-        if any(term in text for term in ("扣子", "纽扣", "拉链", "装饰", "珠片", "亮片")):
-            return 0.45 if region in {"center", "upper", "whole_garment"} else 0.0
+        if any(term in text for term in ("拉链", "拉锁")):
+            return 0.9 if region == "zipper" else 0.0
+        if any(term in text for term in ("扣子", "纽扣")):
+            return 0.9 if region == "button" else 0.0
+        if any(term in text for term in ("装饰", "珠片", "亮片", "刺绣", "蝴蝶结")):
+            return 0.75 if region == "decoration" else 0.0
         return 0.0
 
     def _reason(self, query: ParsedRegionQuery, candidate: LocalRegionProposal) -> str:

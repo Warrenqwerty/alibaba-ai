@@ -21,7 +21,16 @@ def test_parse_region_query_marks_unsupported_region():
     parsed = parse_region_query("这个口袋的设计")
 
     assert parsed.region == "pocket"
-    assert parsed.is_supported_region is False
+    assert parsed.is_supported_region is True
+
+
+def test_parse_region_query_collects_open_vocab_hints():
+    parsed = parse_region_query("外套里面的内搭有碎花图案吗")
+
+    assert parsed.region == "pattern"
+    assert parsed.garment_hint == "outerwear"
+    assert parsed.attribute_hints == ("floral",)
+    assert parsed.relation_hints == ("outer", "inner")
 
 
 def test_propose_neckline_region_is_clipped_by_garment_mask():
@@ -143,6 +152,48 @@ def test_localize_region_from_instances_uses_spatial_words_for_cuff_query():
     assert result.proposal.proposal.region == "left_cuff"
     assert result.proposal.proposal.box is not None
     assert result.proposal.proposal.box[0] < 40
+
+
+def test_localize_region_from_instances_supports_pocket_query():
+    mask = np.zeros((100, 100), dtype=bool)
+    mask[10:90, 10:90] = True
+    instance = FashionInstance(
+        mask=mask,
+        box=(10.0, 10.0, 90.0, 90.0),
+        label_id=1,
+        label_name="top",
+        score=0.95,
+    )
+    segmentation = SegmentationResult(image_size=(100, 100), instances=[instance])
+
+    result = localize_region_from_instances(segmentation, "右侧的口袋")
+
+    assert result.status == "ok"
+    assert result.proposal is not None
+    assert result.proposal.proposal.region == "right_pocket"
+    assert result.proposal.proposal.box is not None
+    assert result.proposal.proposal.box[0] > 50
+
+
+def test_localize_region_from_instances_supports_zipper_query():
+    mask = np.zeros((100, 100), dtype=bool)
+    mask[10:90, 10:90] = True
+    instance = FashionInstance(
+        mask=mask,
+        box=(10.0, 10.0, 90.0, 90.0),
+        label_id=4,
+        label_name="outerwear",
+        score=0.95,
+    )
+    segmentation = SegmentationResult(image_size=(100, 100), instances=[instance])
+
+    result = localize_region_from_instances(segmentation, "这件外套的拉链")
+
+    assert result.status == "ok"
+    assert result.proposal is not None
+    assert result.proposal.proposal.region == "zipper"
+    assert result.proposal.proposal.box is not None
+    assert 40 <= result.proposal.proposal.box[0] <= 50
 
 
 def test_local_region_eval_collects_visible_images(tmp_path):
