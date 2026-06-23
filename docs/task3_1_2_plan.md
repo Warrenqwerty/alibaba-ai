@@ -183,6 +183,11 @@ be staged:
      - This larger run confirms the heuristic baseline is stable but not strong
        enough; the next useful baseline should add learned text-region
        similarity instead of more geometry tuning.
+   - Full train weak query export:
+     - Annotations: 191,961.
+     - JSONL records: 2,808,252.
+     - Region counts: neckline 936,336; hem 935,478; shoulder 936,438.
+     - Source counts: landmark pseudo labels 2,231,694; rule fallback 576,558.
    - This confirms the weak metric is sensitive enough for heuristic iteration,
      but the remaining gap should be handled by learned text-region matching.
 

@@ -5,6 +5,7 @@ import numpy as np
 from PIL import Image
 
 from fashion_mm.data_loaders import DeepFashion2Dataset
+from fashion_mm.data_loaders import LocalRegionQueryDataset
 from fashion_mm.data_loaders import build_balanced_sampler
 from fashion_mm.data_loaders.deepfashion2 import DEEPFASHION2_TO_PROJECT_CATEGORY
 from fashion_mm.data_loaders.sampling import build_hard_case_weights
@@ -47,6 +48,33 @@ def test_deepfashion2_category_mapping_collapses_to_prd_taxonomy():
     assert DEEPFASHION2_TO_PROJECT_CATEGORY[7] == 2
     assert DEEPFASHION2_TO_PROJECT_CATEGORY[9] == 3
     assert DEEPFASHION2_TO_PROJECT_CATEGORY[13] == 5
+
+
+def test_local_region_query_dataset_loads_jsonl(tmp_path):
+    jsonl_path = tmp_path / "records.jsonl"
+    jsonl_path.write_text(
+        "\n".join(
+            [
+                '{"image": "/tmp/1.jpg", "annotation": "/tmp/1.json", '
+                '"item_key": "item1", "category_id": 1, '
+                '"category_name": "short sleeve top", "query": "这件衣服的领口", '
+                '"region": "neckline", "garment_box": [0, 0, 10, 20], '
+                '"region_box": [2, 0, 8, 5], "source": "landmark_pseudo_label", '
+                '"confidence": 0.82}'
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    dataset = LocalRegionQueryDataset(jsonl_path)
+    record = dataset[0]
+
+    assert len(dataset) == 1
+    assert record.query == "这件衣服的领口"
+    assert record.region == "neckline"
+    assert record.garment_box == (0.0, 0.0, 10.0, 20.0)
+    assert record.region_box == (2.0, 0.0, 8.0, 5.0)
+    assert record.category_id == 1
 
 
 def test_deepfashion2_dataset_ignores_hidden_annotation_files(tmp_path):
