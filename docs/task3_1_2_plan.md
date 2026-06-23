@@ -173,6 +173,16 @@ be staged:
      - Diagnostics: weak labels are mostly landmark-derived (130/150), and
        average garment IoU is 0.8329, so the remaining gap is mainly local
        region localization rather than failed garment handoff.
+   - 200-image stability check after tuning:
+     - Average weak IoU: 0.2818.
+     - Hit@0.3: 0.3933.
+     - Hit@0.5: 0.1383.
+     - By region: hem 0.2788, neckline 0.3000, shoulder 0.2665.
+     - Diagnostics: weak labels are mostly landmark-derived (518/600), and
+       average garment IoU is 0.7843.
+     - This larger run confirms the heuristic baseline is stable but not strong
+       enough; the next useful baseline should add learned text-region
+       similarity instead of more geometry tuning.
    - This confirms the weak metric is sensitive enough for heuristic iteration,
      but the remaining gap should be handled by learned text-region matching.
 
