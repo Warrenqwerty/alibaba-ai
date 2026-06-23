@@ -1,4 +1,4 @@
-project_root: "/root/alibaba-ai"
+project_root: "/root/projects/alibaba-ai"
 
 data_root: "/root/autodl-tmp/datasets"
 checkpoint_root: "/root/autodl-tmp/checkpoints"

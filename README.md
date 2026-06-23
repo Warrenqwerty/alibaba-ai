@@ -88,3 +88,15 @@ python scripts/eval/evaluate_local_region_queries.py \
   --output /root/autodl-tmp/outputs/local_region_query_eval.json \
   --vis-dir /root/autodl-tmp/outputs/local_region_vis
 ```
+
+Run weak-label evaluation with DeepFashion2 annotations:
+
+```bash
+python scripts/eval/evaluate_local_region_weak_labels.py \
+  --image-dir /root/autodl-tmp/datasets/DeepFashion2/validation/image \
+  --anno-dir /root/autodl-tmp/datasets/DeepFashion2/validation/annos \
+  --checkpoint /root/autodl-tmp/checkpoints/deepfashion2_6class_hard_mining/instance_segmentation/epoch_001.pt \
+  --device cuda \
+  --max-images 50 \
+  --output /root/autodl-tmp/outputs/local_region_weak_eval.json
+```

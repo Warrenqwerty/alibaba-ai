@@ -53,7 +53,7 @@ the PRD classes for shoes, bags, and accessories.
 On AutoDL:
 
 ```bash
-cd /root/alibaba-ai
+cd /root/projects/alibaba-ai
 python scripts/data/download_fashionpedia.py \
   --root /root/autodl-tmp/datasets/Fashionpedia
 ```

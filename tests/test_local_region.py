@@ -259,3 +259,73 @@ def test_local_region_eval_summarizes_records():
     assert summary["status_counts"] == {"ok": 2}
     assert summary["selected_region_counts"] == {"pattern": 1, "left_cuff": 1}
     assert summary["avg_local_region_latency_ms"] == 3.0
+
+
+def test_local_region_weak_eval_helpers(tmp_path):
+    import importlib.util
+    from pathlib import Path
+
+    script_path = (
+        Path(__file__).resolve().parents[1]
+        / "scripts"
+        / "eval"
+        / "evaluate_local_region_weak_labels.py"
+    )
+    spec = importlib.util.spec_from_file_location("local_region_weak_eval", script_path)
+    assert spec is not None
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+
+    anno_dir = tmp_path / "annos"
+    image_dir = tmp_path / "images"
+    anno_dir.mkdir()
+    image_dir.mkdir()
+    (anno_dir / "000002.json").write_text("{}", encoding="utf-8")
+    (anno_dir / "._000001.json").write_text("{}", encoding="utf-8")
+    Image.new("RGB", (10, 10)).save(image_dir / "000002.jpg")
+
+    annotations = module.collect_annotations(anno_dir, max_images=None)
+    assert [path.name for path in annotations] == ["000002.json"]
+
+    image_path = module.image_path_for_annotation(
+        image_dir,
+        anno_dir / "000002.json",
+        {},
+    )
+    assert image_path.name == "000002.jpg"
+
+    mask = module.polygon_to_mask([[1, 1, 5, 1, 5, 5, 1, 5]], (10, 10))
+    assert mask.sum() > 0
+    assert module.mask_iou(mask, mask) == 1.0
+
+
+def test_local_region_weak_eval_summarizes_records():
+    import importlib.util
+    from pathlib import Path
+
+    script_path = (
+        Path(__file__).resolve().parents[1]
+        / "scripts"
+        / "eval"
+        / "evaluate_local_region_weak_labels.py"
+    )
+    spec = importlib.util.spec_from_file_location("local_region_weak_eval", script_path)
+    assert spec is not None
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+
+    summary = module.summarize_records(
+        [
+            {"status": "ok", "parsed_region": "neckline", "weak_iou": 0.6},
+            {"status": "ok", "parsed_region": "neckline", "weak_iou": 0.2},
+            {"status": "ok", "parsed_region": "hem", "weak_iou": 0.4},
+        ]
+    )
+
+    assert summary["num_records"] == 3
+    assert summary["status_counts"] == {"ok": 3}
+    assert summary["avg_weak_iou"] == 0.4
+    assert summary["weak_hit_at"]["0.3"] == 2 / 3
+    assert summary["by_region"]["neckline"]["avg_weak_iou"] == 0.4
