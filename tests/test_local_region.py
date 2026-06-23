@@ -376,3 +376,67 @@ def test_local_region_weak_eval_summarizes_records():
     }
     assert summary["by_region"]["neckline"]["avg_garment_iou"] == 0.7
     assert summary["by_region"]["neckline"]["avg_weak_iou"] == 0.4
+
+
+def test_build_deepfashion2_local_region_query_records(tmp_path):
+    import importlib.util
+    from pathlib import Path
+
+    script_path = (
+        Path(__file__).resolve().parents[1]
+        / "scripts"
+        / "data"
+        / "build_deepfashion2_local_region_queries.py"
+    )
+    spec = importlib.util.spec_from_file_location("local_region_query_build", script_path)
+    assert spec is not None
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+
+    image_path = tmp_path / "000001.jpg"
+    annotation_path = tmp_path / "000001.json"
+    Image.new("RGB", (100, 100)).save(image_path)
+    annotation = {
+        "item1": {
+            "category_id": 1,
+            "category_name": "short sleeve top",
+            "bounding_box": [20, 10, 80, 90],
+            "segmentation": [[20, 10, 80, 10, 80, 90, 20, 90]],
+            "landmarks": [
+                30,
+                20,
+                2,
+                40,
+                20,
+                2,
+                50,
+                20,
+                2,
+                60,
+                20,
+                2,
+                70,
+                20,
+                2,
+                75,
+                20,
+                2,
+            ],
+        }
+    }
+
+    records = module.build_records_for_annotation(
+        image_path,
+        annotation_path,
+        annotation,
+        ["neckline"],
+    )
+
+    assert len(records) == 3
+    assert {record["query"] for record in records} == set(
+        module.QUERY_TEMPLATES["neckline"]
+    )
+    assert records[0]["region"] == "neckline"
+    assert records[0]["source"] == "landmark_pseudo_label"
+    assert records[0]["region_box"]

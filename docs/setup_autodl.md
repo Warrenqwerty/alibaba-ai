@@ -57,4 +57,20 @@ This weak evaluation compares predicted local-region masks with approximate
 DeepFashion2 landmark-derived labels for queries such as neckline, hem, and
 shoulder. Treat it as a debugging metric, not the final PRD accuracy number.
 
+Build weak query-region records for the learned `3.1.2` ranker:
+
+```bash
+cd /root/projects/alibaba-ai
+git pull
+python scripts/data/build_deepfashion2_local_region_queries.py \
+  --image-dir /root/autodl-tmp/datasets/DeepFashion2/train/image \
+  --anno-dir /root/autodl-tmp/datasets/DeepFashion2/train/annos \
+  --output /root/autodl-tmp/outputs/local_region_train_queries.jsonl
+```
+
+The JSONL records contain image paths, item keys, Chinese query templates,
+garment boxes, weak local-region boxes, and whether the region came from
+landmarks or rule fallback. Use this as the first weak supervision source for
+the learned text-region matching baseline.
+
 AutoDL dataset and checkpoint paths are configured in `configs/paths.autodl.yaml`.

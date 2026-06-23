@@ -100,3 +100,12 @@ python scripts/eval/evaluate_local_region_weak_labels.py \
   --max-images 50 \
   --output /root/autodl-tmp/outputs/local_region_weak_eval.json
 ```
+
+Build weak query-region records for a learned 3.1.2 ranker:
+
+```bash
+python scripts/data/build_deepfashion2_local_region_queries.py \
+  --image-dir /root/autodl-tmp/datasets/DeepFashion2/train/image \
+  --anno-dir /root/autodl-tmp/datasets/DeepFashion2/train/annos \
+  --output /root/autodl-tmp/outputs/local_region_train_queries.jsonl
+```
