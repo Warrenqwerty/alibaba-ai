@@ -14,6 +14,7 @@ from fashion_mm.models.local_region.predictor import select_garment_instance
 from fashion_mm.models.local_region.query import ParsedRegionQuery
 from fashion_mm.models.local_region.query import parse_region_query
 from fashion_mm.models.local_region.ranker import HeuristicRegionRanker
+from fashion_mm.models.local_region.ranker import LearnedRegionRanker
 from fashion_mm.models.local_region.ranker import RankedRegionCandidate
 
 __all__ = [
@@ -25,6 +26,7 @@ __all__ = [
     "ParsedRegionQuery",
     "RankedRegionCandidate",
     "HeuristicRegionRanker",
+    "LearnedRegionRanker",
     "box_iou",
     "build_pair_feature",
     "candidate_boxes_from_garment",

@@ -8,6 +8,7 @@ from statistics import mean
 from typing import Any
 
 from fashion_mm.models.instance_segmentation import FashionInstanceSegmentationPredictor
+from fashion_mm.models.local_region import LearnedRegionRanker
 from fashion_mm.models.local_region import localize_region_from_instances
 from fashion_mm.models.local_region.visualization import draw_local_region_result
 from fashion_mm.utils.config import load_config
@@ -42,6 +43,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--checkpoint", required=True)
     parser.add_argument("--device", default=None)
+    parser.add_argument(
+        "--ranker-checkpoint",
+        default=None,
+        help="Optional lightweight learned local-region ranker checkpoint.",
+    )
     parser.add_argument("--max-images", type=int, default=20)
     parser.add_argument(
         "--output",
@@ -108,6 +114,11 @@ def main() -> None:
         checkpoint_path=args.checkpoint,
         device=args.device,
     )
+    ranker = (
+        LearnedRegionRanker(args.ranker_checkpoint, device=args.device)
+        if args.ranker_checkpoint
+        else None
+    )
 
     records: list[dict[str, Any]] = []
     segmentation_times: list[float] = []
@@ -116,7 +127,7 @@ def main() -> None:
         segmentation = predictor.predict(image_path)
         segmentation_times.append(segmentation.inference_time_ms)
         for query in args.queries:
-            result = localize_region_from_instances(segmentation, query)
+            result = localize_region_from_instances(segmentation, query, ranker=ranker)
             record = {
                 "image": str(image_path),
                 "query_text": query,

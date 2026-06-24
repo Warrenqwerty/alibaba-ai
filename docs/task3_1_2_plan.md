@@ -188,6 +188,11 @@ be staged:
      - JSONL records: 2,808,252.
      - Region counts: neckline 936,336; hem 935,478; shoulder 936,438.
      - Source counts: landmark pseudo labels 2,231,694; rule fallback 576,558.
+   - Lightweight learned hash text-geometry ranker:
+     - 50k-record smoke result: validation top-1 box IoU 0.3540.
+     - 500k-record offset-validation result: validation top-1 box IoU 0.3560.
+     - This is stable enough to integrate as an optional inference backend,
+       while the next model upgrade should use image-region embeddings.
    - This confirms the weak metric is sensitive enough for heuristic iteration,
      but the remaining gap should be handled by learned text-region matching.
 

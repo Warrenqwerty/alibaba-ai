@@ -10,6 +10,7 @@ from fashion_mm.models.local_region.proposal import generate_open_vocab_candidat
 from fashion_mm.models.local_region.query import ParsedRegionQuery
 from fashion_mm.models.local_region.query import parse_region_query
 from fashion_mm.models.local_region.ranker import HeuristicRegionRanker
+from fashion_mm.models.local_region.ranker import LearnedRegionRanker
 from fashion_mm.models.local_region.ranker import RankedRegionCandidate
 
 
@@ -61,6 +62,7 @@ class LocalRegionResult:
 def localize_region_from_instances(
     segmentation: SegmentationResult,
     query: str,
+    ranker: HeuristicRegionRanker | LearnedRegionRanker | None = None,
 ) -> LocalRegionResult:
     """Localize a queried local region from existing garment instances."""
     start = time.perf_counter()
@@ -83,8 +85,8 @@ def localize_region_from_instances(
         selected_instance.mask,
         selected_instance.box,
     )
-    ranker = HeuristicRegionRanker()
-    ranked_candidates = ranker.rank(parsed_query, candidates)
+    ranker = ranker or HeuristicRegionRanker()
+    ranked_candidates = ranker.rank(parsed_query, candidates, selected_instance.box)
     proposal = ranked_candidates[0] if ranked_candidates else None
     status = "ok" if proposal is not None else "no_region_candidate"
     return _result(

@@ -123,3 +123,15 @@ python scripts/train/train_local_region_ranker.py \
 ```
 
 Use `--val-offset` to evaluate on a later JSONL slice during larger runs.
+
+Use a learned ranker checkpoint during 3.1.2 evaluation:
+
+```bash
+python scripts/eval/evaluate_local_region_queries.py \
+  --image-dir /root/autodl-tmp/datasets/DeepFashion2/validation/image \
+  --checkpoint /root/autodl-tmp/checkpoints/deepfashion2_6class_hard_mining/instance_segmentation/epoch_001.pt \
+  --ranker-checkpoint /root/autodl-tmp/checkpoints/local_region_ranker/hash_text_geometry_500k.pt \
+  --device cuda \
+  --max-images 20 \
+  --output /root/autodl-tmp/outputs/local_region_query_eval_learned.json
+```

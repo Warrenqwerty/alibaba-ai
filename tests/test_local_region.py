@@ -1,4 +1,5 @@
 import numpy as np
+import torch
 from PIL import Image
 from types import SimpleNamespace
 
@@ -7,6 +8,8 @@ from fashion_mm.models.instance_segmentation import SegmentationResult
 from fashion_mm.models.local_region import box_iou
 from fashion_mm.models.local_region import build_pair_feature
 from fashion_mm.models.local_region import candidate_boxes_from_garment
+from fashion_mm.models.local_region import HashingTextRegionScorer
+from fashion_mm.models.local_region import LearnedRegionRanker
 from fashion_mm.models.local_region import localize_region_from_instances
 from fashion_mm.models.local_region import parse_region_query
 from fashion_mm.models.local_region import propose_local_region
@@ -515,3 +518,38 @@ def test_train_local_region_ranker_stream_limit_preserves_train_count():
 
     assert module._train_stream_limit(50000, 2000, 0) == 52000
     assert module._train_stream_limit(500000, 10000, 500000) == 500000
+
+
+def test_localize_region_from_instances_accepts_learned_ranker(tmp_path):
+    checkpoint_path = tmp_path / "ranker.pt"
+    model = HashingTextRegionScorer(num_buckets=32, hidden_dim=16)
+    torch.save(
+        {
+            "model_state_dict": model.state_dict(),
+            "num_buckets": 32,
+            "hidden_dim": 16,
+        },
+        checkpoint_path,
+    )
+    mask = np.zeros((100, 100), dtype=bool)
+    mask[10:90, 10:90] = True
+    instance = FashionInstance(
+        mask=mask,
+        box=(10.0, 10.0, 90.0, 90.0),
+        label_id=1,
+        label_name="top",
+        score=0.95,
+    )
+    segmentation = SegmentationResult(image_size=(100, 100), instances=[instance])
+
+    ranker = LearnedRegionRanker(checkpoint_path, device="cpu")
+    result = localize_region_from_instances(
+        segmentation,
+        "这件衣服的领口",
+        ranker=ranker,
+    )
+
+    assert result.status == "ok"
+    assert result.ranker_backend == "learned_hash_text_geometry_ranker"
+    assert result.proposal is not None
+    assert result.candidates

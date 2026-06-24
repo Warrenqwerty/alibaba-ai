@@ -95,6 +95,9 @@ vision-language dependencies.
 Initial 50k-record smoke result: loss `0.4699`, validation top-1 box IoU
 `0.3540`.
 
+500k-record offset-validation result: loss `0.4465`, validation top-1 box IoU
+`0.3560`.
+
 For a larger run with a later validation slice:
 
 ```bash
@@ -106,6 +109,19 @@ python scripts/train/train_local_region_ranker.py \
   --val-records 10000 \
   --val-offset 500000 \
   --num-epochs 1
+```
+
+Run sanity evaluation with the learned ranker checkpoint:
+
+```bash
+python scripts/eval/evaluate_local_region_queries.py \
+  --image-dir /root/autodl-tmp/datasets/DeepFashion2/validation/image \
+  --checkpoint /root/autodl-tmp/checkpoints/deepfashion2_6class_hard_mining/instance_segmentation/epoch_001.pt \
+  --ranker-checkpoint /root/autodl-tmp/checkpoints/local_region_ranker/hash_text_geometry_500k.pt \
+  --device cuda \
+  --max-images 20 \
+  --output /root/autodl-tmp/outputs/local_region_query_eval_learned.json \
+  --vis-dir /root/autodl-tmp/outputs/local_region_vis_learned
 ```
 
 AutoDL dataset and checkpoint paths are configured in `configs/paths.autodl.yaml`.

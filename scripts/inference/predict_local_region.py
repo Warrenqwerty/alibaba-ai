@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 from fashion_mm.models.instance_segmentation import FashionInstanceSegmentationPredictor
+from fashion_mm.models.local_region import LearnedRegionRanker
 from fashion_mm.models.local_region import localize_region_from_instances
 from fashion_mm.models.local_region.visualization import draw_local_region_result
 from fashion_mm.utils.config import load_config
@@ -22,6 +23,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--checkpoint", required=True)
     parser.add_argument("--device", default=None)
+    parser.add_argument(
+        "--ranker-checkpoint",
+        default=None,
+        help="Optional lightweight learned local-region ranker checkpoint.",
+    )
     parser.add_argument("--output", default=None)
     parser.add_argument("--vis-output", default=None)
     parser.add_argument("--include-mask", action="store_true")
@@ -36,8 +42,13 @@ def main() -> None:
         checkpoint_path=args.checkpoint,
         device=args.device,
     )
+    ranker = (
+        LearnedRegionRanker(args.ranker_checkpoint, device=args.device)
+        if args.ranker_checkpoint
+        else None
+    )
     segmentation = predictor.predict(args.image)
-    result = localize_region_from_instances(segmentation, args.query)
+    result = localize_region_from_instances(segmentation, args.query, ranker=ranker)
     payload = {
         "image": str(Path(args.image)),
         "segmentation_inference_time_ms": segmentation.inference_time_ms,

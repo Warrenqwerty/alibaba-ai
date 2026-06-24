@@ -1,7 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
+import torch
+
+from fashion_mm.models.local_region.learned_ranker import BoxCandidate
+from fashion_mm.models.local_region.learned_ranker import build_pair_feature
+from fashion_mm.models.local_region.learned_ranker import HashingTextRegionScorer
 from fashion_mm.models.local_region.proposal import LocalRegionProposal
 from fashion_mm.models.local_region.query import ParsedRegionQuery
 
@@ -63,6 +69,7 @@ class HeuristicRegionRanker:
         self,
         query: ParsedRegionQuery,
         candidates: list[LocalRegionProposal],
+        garment_box: tuple[float, float, float, float] | None = None,
     ) -> list[RankedRegionCandidate]:
         ranked = [
             RankedRegionCandidate(
@@ -141,6 +148,66 @@ class HeuristicRegionRanker:
         if any(hint in query.query for hint in REGION_TEXT_HINTS.get(candidate.region, ())):
             return "raw query keyword matched candidate"
         return "generic open-vocabulary candidate"
+
+
+class LearnedRegionRanker:
+    """Checkpoint-backed lightweight text-region ranker for 3.1.2."""
+
+    backend_name = "learned_hash_text_geometry_ranker"
+
+    def __init__(
+        self,
+        checkpoint_path: str | Path,
+        device: str | torch.device | None = None,
+    ) -> None:
+        self.checkpoint_path = Path(checkpoint_path)
+        self.device = torch.device(
+            device or ("cuda" if torch.cuda.is_available() else "cpu")
+        )
+        checkpoint = torch.load(self.checkpoint_path, map_location="cpu")
+        self.num_buckets = int(checkpoint.get("num_buckets", 256))
+        self.hidden_dim = int(checkpoint.get("hidden_dim", 128))
+        self.model = HashingTextRegionScorer(
+            num_buckets=self.num_buckets,
+            hidden_dim=self.hidden_dim,
+        ).to(self.device)
+        self.model.load_state_dict(checkpoint["model_state_dict"])
+        self.model.eval()
+
+    def rank(
+        self,
+        query: ParsedRegionQuery,
+        candidates: list[LocalRegionProposal],
+        garment_box: tuple[float, float, float, float] | None = None,
+    ) -> list[RankedRegionCandidate]:
+        if garment_box is None:
+            raise ValueError("garment_box is required for LearnedRegionRanker")
+
+        ranked: list[RankedRegionCandidate] = []
+        with torch.no_grad():
+            for candidate in candidates:
+                if candidate.box is None:
+                    continue
+                feature = build_pair_feature(
+                    query.query,
+                    BoxCandidate(candidate.region, candidate.box),
+                    garment_box,
+                    num_buckets=self.num_buckets,
+                ).to(self.device)
+                score = float(self.model(feature.unsqueeze(0)).detach().cpu()[0])
+                ranked.append(
+                    RankedRegionCandidate(
+                        proposal=candidate,
+                        score=round(score, 4),
+                        reason="learned hash text-geometry score",
+                    )
+                )
+
+        return sorted(
+            ranked,
+            key=lambda item: (item.score, item.proposal.confidence, _area(item.proposal)),
+            reverse=True,
+        )
 
 
 def _area(proposal: LocalRegionProposal) -> int:
