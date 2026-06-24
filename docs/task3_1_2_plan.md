@@ -203,6 +203,11 @@ be staged:
        tuned heuristic 0.2818 because shoulder dropped to 0.2477. Therefore the
        current learned scorer should be used only for neckline/hem, with
        heuristic fallback for shoulder until image-region features are added.
+     - 200-image neckline/hem-only hybrid result: average weak IoU 0.2822,
+       neckline 0.3013, hem 0.2788, shoulder 0.2665. This recovers the tuned
+       heuristic baseline and gives only a very small gain, so the lightweight
+       text-geometry scorer should be treated as a bridge rather than the final
+       learned localizer.
    - This confirms the weak metric is sensitive enough for heuristic iteration,
      but the remaining gap should be handled by learned text-region matching.
 

@@ -146,4 +146,8 @@ ranker to preserve coverage.
 `16.93 ms`, and open-query outputs remain diverse instead of collapsing to the
 whole garment.
 
+200-image neckline/hem-only hybrid weak-label result: average weak IoU `0.2822`.
+This recovers the tuned heuristic baseline, but the gain is too small to treat
+the hash text-geometry scorer as the final model.
+
 AutoDL dataset and checkpoint paths are configured in `configs/paths.autodl.yaml`.
