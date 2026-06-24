@@ -111,7 +111,7 @@ python scripts/train/train_local_region_ranker.py \
   --num-epochs 1
 ```
 
-Run sanity evaluation with the learned ranker checkpoint:
+Run sanity evaluation with the hybrid learned ranker checkpoint:
 
 ```bash
 python scripts/eval/evaluate_local_region_queries.py \
@@ -123,5 +123,10 @@ python scripts/eval/evaluate_local_region_queries.py \
   --output /root/autodl-tmp/outputs/local_region_query_eval_learned.json \
   --vis-dir /root/autodl-tmp/outputs/local_region_vis_learned
 ```
+
+The learned checkpoint is used for regions seen during weak training
+(`neckline`, `hem`, `shoulder`). Other open-vocabulary queries, such as cuff,
+pocket, zipper, and pattern, fall back to the heuristic ranker to preserve
+coverage.
 
 AutoDL dataset and checkpoint paths are configured in `configs/paths.autodl.yaml`.

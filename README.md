@@ -124,7 +124,7 @@ python scripts/train/train_local_region_ranker.py \
 
 Use `--val-offset` to evaluate on a later JSONL slice during larger runs.
 
-Use a learned ranker checkpoint during 3.1.2 evaluation:
+Use a hybrid learned ranker checkpoint during 3.1.2 evaluation:
 
 ```bash
 python scripts/eval/evaluate_local_region_queries.py \

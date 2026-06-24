@@ -193,6 +193,9 @@ be staged:
      - 500k-record offset-validation result: validation top-1 box IoU 0.3560.
      - This is stable enough to integrate as an optional inference backend,
        while the next model upgrade should use image-region embeddings.
+     - Because weak training currently covers neckline, hem, and shoulder only,
+       production inference should use a hybrid backend: learned scorer for
+       trained regions and heuristic fallback for open queries.
    - This confirms the weak metric is sensitive enough for heuristic iteration,
      but the remaining gap should be handled by learned text-region matching.
 

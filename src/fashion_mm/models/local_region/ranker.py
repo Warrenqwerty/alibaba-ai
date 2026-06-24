@@ -39,6 +39,8 @@ REGION_EQUIVALENTS = {
     "pocket": ("left_pocket", "right_pocket", "left", "right", "center"),
 }
 
+LEARNED_SUPPORTED_REGIONS = {"neckline", "hem", "shoulder"}
+
 
 @dataclass(frozen=True)
 class RankedRegionCandidate:
@@ -153,7 +155,7 @@ class HeuristicRegionRanker:
 class LearnedRegionRanker:
     """Checkpoint-backed lightweight text-region ranker for 3.1.2."""
 
-    backend_name = "learned_hash_text_geometry_ranker"
+    backend_name = "hybrid_learned_hash_text_geometry_ranker"
 
     def __init__(
         self,
@@ -173,6 +175,7 @@ class LearnedRegionRanker:
         ).to(self.device)
         self.model.load_state_dict(checkpoint["model_state_dict"])
         self.model.eval()
+        self.fallback_ranker = HeuristicRegionRanker()
 
     def rank(
         self,
@@ -180,6 +183,8 @@ class LearnedRegionRanker:
         candidates: list[LocalRegionProposal],
         garment_box: tuple[float, float, float, float] | None = None,
     ) -> list[RankedRegionCandidate]:
+        if query.region not in LEARNED_SUPPORTED_REGIONS:
+            return self._fallback_rank(query, candidates, garment_box)
         if garment_box is None:
             raise ValueError("garment_box is required for LearnedRegionRanker")
 
@@ -208,6 +213,22 @@ class LearnedRegionRanker:
             key=lambda item: (item.score, item.proposal.confidence, _area(item.proposal)),
             reverse=True,
         )
+
+    def _fallback_rank(
+        self,
+        query: ParsedRegionQuery,
+        candidates: list[LocalRegionProposal],
+        garment_box: tuple[float, float, float, float] | None,
+    ) -> list[RankedRegionCandidate]:
+        ranked = self.fallback_ranker.rank(query, candidates, garment_box)
+        return [
+            RankedRegionCandidate(
+                proposal=item.proposal,
+                score=item.score,
+                reason=f"heuristic fallback for unsupported learned region: {item.reason}",
+            )
+            for item in ranked
+        ]
 
 
 def _area(proposal: LocalRegionProposal) -> int:
