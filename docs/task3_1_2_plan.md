@@ -196,6 +196,9 @@ be staged:
      - Because weak training currently covers neckline, hem, and shoulder only,
        production inference should use a hybrid backend: learned scorer for
        trained regions and heuristic fallback for open queries.
+     - 20-image hybrid sanity result: 140/140 ok, diverse selected regions
+       restored for cuff, pattern, zipper, and pocket, average local-region
+       latency 16.93 ms.
    - This confirms the weak metric is sensitive enough for heuristic iteration,
      but the remaining gap should be handled by learned text-region matching.
 

@@ -120,13 +120,17 @@ python scripts/eval/evaluate_local_region_queries.py \
   --ranker-checkpoint /root/autodl-tmp/checkpoints/local_region_ranker/hash_text_geometry_500k.pt \
   --device cuda \
   --max-images 20 \
-  --output /root/autodl-tmp/outputs/local_region_query_eval_learned.json \
-  --vis-dir /root/autodl-tmp/outputs/local_region_vis_learned
+  --output /root/autodl-tmp/outputs/local_region_query_eval_hybrid.json \
+  --vis-dir /root/autodl-tmp/outputs/local_region_vis_hybrid
 ```
 
 The learned checkpoint is used for regions seen during weak training
 (`neckline`, `hem`, `shoulder`). Other open-vocabulary queries, such as cuff,
 pocket, zipper, and pattern, fall back to the heuristic ranker to preserve
 coverage.
+
+20-image hybrid sanity result: 140/140 ok, average local-region latency
+`16.93 ms`, and open-query outputs remain diverse instead of collapsing to the
+whole garment.
 
 AutoDL dataset and checkpoint paths are configured in `configs/paths.autodl.yaml`.
