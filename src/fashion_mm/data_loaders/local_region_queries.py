@@ -43,20 +43,29 @@ class LocalRegionQueryDataset:
 
     @staticmethod
     def _load_records(jsonl_path: Path) -> list[LocalRegionQueryRecord]:
-        records: list[LocalRegionQueryRecord] = []
-        with jsonl_path.open("r", encoding="utf-8") as file:
-            for line_number, line in enumerate(file, start=1):
-                stripped = line.strip()
-                if not stripped:
-                    continue
-                try:
-                    payload = json.loads(stripped)
-                except JSONDecodeError as error:
-                    raise ValueError(
-                        f"Invalid JSON at {jsonl_path}:{line_number}"
-                    ) from error
-                records.append(_record_from_payload(payload, jsonl_path, line_number))
-        return records
+        return list(iter_local_region_query_records(jsonl_path))
+
+
+def iter_local_region_query_records(
+    jsonl_path: str | Path,
+    max_records: int | None = None,
+):
+    """Stream weak local-region JSONL records without loading the full file."""
+    path = Path(jsonl_path)
+    yielded = 0
+    with path.open("r", encoding="utf-8") as file:
+        for line_number, line in enumerate(file, start=1):
+            stripped = line.strip()
+            if not stripped:
+                continue
+            try:
+                payload = json.loads(stripped)
+            except JSONDecodeError as error:
+                raise ValueError(f"Invalid JSON at {path}:{line_number}") from error
+            yield _record_from_payload(payload, path, line_number)
+            yielded += 1
+            if max_records is not None and yielded >= max_records:
+                return
 
 
 def _record_from_payload(

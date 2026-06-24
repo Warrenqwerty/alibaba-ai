@@ -1,8 +1,12 @@
 import numpy as np
 from PIL import Image
+from types import SimpleNamespace
 
 from fashion_mm.models.instance_segmentation import FashionInstance
 from fashion_mm.models.instance_segmentation import SegmentationResult
+from fashion_mm.models.local_region import box_iou
+from fashion_mm.models.local_region import build_pair_feature
+from fashion_mm.models.local_region import candidate_boxes_from_garment
 from fashion_mm.models.local_region import localize_region_from_instances
 from fashion_mm.models.local_region import parse_region_query
 from fashion_mm.models.local_region import propose_local_region
@@ -440,3 +444,54 @@ def test_build_deepfashion2_local_region_query_records(tmp_path):
     assert records[0]["region"] == "neckline"
     assert records[0]["source"] == "landmark_pseudo_label"
     assert records[0]["region_box"]
+
+
+def test_learned_ranker_candidate_features_and_iou():
+    garment_box = (10.0, 20.0, 110.0, 220.0)
+    candidates = candidate_boxes_from_garment(garment_box)
+    candidate_by_region = {candidate.region: candidate for candidate in candidates}
+
+    assert "neckline" in candidate_by_region
+    assert "shoulder" in candidate_by_region
+    assert box_iou(
+        candidate_by_region["neckline"].box,
+        candidate_by_region["neckline"].box,
+    ) == 1.0
+
+    feature = build_pair_feature(
+        "这件衣服的领口",
+        candidate_by_region["neckline"],
+        garment_box,
+        num_buckets=32,
+    )
+
+    assert feature.shape[0] == 32 * 2 + 6
+    assert float(feature.sum()) > 0.0
+
+
+def test_train_local_region_ranker_builds_examples():
+    import importlib.util
+    from pathlib import Path
+
+    script_path = (
+        Path(__file__).resolve().parents[1]
+        / "scripts"
+        / "train"
+        / "train_local_region_ranker.py"
+    )
+    spec = importlib.util.spec_from_file_location("local_region_ranker_train", script_path)
+    assert spec is not None
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+
+    record = SimpleNamespace(
+        query="这件衣服的领口",
+        garment_box=(0.0, 0.0, 100.0, 200.0),
+        region_box=(16.0, 0.0, 84.0, 44.0),
+    )
+    examples = list(module.build_training_examples(record, num_buckets=32))
+
+    assert len(examples) > 1
+    assert examples[0][0].shape[0] == 32 * 2 + 6
+    assert max(target for _, target in examples) == 1.0

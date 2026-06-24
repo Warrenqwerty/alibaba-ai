@@ -73,4 +73,23 @@ garment boxes, weak local-region boxes, and whether the region came from
 landmarks or rule fallback. Use this as the first weak supervision source for
 the learned text-region matching baseline.
 
+Train a lightweight learned text-region ranker:
+
+```bash
+cd /root/projects/alibaba-ai
+git pull
+python scripts/train/train_local_region_ranker.py \
+  --records /root/autodl-tmp/outputs/local_region_train_queries.jsonl \
+  --output /root/autodl-tmp/checkpoints/local_region_ranker/hash_text_geometry.pt \
+  --device cuda \
+  --max-records 50000 \
+  --val-records 2000 \
+  --num-epochs 1
+```
+
+This first learned baseline uses hashed Chinese query text plus normalized
+candidate geometry. It is not the final DINOv2/CLIP-style ranker, but it gives
+a trainable checkpoint and top-1 weak IoU metric before adding heavier
+vision-language dependencies.
+
 AutoDL dataset and checkpoint paths are configured in `configs/paths.autodl.yaml`.

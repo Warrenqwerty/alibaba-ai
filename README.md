@@ -109,3 +109,15 @@ python scripts/data/build_deepfashion2_local_region_queries.py \
   --anno-dir /root/autodl-tmp/datasets/DeepFashion2/train/annos \
   --output /root/autodl-tmp/outputs/local_region_train_queries.jsonl
 ```
+
+Train the lightweight learned ranker:
+
+```bash
+python scripts/train/train_local_region_ranker.py \
+  --records /root/autodl-tmp/outputs/local_region_train_queries.jsonl \
+  --output /root/autodl-tmp/checkpoints/local_region_ranker/hash_text_geometry.pt \
+  --device cuda \
+  --max-records 50000 \
+  --val-records 2000 \
+  --num-epochs 1
+```
