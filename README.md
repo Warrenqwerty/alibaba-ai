@@ -127,6 +127,15 @@ python scripts/train/train_local_region_ranker.py \
 
 Use `--val-offset` to evaluate on a later JSONL slice during larger runs.
 
+Export candidate-level records for the next vision-language local-region ranker:
+
+```bash
+python scripts/data/build_local_region_candidate_records.py \
+  --records /root/autodl-tmp/outputs/local_region_train_queries.jsonl \
+  --output /root/autodl-tmp/outputs/local_region_train_candidates.jsonl \
+  --max-records 500000
+```
+
 Use a hybrid learned ranker checkpoint during 3.1.2 evaluation:
 
 ```bash

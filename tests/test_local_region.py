@@ -2,6 +2,7 @@ import numpy as np
 import torch
 from PIL import Image
 from types import SimpleNamespace
+import json
 
 from fashion_mm.models.instance_segmentation import FashionInstance
 from fashion_mm.models.instance_segmentation import SegmentationResult
@@ -246,6 +247,66 @@ def test_local_region_eval_collects_visible_images(tmp_path):
     image_paths = module.collect_images(tmp_path, max_images=None)
 
     assert [path.name for path in image_paths] == ["000001.jpg", "000002.png"]
+
+
+def test_build_local_region_candidate_records_exports_iou_labels(tmp_path):
+    import importlib.util
+    from pathlib import Path
+
+    script_path = (
+        Path(__file__).resolve().parents[1]
+        / "scripts"
+        / "data"
+        / "build_local_region_candidate_records.py"
+    )
+    spec = importlib.util.spec_from_file_location(
+        "build_local_region_candidate_records",
+        script_path,
+    )
+    assert spec is not None
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+
+    input_path = tmp_path / "queries.jsonl"
+    output_path = tmp_path / "candidates.jsonl"
+    record = {
+        "image": "/data/image/000001.jpg",
+        "annotation": "/data/annos/000001.json",
+        "item_key": "item1",
+        "query": "这件衣服的领口",
+        "region": "neckline",
+        "garment_box": [10.0, 20.0, 110.0, 220.0],
+        "region_box": [26.0, 20.0, 94.0, 64.0],
+        "source": "landmark_pseudo_label",
+        "confidence": 0.9,
+        "category_id": 1,
+        "category_name": "top",
+    }
+    input_path.write_text(json.dumps(record, ensure_ascii=False) + "\n", encoding="utf-8")
+
+    summary = module.build_candidate_records(
+        input_path,
+        output_path,
+        max_records=None,
+        skip_records=0,
+        positive_iou_threshold=0.9,
+    )
+    rows = [
+        json.loads(line)
+        for line in output_path.read_text(encoding="utf-8").splitlines()
+        if line
+    ]
+
+    assert summary["num_query_records"] == 1
+    assert summary["num_candidate_records"] == len(
+        candidate_boxes_from_garment((10.0, 20.0, 110.0, 220.0))
+    )
+    assert summary["label_counts"]["1"] == 1
+    positives = [row for row in rows if row["label"] == 1]
+    assert len(positives) == 1
+    assert positives[0]["candidate_region"] == "neckline"
+    assert positives[0]["iou"] == 1.0
 
 
 def test_local_region_eval_summarizes_records():

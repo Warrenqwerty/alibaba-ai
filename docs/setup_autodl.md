@@ -150,4 +150,19 @@ whole garment.
 This recovers the tuned heuristic baseline, but the gain is too small to treat
 the hash text-geometry scorer as the final model.
 
+Export candidate-level records for the next CLIP/OpenCLIP or DINOv2
+text-region ranker:
+
+```bash
+python scripts/data/build_local_region_candidate_records.py \
+  --records /root/autodl-tmp/outputs/local_region_train_queries.jsonl \
+  --output /root/autodl-tmp/outputs/local_region_train_candidates.jsonl \
+  --max-records 500000
+```
+
+Each input query record is expanded into candidate boxes with IoU labels against
+the weak region box. This keeps image paths and candidate boxes together, so the
+next training script can crop candidate regions and learn image-text matching
+instead of relying only on geometry.
+
 AutoDL dataset and checkpoint paths are configured in `configs/paths.autodl.yaml`.
