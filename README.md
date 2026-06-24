@@ -101,6 +101,9 @@ python scripts/eval/evaluate_local_region_weak_labels.py \
   --output /root/autodl-tmp/outputs/local_region_weak_eval.json
 ```
 
+Add `--ranker-checkpoint /root/autodl-tmp/checkpoints/local_region_ranker/hash_text_geometry_500k.pt`
+to evaluate the hybrid learned ranker on the same weak-label metric.
+
 Build weak query-region records for a learned 3.1.2 ranker:
 
 ```bash

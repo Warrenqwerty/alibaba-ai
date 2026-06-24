@@ -53,6 +53,19 @@ python scripts/eval/evaluate_local_region_weak_labels.py \
   --output /root/autodl-tmp/outputs/local_region_weak_eval.json
 ```
 
+Weak-label evaluation with the hybrid learned ranker:
+
+```bash
+python scripts/eval/evaluate_local_region_weak_labels.py \
+  --image-dir /root/autodl-tmp/datasets/DeepFashion2/validation/image \
+  --anno-dir /root/autodl-tmp/datasets/DeepFashion2/validation/annos \
+  --checkpoint /root/autodl-tmp/checkpoints/deepfashion2_6class_hard_mining/instance_segmentation/epoch_001.pt \
+  --ranker-checkpoint /root/autodl-tmp/checkpoints/local_region_ranker/hash_text_geometry_500k.pt \
+  --device cuda \
+  --max-images 200 \
+  --output /root/autodl-tmp/outputs/local_region_weak_eval_hybrid_200.json
+```
+
 This weak evaluation compares predicted local-region masks with approximate
 DeepFashion2 landmark-derived labels for queries such as neckline, hem, and
 shoulder. Treat it as a debugging metric, not the final PRD accuracy number.

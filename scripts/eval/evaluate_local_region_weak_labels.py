@@ -13,6 +13,7 @@ from PIL import Image, ImageDraw
 
 from fashion_mm.models.instance_segmentation import FashionInstance
 from fashion_mm.models.instance_segmentation import FashionInstanceSegmentationPredictor
+from fashion_mm.models.local_region import LearnedRegionRanker
 from fashion_mm.models.local_region import localize_region_from_instances
 from fashion_mm.models.local_region import parse_region_query
 from fashion_mm.models.local_region import propose_region_from_landmarks
@@ -53,6 +54,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--checkpoint", required=True)
     parser.add_argument("--device", default=None)
+    parser.add_argument(
+        "--ranker-checkpoint",
+        default=None,
+        help="Optional lightweight learned local-region ranker checkpoint.",
+    )
     parser.add_argument("--max-images", type=int, default=50)
     parser.add_argument(
         "--output",
@@ -150,6 +156,11 @@ def mask_iou(mask_a: np.ndarray, mask_b: np.ndarray) -> float:
 def summarize_records(records: list[dict[str, Any]]) -> dict[str, Any]:
     """Summarize weak-label local-region evaluation records."""
     status_counts = Counter(record["status"] for record in records)
+    ranker_backends = Counter(
+        record["ranker_backend"]
+        for record in records
+        if record.get("ranker_backend") is not None
+    )
     weak_label_sources = Counter(
         record["weak_label_source"]
         for record in records
@@ -173,6 +184,7 @@ def summarize_records(records: list[dict[str, Any]]) -> dict[str, Any]:
     summary: dict[str, Any] = {
         "num_records": len(records),
         "status_counts": dict(status_counts),
+        "ranker_backend_counts": dict(ranker_backends),
         "weak_label_source_counts": dict(weak_label_sources),
         "avg_garment_iou": mean(garment_ious) if garment_ious else 0.0,
         "avg_weak_iou": mean(weak_ious) if weak_ious else 0.0,
@@ -227,6 +239,11 @@ def main() -> None:
         checkpoint_path=args.checkpoint,
         device=args.device,
     )
+    ranker = (
+        LearnedRegionRanker(args.ranker_checkpoint, device=args.device)
+        if args.ranker_checkpoint
+        else None
+    )
 
     records: list[dict[str, Any]] = []
     for annotation_path in annotation_paths:
@@ -237,13 +254,14 @@ def main() -> None:
 
         for query in args.queries:
             parsed_query = parse_region_query(query)
-            result = localize_region_from_instances(segmentation, query)
+            result = localize_region_from_instances(segmentation, query, ranker=ranker)
             record: dict[str, Any] = {
                 "image": str(image_path),
                 "annotation": str(annotation_path),
                 "query_text": query,
                 "parsed_region": parsed_query.region,
                 "status": result.status,
+                "ranker_backend": result.ranker_backend,
                 "selected_region": (
                     result.proposal.proposal.region if result.proposal else None
                 ),

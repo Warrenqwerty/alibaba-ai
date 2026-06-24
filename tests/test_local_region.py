@@ -346,6 +346,7 @@ def test_local_region_weak_eval_summarizes_records():
         [
             {
                 "status": "ok",
+                "ranker_backend": "heuristic",
                 "parsed_region": "neckline",
                 "weak_label_source": "landmark_pseudo_label",
                 "garment_iou": 0.8,
@@ -353,6 +354,7 @@ def test_local_region_weak_eval_summarizes_records():
             },
             {
                 "status": "ok",
+                "ranker_backend": "hybrid",
                 "parsed_region": "neckline",
                 "weak_label_source": "rule_baseline",
                 "garment_iou": 0.6,
@@ -360,6 +362,7 @@ def test_local_region_weak_eval_summarizes_records():
             },
             {
                 "status": "ok",
+                "ranker_backend": "hybrid",
                 "parsed_region": "hem",
                 "weak_label_source": "landmark_pseudo_label",
                 "garment_iou": 0.7,
@@ -370,6 +373,7 @@ def test_local_region_weak_eval_summarizes_records():
 
     assert summary["num_records"] == 3
     assert summary["status_counts"] == {"ok": 3}
+    assert summary["ranker_backend_counts"] == {"heuristic": 1, "hybrid": 2}
     assert summary["weak_label_source_counts"] == {
         "landmark_pseudo_label": 2,
         "rule_baseline": 1,
