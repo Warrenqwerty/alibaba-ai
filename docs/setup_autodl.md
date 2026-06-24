@@ -165,4 +165,29 @@ the weak region box. This keeps image paths and candidate boxes together, so the
 next training script can crop candidate regions and learn image-text matching
 instead of relying only on geometry.
 
+Install the Chinese-CLIP dependencies:
+
+```bash
+pip install "transformers>=4.37.0" sentencepiece
+```
+
+Evaluate frozen Chinese-CLIP candidate reranking:
+
+```bash
+HF_ENDPOINT=https://hf-mirror.com \
+python scripts/eval/evaluate_chinese_clip_local_region_ranker.py \
+  --candidates /root/autodl-tmp/outputs/local_region_train_candidates.jsonl \
+  --model-name OFA-Sys/chinese-clip-vit-base-patch16 \
+  --device cuda \
+  --max-groups 2000 \
+  --output /root/autodl-tmp/outputs/local_region_chinese_clip_eval_2k.json
+```
+
+This baseline uses the Chinese query directly, crops each candidate box, and
+ranks candidates by Chinese-CLIP image-text cosine similarity. It is a stronger
+fit than OpenCLIP here because the 3.1.2 queries are Chinese.
+
+If the mirror is unavailable, download `OFA-Sys/chinese-clip-vit-base-patch16`
+to an AutoDL-local directory and pass that directory with `--model-name`.
+
 AutoDL dataset and checkpoint paths are configured in `configs/paths.autodl.yaml`.

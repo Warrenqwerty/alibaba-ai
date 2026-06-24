@@ -136,6 +136,19 @@ python scripts/data/build_local_region_candidate_records.py \
   --max-records 500000
 ```
 
+Install and evaluate Chinese-CLIP candidate reranking:
+
+```bash
+pip install "transformers>=4.37.0" sentencepiece
+HF_ENDPOINT=https://hf-mirror.com \
+python scripts/eval/evaluate_chinese_clip_local_region_ranker.py \
+  --candidates /root/autodl-tmp/outputs/local_region_train_candidates.jsonl \
+  --model-name OFA-Sys/chinese-clip-vit-base-patch16 \
+  --device cuda \
+  --max-groups 2000 \
+  --output /root/autodl-tmp/outputs/local_region_chinese_clip_eval_2k.json
+```
+
 Use a hybrid learned ranker checkpoint during 3.1.2 evaluation:
 
 ```bash

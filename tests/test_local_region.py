@@ -309,6 +309,78 @@ def test_build_local_region_candidate_records_exports_iou_labels(tmp_path):
     assert positives[0]["iou"] == 1.0
 
 
+def test_chinese_clip_local_region_ranker_groups_candidates(tmp_path):
+    import importlib.util
+    from pathlib import Path
+
+    script_path = (
+        Path(__file__).resolve().parents[1]
+        / "scripts"
+        / "eval"
+        / "evaluate_chinese_clip_local_region_ranker.py"
+    )
+    spec = importlib.util.spec_from_file_location(
+        "evaluate_chinese_clip_local_region_ranker",
+        script_path,
+    )
+    assert spec is not None
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+
+    image_path = tmp_path / "image.jpg"
+    Image.new("RGB", (20, 20), color=(120, 80, 40)).save(image_path)
+    candidates_path = tmp_path / "candidates.jsonl"
+    rows = [
+        {
+            "image": str(image_path),
+            "annotation": "/data/annos/000001.json",
+            "item_key": "item1",
+            "query": "这件衣服的领口",
+            "target_region": "neckline",
+            "target_region_box": [2.0, 0.0, 18.0, 5.0],
+            "garment_box": [0.0, 0.0, 20.0, 20.0],
+            "candidate_region": "neckline",
+            "candidate_box": [2.0, 0.0, 18.0, 5.0],
+            "iou": 1.0,
+            "label": 1,
+            "weak_label_source": "landmark_pseudo_label",
+            "weak_label_confidence": 0.9,
+            "category_id": 1,
+            "category_name": "top",
+        },
+        {
+            "image": str(image_path),
+            "annotation": "/data/annos/000001.json",
+            "item_key": "item1",
+            "query": "这件衣服的领口",
+            "target_region": "neckline",
+            "target_region_box": [2.0, 0.0, 18.0, 5.0],
+            "garment_box": [0.0, 0.0, 20.0, 20.0],
+            "candidate_region": "hem",
+            "candidate_box": [0.0, 15.0, 20.0, 20.0],
+            "iou": 0.0,
+            "label": 0,
+            "weak_label_source": "landmark_pseudo_label",
+            "weak_label_confidence": 0.9,
+            "category_id": 1,
+            "category_name": "top",
+        },
+    ]
+    candidates_path.write_text(
+        "\n".join(json.dumps(row, ensure_ascii=False) for row in rows),
+        encoding="utf-8",
+    )
+
+    groups = list(module.iter_candidate_groups(candidates_path))
+    crop = module.crop_candidate(Image.open(image_path), (-5.0, -2.0, 10.0, 10.0))
+
+    assert len(groups) == 1
+    assert len(groups[0]) == 2
+    assert groups[0][0].candidate_region == "neckline"
+    assert crop.size == (10, 10)
+
+
 def test_local_region_eval_summarizes_records():
     import importlib.util
     from pathlib import Path
