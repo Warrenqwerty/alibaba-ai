@@ -35,6 +35,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--batch-size", type=int, default=512)
     parser.add_argument("--max-records", type=int, default=50000)
     parser.add_argument("--val-records", type=int, default=2000)
+    parser.add_argument(
+        "--val-offset",
+        type=int,
+        default=0,
+        help="Number of JSONL records to skip before reading validation records.",
+    )
     parser.add_argument("--log-interval", type=int, default=100)
     return parser.parse_args()
 
@@ -50,7 +56,11 @@ def main() -> None:
     loss_fn = nn.BCEWithLogitsLoss()
 
     validation_records = list(
-        iter_local_region_query_records(args.records, max_records=args.val_records)
+        iter_local_region_query_records(
+            args.records,
+            max_records=args.val_records,
+            skip_records=args.val_offset,
+        )
     )
     LOGGER.info("Loaded validation records: %s", len(validation_records))
 
@@ -60,12 +70,18 @@ def main() -> None:
         batch_targets: list[float] = []
         total_loss = 0.0
         total_batches = 0
-        train_limit = args.max_records + args.val_records
-
+        train_stream_limit = _train_stream_limit(
+            args.max_records,
+            args.val_records,
+            args.val_offset,
+        )
         for index, record in enumerate(
-            iter_local_region_query_records(args.records, max_records=train_limit)
+            iter_local_region_query_records(
+                args.records,
+                max_records=train_stream_limit,
+            )
         ):
-            if index < args.val_records:
+            if args.val_offset <= index < args.val_offset + args.val_records:
                 continue
             for feature, target in build_training_examples(record, args.num_buckets):
                 batch_features.append(feature)
@@ -189,6 +205,12 @@ def _train_batch(
     loss.backward()
     optimizer.step()
     return float(loss.detach().cpu())
+
+
+def _train_stream_limit(max_records: int, val_records: int, val_offset: int) -> int:
+    if val_offset < max_records:
+        return max_records + val_records
+    return max_records
 
 
 if __name__ == "__main__":

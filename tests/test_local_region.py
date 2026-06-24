@@ -495,3 +495,23 @@ def test_train_local_region_ranker_builds_examples():
     assert len(examples) > 1
     assert examples[0][0].shape[0] == 32 * 2 + 6
     assert max(target for _, target in examples) == 1.0
+
+
+def test_train_local_region_ranker_stream_limit_preserves_train_count():
+    import importlib.util
+    from pathlib import Path
+
+    script_path = (
+        Path(__file__).resolve().parents[1]
+        / "scripts"
+        / "train"
+        / "train_local_region_ranker.py"
+    )
+    spec = importlib.util.spec_from_file_location("local_region_ranker_train", script_path)
+    assert spec is not None
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+
+    assert module._train_stream_limit(50000, 2000, 0) == 52000
+    assert module._train_stream_limit(500000, 10000, 500000) == 500000

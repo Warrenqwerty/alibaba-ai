@@ -49,20 +49,26 @@ class LocalRegionQueryDataset:
 def iter_local_region_query_records(
     jsonl_path: str | Path,
     max_records: int | None = None,
+    skip_records: int = 0,
 ):
     """Stream weak local-region JSONL records without loading the full file."""
     path = Path(jsonl_path)
     yielded = 0
+    seen = 0
     with path.open("r", encoding="utf-8") as file:
         for line_number, line in enumerate(file, start=1):
             stripped = line.strip()
             if not stripped:
+                continue
+            if seen < skip_records:
+                seen += 1
                 continue
             try:
                 payload = json.loads(stripped)
             except JSONDecodeError as error:
                 raise ValueError(f"Invalid JSON at {path}:{line_number}") from error
             yield _record_from_payload(payload, path, line_number)
+            seen += 1
             yielded += 1
             if max_records is not None and yielded >= max_records:
                 return

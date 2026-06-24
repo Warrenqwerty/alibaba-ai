@@ -5,6 +5,7 @@ import numpy as np
 from PIL import Image
 
 from fashion_mm.data_loaders import DeepFashion2Dataset
+from fashion_mm.data_loaders import iter_local_region_query_records
 from fashion_mm.data_loaders import LocalRegionQueryDataset
 from fashion_mm.data_loaders import build_balanced_sampler
 from fashion_mm.data_loaders.deepfashion2 import DEEPFASHION2_TO_PROJECT_CATEGORY
@@ -75,6 +76,31 @@ def test_local_region_query_dataset_loads_jsonl(tmp_path):
     assert record.garment_box == (0.0, 0.0, 10.0, 20.0)
     assert record.region_box == (2.0, 0.0, 8.0, 5.0)
     assert record.category_id == 1
+
+
+def test_local_region_query_iterator_can_skip_records(tmp_path):
+    jsonl_path = tmp_path / "records.jsonl"
+    lines = []
+    for index in range(3):
+        lines.append(
+            '{"image": "/tmp/%s.jpg", "annotation": "/tmp/%s.json", '
+            '"item_key": "item1", "query": "q%s", "region": "neckline", '
+            '"garment_box": [0, 0, 10, 20], "region_box": [2, 0, 8, 5], '
+            '"source": "landmark_pseudo_label", "confidence": 0.82}'
+            % (index, index, index)
+        )
+    jsonl_path.write_text("\n".join(lines), encoding="utf-8")
+
+    records = list(
+        iter_local_region_query_records(
+            jsonl_path,
+            max_records=1,
+            skip_records=2,
+        )
+    )
+
+    assert len(records) == 1
+    assert records[0].query == "q2"
 
 
 def test_deepfashion2_dataset_ignores_hidden_annotation_files(tmp_path):

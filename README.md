@@ -121,3 +121,5 @@ python scripts/train/train_local_region_ranker.py \
   --val-records 2000 \
   --num-epochs 1
 ```
+
+Use `--val-offset` to evaluate on a later JSONL slice during larger runs.

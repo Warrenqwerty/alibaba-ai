@@ -92,4 +92,20 @@ candidate geometry. It is not the final DINOv2/CLIP-style ranker, but it gives
 a trainable checkpoint and top-1 weak IoU metric before adding heavier
 vision-language dependencies.
 
+Initial 50k-record smoke result: loss `0.4699`, validation top-1 box IoU
+`0.3540`.
+
+For a larger run with a later validation slice:
+
+```bash
+python scripts/train/train_local_region_ranker.py \
+  --records /root/autodl-tmp/outputs/local_region_train_queries.jsonl \
+  --output /root/autodl-tmp/checkpoints/local_region_ranker/hash_text_geometry_500k.pt \
+  --device cuda \
+  --max-records 500000 \
+  --val-records 10000 \
+  --val-offset 500000 \
+  --num-epochs 1
+```
+
 AutoDL dataset and checkpoint paths are configured in `configs/paths.autodl.yaml`.
