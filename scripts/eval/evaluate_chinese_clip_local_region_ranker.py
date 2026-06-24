@@ -73,8 +73,8 @@ def main() -> None:
 def load_chinese_clip(model_name: str, device: torch.device):
     """Load a Hugging Face Chinese-CLIP model and processor."""
     try:
-        from transformers import AutoModelForZeroShotImageClassification
         from transformers import AutoProcessor
+        from transformers import ChineseCLIPModel
     except ImportError as error:
         raise RuntimeError(
             "Chinese-CLIP evaluation requires transformers. Install it on AutoDL "
@@ -84,9 +84,7 @@ def load_chinese_clip(model_name: str, device: torch.device):
     LOGGER.info("Loading Chinese-CLIP model: %s", model_name)
     try:
         processor = AutoProcessor.from_pretrained(model_name)
-        model = AutoModelForZeroShotImageClassification.from_pretrained(
-            model_name
-        ).to(device)
+        model = ChineseCLIPModel.from_pretrained(model_name).to(device)
     except OSError as error:
         raise RuntimeError(
             "Could not load Chinese-CLIP model files. If AutoDL cannot reach "
@@ -242,7 +240,7 @@ def score_candidate_group(
 def encode_text(query: str, model, processor, device: torch.device) -> torch.Tensor:
     inputs = processor(text=[query], return_tensors="pt", padding=True)
     inputs = {key: value.to(device) for key, value in inputs.items()}
-    features = model.get_text_features(**inputs)
+    features = _as_feature_tensor(model.get_text_features(**inputs))
     return torch.nn.functional.normalize(features, dim=-1)
 
 
@@ -259,9 +257,24 @@ def encode_images(
         batch = crops[start : start + image_batch_size]
         inputs = processor(images=batch, return_tensors="pt")
         inputs = {key: value.to(device) for key, value in inputs.items()}
-        image_features = model.get_image_features(**inputs)
+        image_features = _as_feature_tensor(model.get_image_features(**inputs))
         features.append(torch.nn.functional.normalize(image_features, dim=-1))
     return torch.cat(features, dim=0)
+
+
+def _as_feature_tensor(output) -> torch.Tensor:
+    """Convert Chinese-CLIP feature outputs across Transformers versions."""
+    if isinstance(output, torch.Tensor):
+        return output
+    if hasattr(output, "pooler_output") and output.pooler_output is not None:
+        return output.pooler_output
+    if hasattr(output, "last_hidden_state"):
+        return output.last_hidden_state[:, 0]
+    if isinstance(output, (tuple, list)) and output:
+        first = output[0]
+        if isinstance(first, torch.Tensor):
+            return first
+    raise TypeError(f"Unsupported feature output type: {type(output)!r}")
 
 
 def crop_candidate(
