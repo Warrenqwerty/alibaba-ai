@@ -593,3 +593,38 @@ def test_learned_ranker_falls_back_for_untrained_open_query(tmp_path):
     assert result.proposal is not None
     assert result.proposal.proposal.region == "right_pocket"
     assert "heuristic fallback" in result.proposal.reason
+
+
+def test_learned_ranker_falls_back_for_shoulder_after_weak_eval_drop(tmp_path):
+    checkpoint_path = tmp_path / "ranker.pt"
+    model = HashingTextRegionScorer(num_buckets=32, hidden_dim=16)
+    torch.save(
+        {
+            "model_state_dict": model.state_dict(),
+            "num_buckets": 32,
+            "hidden_dim": 16,
+        },
+        checkpoint_path,
+    )
+    mask = np.zeros((100, 100), dtype=bool)
+    mask[10:90, 10:90] = True
+    instance = FashionInstance(
+        mask=mask,
+        box=(10.0, 10.0, 90.0, 90.0),
+        label_id=1,
+        label_name="top",
+        score=0.95,
+    )
+    segmentation = SegmentationResult(image_size=(100, 100), instances=[instance])
+
+    ranker = LearnedRegionRanker(checkpoint_path, device="cpu")
+    result = localize_region_from_instances(
+        segmentation,
+        "这件衣服的肩部",
+        ranker=ranker,
+    )
+
+    assert result.status == "ok"
+    assert result.proposal is not None
+    assert result.proposal.proposal.region == "shoulder"
+    assert "heuristic fallback" in result.proposal.reason

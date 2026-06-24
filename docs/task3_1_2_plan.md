@@ -199,6 +199,10 @@ be staged:
      - 20-image hybrid sanity result: 140/140 ok, diverse selected regions
        restored for cuff, pattern, zipper, and pocket, average local-region
        latency 16.93 ms.
+     - 200-image hybrid weak-label result: average weak IoU 0.2759, below the
+       tuned heuristic 0.2818 because shoulder dropped to 0.2477. Therefore the
+       current learned scorer should be used only for neckline/hem, with
+       heuristic fallback for shoulder until image-region features are added.
    - This confirms the weak metric is sensitive enough for heuristic iteration,
      but the remaining gap should be handled by learned text-region matching.
 

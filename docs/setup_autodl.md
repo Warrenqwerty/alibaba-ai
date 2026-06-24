@@ -137,10 +137,10 @@ python scripts/eval/evaluate_local_region_queries.py \
   --vis-dir /root/autodl-tmp/outputs/local_region_vis_hybrid
 ```
 
-The learned checkpoint is used for regions seen during weak training
-(`neckline`, `hem`, `shoulder`). Other open-vocabulary queries, such as cuff,
-pocket, zipper, and pattern, fall back to the heuristic ranker to preserve
-coverage.
+The learned checkpoint is used only for regions where the weak evaluation is
+neutral or helpful (`neckline`, `hem`). Shoulder and other open-vocabulary
+queries, such as cuff, pocket, zipper, and pattern, fall back to the heuristic
+ranker to preserve coverage.
 
 20-image hybrid sanity result: 140/140 ok, average local-region latency
 `16.93 ms`, and open-query outputs remain diverse instead of collapsing to the

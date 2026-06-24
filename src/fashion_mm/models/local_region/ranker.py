@@ -39,7 +39,7 @@ REGION_EQUIVALENTS = {
     "pocket": ("left_pocket", "right_pocket", "left", "right", "center"),
 }
 
-LEARNED_SUPPORTED_REGIONS = {"neckline", "hem", "shoulder"}
+LEARNED_SUPPORTED_REGIONS = {"neckline", "hem"}
 
 
 @dataclass(frozen=True)
