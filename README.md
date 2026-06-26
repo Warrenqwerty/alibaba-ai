@@ -168,6 +168,9 @@ python scripts/train/train_candidate_local_region_ranker.py \
   --device cuda \
   --max-groups 50000 \
   --val-groups 2000 \
+  --loss soft \
+  --softmax-temperature 0.08 \
+  --metrics-output /root/autodl-tmp/outputs/local_region_candidate_listwise_50k_metrics.json \
   --num-epochs 1
 ```
 

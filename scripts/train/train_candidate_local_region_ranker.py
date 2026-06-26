@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 from collections import Counter
 from collections.abc import Iterator
 from pathlib import Path
@@ -35,6 +36,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--hidden-dim", type=int, default=160)
     parser.add_argument("--learning-rate", type=float, default=0.001)
     parser.add_argument("--num-epochs", type=int, default=1)
+    parser.add_argument(
+        "--loss",
+        choices=("hard", "soft"),
+        default="soft",
+        help="Use hard best-IoU class targets or soft IoU distributions.",
+    )
+    parser.add_argument(
+        "--softmax-temperature",
+        type=float,
+        default=0.08,
+        help="Temperature for soft IoU target distributions when --loss=soft.",
+    )
     parser.add_argument("--batch-size", type=int, default=128)
     parser.add_argument("--max-groups", type=int, default=50000)
     parser.add_argument("--val-groups", type=int, default=2000)
@@ -45,6 +58,7 @@ def parse_args() -> argparse.Namespace:
         help="Number of candidate groups to skip before reading validation groups.",
     )
     parser.add_argument("--log-interval", type=int, default=100)
+    parser.add_argument("--metrics-output", type=Path, default=None)
     return parser.parse_args()
 
 
@@ -56,7 +70,6 @@ def main() -> None:
         hidden_dim=args.hidden_dim,
     ).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate)
-    loss_fn = nn.CrossEntropyLoss()
 
     validation_groups = list(
         iter_candidate_groups(
@@ -70,7 +83,7 @@ def main() -> None:
     for epoch in range(args.num_epochs):
         model.train()
         batch_features: list[torch.Tensor] = []
-        batch_targets: list[int] = []
+        batch_targets: list[torch.Tensor | int] = []
         total_loss = 0.0
         total_batches = 0
         train_stream_limit = _train_stream_limit(
@@ -83,20 +96,22 @@ def main() -> None:
         ):
             if args.val_offset <= group_index < args.val_offset + args.val_groups:
                 continue
-            features, target_index = build_group_training_example(
+            features, target = build_group_training_example(
                 group,
                 args.num_buckets,
+                loss_mode=args.loss,
+                softmax_temperature=args.softmax_temperature,
             )
             batch_features.append(features)
-            batch_targets.append(target_index)
+            batch_targets.append(target)
             if len(batch_features) >= args.batch_size:
                 loss = _train_batch(
                     model,
                     optimizer,
-                    loss_fn,
                     batch_features,
                     batch_targets,
                     device,
+                    loss_mode=args.loss,
                 )
                 total_loss += loss
                 total_batches += 1
@@ -114,10 +129,10 @@ def main() -> None:
             loss = _train_batch(
                 model,
                 optimizer,
-                loss_fn,
                 batch_features,
                 batch_targets,
                 device,
+                loss_mode=args.loss,
             )
             total_loss += loss
             total_batches += 1
@@ -139,6 +154,8 @@ def main() -> None:
         "model_state_dict": model.state_dict(),
         "num_buckets": args.num_buckets,
         "hidden_dim": args.hidden_dim,
+        "loss": args.loss,
+        "softmax_temperature": args.softmax_temperature,
         "validation_metrics": evaluate_ranker(
             model,
             validation_groups,
@@ -150,6 +167,12 @@ def main() -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     torch.save(checkpoint, output_path)
     LOGGER.info("Saved candidate local-region ranker checkpoint: %s", output_path)
+    if args.metrics_output is not None:
+        args.metrics_output.parent.mkdir(parents=True, exist_ok=True)
+        args.metrics_output.write_text(
+            json.dumps(checkpoint["validation_metrics"], ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
 
 
 def iter_candidate_groups(
@@ -186,11 +209,36 @@ def iter_candidate_groups(
 def build_group_training_example(
     group: list[LocalRegionCandidateRecord],
     num_buckets: int,
-) -> tuple[torch.Tensor, int]:
+    *,
+    loss_mode: str = "hard",
+    softmax_temperature: float = 0.08,
+) -> tuple[torch.Tensor, torch.Tensor | int]:
     """Build one listwise training example and best-IoU class index."""
+    if loss_mode == "soft":
+        return build_group_soft_training_example(
+            group,
+            num_buckets,
+            softmax_temperature=softmax_temperature,
+        )
     features = build_group_features(group, num_buckets)
     target_index = max(range(len(group)), key=lambda index: group[index].iou)
     return features, int(target_index)
+
+
+def build_group_soft_training_example(
+    group: list[LocalRegionCandidateRecord],
+    num_buckets: int,
+    *,
+    softmax_temperature: float,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Build one listwise example with a soft IoU target distribution."""
+    features = build_group_features(group, num_buckets)
+    ious = torch.tensor([record.iou for record in group], dtype=torch.float32)
+    target_distribution = torch.softmax(
+        ious / max(float(softmax_temperature), 1e-6),
+        dim=0,
+    )
+    return features, target_distribution
 
 
 def build_group_features(
@@ -238,17 +286,25 @@ def evaluate_ranker(
 def _train_batch(
     model: CandidateListwiseScorer,
     optimizer: torch.optim.Optimizer,
-    loss_fn: nn.Module,
     features: list[torch.Tensor],
-    targets: list[int],
+    targets: list[torch.Tensor | int],
     device: torch.device,
+    *,
+    loss_mode: str,
 ) -> float:
     feature_tensor = torch.stack(features).to(device)
     batch_size, num_candidates, feature_dim = feature_tensor.shape
     logits = model(feature_tensor.reshape(batch_size * num_candidates, feature_dim))
     logits = logits.reshape(batch_size, num_candidates)
-    target_tensor = torch.tensor(targets, dtype=torch.long, device=device)
-    loss = loss_fn(logits, target_tensor)
+    if loss_mode == "soft":
+        target_tensor = torch.stack(
+            [target for target in targets if isinstance(target, torch.Tensor)]
+        ).to(device)
+        log_probs = torch.log_softmax(logits, dim=1)
+        loss = -(target_tensor * log_probs).sum(dim=1).mean()
+    else:
+        target_tensor = torch.tensor(targets, dtype=torch.long, device=device)
+        loss = nn.functional.cross_entropy(logits, target_tensor)
 
     optimizer.zero_grad(set_to_none=True)
     loss.backward()

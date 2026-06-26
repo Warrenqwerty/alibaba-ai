@@ -217,11 +217,15 @@ python scripts/train/train_candidate_local_region_ranker.py \
   --device cuda \
   --max-groups 50000 \
   --val-groups 2000 \
+  --loss soft \
+  --softmax-temperature 0.08 \
+  --metrics-output /root/autodl-tmp/outputs/local_region_candidate_listwise_50k_metrics.json \
   --num-epochs 1
 ```
 
-This trains against the best-IoU candidate in each query group. Compare its
-`val_top1_iou` with the `target_region_name` baseline and the oracle upper
-bound before wiring it into the online 3.1.2 predictor.
+This trains against either the best-IoU candidate (`--loss hard`) or a soft IoU
+distribution (`--loss soft`) in each query group. Compare its `val_top1_iou`
+with the `target_region_name` baseline and the oracle upper bound before wiring
+it into the online 3.1.2 predictor.
 
 AutoDL dataset and checkpoint paths are configured in `configs/paths.autodl.yaml`.

@@ -532,9 +532,18 @@ def test_candidate_listwise_trainer_builds_best_iou_target(tmp_path):
 
     group = next(module.iter_candidate_groups(candidates_path))
     features, target_index = module.build_group_training_example(group, num_buckets=16)
+    _, soft_target = module.build_group_training_example(
+        group,
+        num_buckets=16,
+        loss_mode="soft",
+        softmax_temperature=0.08,
+    )
 
     assert features.shape == (2, 16 * 2 + 6 + 3)
     assert target_index == 1
+    assert isinstance(soft_target, torch.Tensor)
+    assert torch.isclose(soft_target.sum(), torch.tensor(1.0))
+    assert int(torch.argmax(soft_target)) == 1
 
 
 def test_candidate_baseline_evaluator_reports_oracle_and_name_baselines(tmp_path):
