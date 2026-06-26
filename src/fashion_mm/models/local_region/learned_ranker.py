@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 
 import torch
 from torch import nn
@@ -65,11 +66,12 @@ class CandidateListwiseScorer(nn.Module):
         num_buckets: int = 256,
         hidden_dim: int = 160,
         geometry_dim: int = 6,
+        context_dim: int = 8,
         prior_dim: int = 3,
     ) -> None:
         super().__init__()
         self.num_buckets = num_buckets
-        input_dim = num_buckets * 2 + geometry_dim + prior_dim
+        input_dim = num_buckets * 3 + geometry_dim + context_dim + prior_dim
         self.network = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
             nn.ReLU(),
@@ -108,6 +110,7 @@ def build_candidate_record_feature(
     garment_box: tuple[float, float, float, float],
     candidate_box: tuple[float, float, float, float],
     parsed_region: str | None,
+    category_text: str | None = None,
     *,
     num_buckets: int = 256,
 ) -> torch.Tensor:
@@ -121,10 +124,38 @@ def build_candidate_record_feature(
                 dtype=torch.float32,
             ),
             torch.tensor(
+                box_context_features(garment_box, candidate_box),
+                dtype=torch.float32,
+            ),
+            torch.tensor(
                 candidate_prior_features(candidate_region, parsed_region),
                 dtype=torch.float32,
             ),
+            hash_text(category_text or "", num_buckets),
         ]
+    )
+
+
+def box_context_features(
+    garment_box: tuple[float, float, float, float],
+    candidate_box: tuple[float, float, float, float],
+) -> tuple[float, float, float, float, float, float, float, float]:
+    """Return absolute box context features that vary by image instance."""
+    gx1, gy1, gx2, gy2 = garment_box
+    cx1, cy1, cx2, cy2 = candidate_box
+    garment_width = max(gx2 - gx1, 1.0)
+    garment_height = max(gy2 - gy1, 1.0)
+    candidate_width = max(cx2 - cx1, 1.0)
+    candidate_height = max(cy2 - cy1, 1.0)
+    return (
+        garment_width / 1000.0,
+        garment_height / 1000.0,
+        (garment_width * garment_height) / 1_000_000.0,
+        math.log(garment_width / garment_height),
+        candidate_width / 1000.0,
+        candidate_height / 1000.0,
+        (candidate_width * candidate_height) / 1_000_000.0,
+        math.log(candidate_width / candidate_height),
     )
 
 

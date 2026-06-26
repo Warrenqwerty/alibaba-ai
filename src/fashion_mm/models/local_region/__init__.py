@@ -4,6 +4,7 @@ from fashion_mm.models.local_region.learned_ranker import box_iou
 from fashion_mm.models.local_region.learned_ranker import BoxCandidate
 from fashion_mm.models.local_region.learned_ranker import build_candidate_record_feature
 from fashion_mm.models.local_region.learned_ranker import build_pair_feature
+from fashion_mm.models.local_region.learned_ranker import box_context_features
 from fashion_mm.models.local_region.learned_ranker import candidate_boxes_from_garment
 from fashion_mm.models.local_region.learned_ranker import candidate_prior_features
 from fashion_mm.models.local_region.learned_ranker import CandidateListwiseScorer
@@ -32,6 +33,7 @@ __all__ = [
     "HeuristicRegionRanker",
     "LearnedRegionRanker",
     "box_iou",
+    "box_context_features",
     "build_candidate_record_feature",
     "build_pair_feature",
     "candidate_boxes_from_garment",

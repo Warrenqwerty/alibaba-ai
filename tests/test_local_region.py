@@ -7,6 +7,7 @@ import json
 from fashion_mm.models.instance_segmentation import FashionInstance
 from fashion_mm.models.instance_segmentation import SegmentationResult
 from fashion_mm.models.local_region import box_iou
+from fashion_mm.models.local_region import box_context_features
 from fashion_mm.models.local_region import build_pair_feature
 from fashion_mm.models.local_region import build_candidate_record_feature
 from fashion_mm.models.local_region import candidate_boxes_from_garment
@@ -463,12 +464,14 @@ def test_candidate_listwise_feature_includes_parser_prior():
         (0.0, 0.0, 100.0, 200.0),
         (16.0, 0.0, 84.0, 44.0),
         "neckline",
+        category_text="top",
         num_buckets=16,
     )
     model = CandidateListwiseScorer(num_buckets=16, hidden_dim=32)
     logits = model(feature.unsqueeze(0))
 
-    assert feature.shape == (16 * 2 + 6 + 3,)
+    assert feature.shape == (16 * 3 + 6 + 8 + 3,)
+    assert len(box_context_features((0.0, 0.0, 100.0, 200.0), (0.0, 0.0, 50.0, 20.0))) == 8
     assert candidate_prior_features("left_cuff", "cuff") == (0.0, 1.0, 0.0)
     assert logits.shape == (1,)
 
@@ -539,7 +542,7 @@ def test_candidate_listwise_trainer_builds_best_iou_target(tmp_path):
         softmax_temperature=0.08,
     )
 
-    assert features.shape == (2, 16 * 2 + 6 + 3)
+    assert features.shape == (2, 16 * 3 + 6 + 8 + 3)
     assert target_index == 1
     assert isinstance(soft_target, torch.Tensor)
     assert torch.isclose(soft_target.sum(), torch.tensor(1.0))

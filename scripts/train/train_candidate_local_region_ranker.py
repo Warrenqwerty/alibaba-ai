@@ -254,6 +254,7 @@ def build_group_features(
                 record.garment_box,
                 record.candidate_box,
                 parsed_region,
+                category_text=_category_text(record),
                 num_buckets=num_buckets,
             )
             for record in group
@@ -369,6 +370,14 @@ def _group_key(record: LocalRegionCandidateRecord) -> tuple[Any, ...]:
         record.target_region_box,
         record.garment_box,
     )
+
+
+def _category_text(record: LocalRegionCandidateRecord) -> str:
+    if record.category_name:
+        return record.category_name
+    if record.category_id is not None:
+        return str(record.category_id)
+    return ""
 
 
 def _train_stream_limit(max_groups: int, val_groups: int, val_offset: int) -> int:

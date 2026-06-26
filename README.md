@@ -164,13 +164,13 @@ Train a listwise candidate ranker from weak IoU labels:
 ```bash
 python scripts/train/train_candidate_local_region_ranker.py \
   --candidates /root/autodl-tmp/outputs/local_region_train_candidates.jsonl \
-  --output /root/autodl-tmp/checkpoints/local_region_ranker/candidate_listwise_50k.pt \
+  --output /root/autodl-tmp/checkpoints/local_region_ranker/candidate_listwise_context_50k.pt \
   --device cuda \
   --max-groups 50000 \
   --val-groups 2000 \
   --loss soft \
   --softmax-temperature 0.08 \
-  --metrics-output /root/autodl-tmp/outputs/local_region_candidate_listwise_50k_metrics.json \
+  --metrics-output /root/autodl-tmp/outputs/local_region_candidate_listwise_context_50k_metrics.json \
   --num-epochs 1
 ```
 
