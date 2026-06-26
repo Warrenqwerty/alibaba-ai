@@ -229,4 +229,21 @@ region, normalized geometry, absolute box context, and garment category text.
 Compare its `val_top1_iou` with the `target_region_name` baseline and the
 oracle upper bound before wiring it into the online 3.1.2 predictor.
 
+50k context-feature result: validation top-1 IoU `0.5113`, compared with
+`0.3589` for the target-region-name baseline and `0.5704` for the candidate-set
+oracle on the same 2k slice.
+
+Validate the saved checkpoint on a later candidate slice:
+
+```bash
+python scripts/train/train_candidate_local_region_ranker.py \
+  --candidates /root/autodl-tmp/outputs/local_region_train_candidates.jsonl \
+  --checkpoint /root/autodl-tmp/checkpoints/local_region_ranker/candidate_listwise_context_50k.pt \
+  --device cuda \
+  --val-offset 50000 \
+  --val-groups 5000 \
+  --eval-only \
+  --metrics-output /root/autodl-tmp/outputs/local_region_candidate_listwise_context_eval_offset50k.json
+```
+
 AutoDL dataset and checkpoint paths are configured in `configs/paths.autodl.yaml`.

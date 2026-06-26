@@ -174,6 +174,19 @@ python scripts/train/train_candidate_local_region_ranker.py \
   --num-epochs 1
 ```
 
+Validate the saved candidate ranker on a later slice:
+
+```bash
+python scripts/train/train_candidate_local_region_ranker.py \
+  --candidates /root/autodl-tmp/outputs/local_region_train_candidates.jsonl \
+  --checkpoint /root/autodl-tmp/checkpoints/local_region_ranker/candidate_listwise_context_50k.pt \
+  --device cuda \
+  --val-offset 50000 \
+  --val-groups 5000 \
+  --eval-only \
+  --metrics-output /root/autodl-tmp/outputs/local_region_candidate_listwise_context_eval_offset50k.json
+```
+
 Use a hybrid learned ranker checkpoint during 3.1.2 evaluation:
 
 ```bash

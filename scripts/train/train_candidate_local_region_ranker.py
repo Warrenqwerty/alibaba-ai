@@ -31,6 +31,16 @@ def parse_args() -> argparse.Namespace:
         default="outputs/local_region_candidate_ranker.pt",
         help="Checkpoint path.",
     )
+    parser.add_argument(
+        "--checkpoint",
+        default=None,
+        help="Checkpoint path for --eval-only. Defaults to --output.",
+    )
+    parser.add_argument(
+        "--eval-only",
+        action="store_true",
+        help="Load a checkpoint and evaluate without training.",
+    )
     parser.add_argument("--device", default=None)
     parser.add_argument("--num-buckets", type=int, default=256)
     parser.add_argument("--hidden-dim", type=int, default=160)
@@ -65,10 +75,19 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     device = torch.device(args.device or ("cuda" if torch.cuda.is_available() else "cpu"))
-    model = CandidateListwiseScorer(
-        num_buckets=args.num_buckets,
-        hidden_dim=args.hidden_dim,
-    ).to(device)
+    checkpoint = None
+    if args.eval_only:
+        checkpoint_path = Path(args.checkpoint or args.output)
+        model, args.num_buckets, args.hidden_dim, checkpoint = load_candidate_ranker(
+            checkpoint_path,
+            device,
+        )
+    else:
+        model = CandidateListwiseScorer(
+            num_buckets=args.num_buckets,
+            hidden_dim=args.hidden_dim,
+        ).to(device)
+
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate)
 
     validation_groups = list(
@@ -79,6 +98,18 @@ def main() -> None:
         )
     )
     LOGGER.info("Loaded validation groups: %s", len(validation_groups))
+
+    if args.eval_only:
+        metrics = evaluate_ranker(
+            model,
+            validation_groups,
+            args.num_buckets,
+            device,
+        )
+        LOGGER.info("eval_only val_top1_iou=%.4f", metrics["avg_top1_iou"])
+        write_metrics(metrics, args.metrics_output)
+        print(json.dumps(metrics, ensure_ascii=False, indent=2))
+        return
 
     for epoch in range(args.num_epochs):
         model.train()
@@ -168,11 +199,7 @@ def main() -> None:
     torch.save(checkpoint, output_path)
     LOGGER.info("Saved candidate local-region ranker checkpoint: %s", output_path)
     if args.metrics_output is not None:
-        args.metrics_output.parent.mkdir(parents=True, exist_ok=True)
-        args.metrics_output.write_text(
-            json.dumps(checkpoint["validation_metrics"], ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
+        write_metrics(checkpoint["validation_metrics"], args.metrics_output)
 
 
 def iter_candidate_groups(
@@ -204,6 +231,32 @@ def iter_candidate_groups(
 
     if current_group and seen_groups >= skip_groups:
         yield current_group
+
+
+def write_metrics(metrics: dict[str, Any], output_path: Path | None) -> None:
+    if output_path is None:
+        return
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(
+        json.dumps(metrics, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
+def load_candidate_ranker(
+    checkpoint_path: str | Path,
+    device: torch.device,
+) -> tuple[CandidateListwiseScorer, int, int, dict[str, Any]]:
+    checkpoint = torch.load(Path(checkpoint_path), map_location="cpu")
+    num_buckets = int(checkpoint.get("num_buckets", 256))
+    hidden_dim = int(checkpoint.get("hidden_dim", 160))
+    model = CandidateListwiseScorer(
+        num_buckets=num_buckets,
+        hidden_dim=hidden_dim,
+    ).to(device)
+    model.load_state_dict(checkpoint["model_state_dict"])
+    model.eval()
+    return model, num_buckets, hidden_dim, checkpoint
 
 
 def build_group_training_example(
