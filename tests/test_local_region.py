@@ -405,6 +405,54 @@ def test_chinese_clip_feature_output_accepts_pooler_output():
     assert torch.equal(module._as_feature_tensor(output), torch.ones(2, 4))
 
 
+def test_chinese_clip_region_prior_selects_parsed_region():
+    import importlib.util
+    from pathlib import Path
+
+    script_path = (
+        Path(__file__).resolve().parents[1]
+        / "scripts"
+        / "eval"
+        / "evaluate_chinese_clip_local_region_ranker.py"
+    )
+    spec = importlib.util.spec_from_file_location(
+        "evaluate_chinese_clip_local_region_ranker",
+        script_path,
+    )
+    assert spec is not None
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+
+    scored_group = {
+        "group": [
+            SimpleNamespace(
+                query="这件衣服的领口",
+                target_region="neckline",
+                candidate_region="right",
+                iou=0.1,
+            ),
+            SimpleNamespace(
+                query="这件衣服的领口",
+                target_region="neckline",
+                candidate_region="neckline",
+                iou=0.8,
+            ),
+        ],
+        "base_scores": torch.tensor([0.50, 0.48]),
+        "prior_scores": torch.tensor([0.0, 1.0]),
+        "parsed_region": "neckline",
+    }
+
+    without_prior = module.select_scored_candidate(scored_group, 0.0)
+    with_prior = module.select_scored_candidate(scored_group, 0.05)
+
+    assert module.parse_region_prior_weights("0,0.05") == (0.0, 0.05)
+    assert without_prior["selected_region"] == "right"
+    assert with_prior["selected_region"] == "neckline"
+    assert module.candidate_matches_parsed_region("left_cuff", "cuff") is True
+
+
 def test_candidate_baseline_evaluator_reports_oracle_and_name_baselines(tmp_path):
     import importlib.util
     from pathlib import Path

@@ -180,12 +180,16 @@ python scripts/eval/evaluate_chinese_clip_local_region_ranker.py \
   --model-name OFA-Sys/chinese-clip-vit-base-patch16 \
   --device cuda \
   --max-groups 2000 \
+  --region-prior-weights 0,0.01,0.02,0.05,0.1,0.2 \
   --output /root/autodl-tmp/outputs/local_region_chinese_clip_eval_2k.json
 ```
 
 This baseline uses the Chinese query directly, crops each candidate box, and
 ranks candidates by Chinese-CLIP image-text cosine similarity. It is a stronger
 fit than OpenCLIP here because the 3.1.2 queries are Chinese.
+The optional region-prior sweep adds a small score bonus when the candidate name
+matches the region parsed from the query, which helps measure whether CLIP
+features are useful beyond the existing query parser.
 
 If the mirror is unavailable, download `OFA-Sys/chinese-clip-vit-base-patch16`
 to an AutoDL-local directory and pass that directory with `--model-name`.

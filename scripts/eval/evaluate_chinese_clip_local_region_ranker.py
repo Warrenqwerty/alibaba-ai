@@ -12,6 +12,7 @@ from PIL import Image
 
 from fashion_mm.data_loaders import LocalRegionCandidateRecord
 from fashion_mm.data_loaders import iter_local_region_candidate_records
+from fashion_mm.models.local_region import parse_region_query
 from fashion_mm.utils.logger import get_logger
 
 
@@ -42,6 +43,14 @@ def parse_args() -> argparse.Namespace:
         default=32,
         help="Candidate crop batch size for image encoding.",
     )
+    parser.add_argument(
+        "--region-prior-weights",
+        default="0.0",
+        help=(
+            "Comma-separated weights added when a candidate region matches the "
+            "region parsed from the query. Use multiple values for a sweep."
+        ),
+    )
     parser.add_argument("--output", type=Path, default=None)
     return parser.parse_args()
 
@@ -50,6 +59,7 @@ def main() -> None:
     args = parse_args()
     device = torch.device(args.device or ("cuda" if torch.cuda.is_available() else "cpu"))
     model, processor = load_chinese_clip(args.model_name, device)
+    region_prior_weights = parse_region_prior_weights(args.region_prior_weights)
     metrics = evaluate_chinese_clip_ranker(
         candidates_path=args.candidates,
         model=model,
@@ -59,6 +69,7 @@ def main() -> None:
         skip_groups=args.skip_groups,
         image_batch_size=args.image_batch_size,
         model_name=args.model_name,
+        region_prior_weights=region_prior_weights,
     )
 
     if args.output is not None:
@@ -106,14 +117,15 @@ def evaluate_chinese_clip_ranker(
     skip_groups: int,
     image_batch_size: int,
     model_name: str,
+    region_prior_weights: tuple[float, ...] = (0.0,),
 ) -> dict[str, Any]:
     """Rank each query's candidate crops by Chinese-CLIP cosine similarity."""
-    group_count = 0
-    iou_sum = 0.0
-    hit_at = {"0.3": 0, "0.5": 0}
-    selected_region_counts: Counter[str] = Counter()
     target_region_counts: Counter[str] = Counter()
-    by_region: dict[str, dict[str, Any]] = {}
+    summaries = {
+        weight: _empty_summary()
+        for weight in region_prior_weights
+    }
+    group_count = 0
 
     with torch.no_grad():
         for group in iter_candidate_groups(
@@ -129,50 +141,34 @@ def evaluate_chinese_clip_ranker(
                 image_batch_size=image_batch_size,
             )
             group_count += 1
-            iou = float(result["selected_iou"])
-            target_region = str(result["target_region"])
-            selected_region = str(result["selected_region"])
-            iou_sum += iou
-            selected_region_counts[selected_region] += 1
-            target_region_counts[target_region] += 1
-            for threshold in hit_at:
-                hit_at[threshold] += int(iou >= float(threshold))
-
-            region_metrics = by_region.setdefault(
-                target_region,
-                {
-                    "num_records": 0,
-                    "iou_sum": 0.0,
-                    "weak_hit_at": {"0.3": 0, "0.5": 0},
-                    "selected_region_counts": Counter(),
-                },
-            )
-            region_metrics["num_records"] += 1
-            region_metrics["iou_sum"] += iou
-            region_metrics["selected_region_counts"][selected_region] += 1
-            for threshold in region_metrics["weak_hit_at"]:
-                region_metrics["weak_hit_at"][threshold] += int(iou >= float(threshold))
+            target_region_counts[group[0].target_region] += 1
+            for weight in region_prior_weights:
+                selected = select_scored_candidate(result, weight)
+                _update_summary(summaries[weight], selected)
 
             if group_count % 100 == 0:
+                first_weight = region_prior_weights[0]
                 LOGGER.info(
                     "groups=%s avg_top1_iou=%.4f",
                     group_count,
-                    iou_sum / group_count,
+                    summaries[first_weight]["iou_sum"] / group_count,
                 )
 
-    return {
+    runs = {
+        _format_weight(weight): _finalize_summary(summary)
+        for weight, summary in summaries.items()
+    }
+    output = {
         "candidates": str(candidates_path),
         "model_name": model_name,
         "num_groups": group_count,
-        "avg_top1_iou": iou_sum / max(group_count, 1),
-        "weak_hit_at": {
-            threshold: count / max(group_count, 1)
-            for threshold, count in hit_at.items()
-        },
+        "region_prior_weights": list(region_prior_weights),
         "target_region_counts": dict(target_region_counts),
-        "selected_region_counts": dict(selected_region_counts),
-        "by_region": _finalize_by_region(by_region),
+        "runs": runs,
     }
+    if len(region_prior_weights) == 1:
+        output.update(runs[_format_weight(region_prior_weights[0])])
+    return output
 
 
 def iter_candidate_groups(
@@ -214,7 +210,7 @@ def score_candidate_group(
     device: torch.device,
     image_batch_size: int,
 ) -> dict[str, Any]:
-    """Score one query's candidate crops and return the selected candidate."""
+    """Score one query's candidate crops with frozen Chinese-CLIP."""
     text_features = encode_text(group[0].query, model, processor, device)
     image = Image.open(group[0].image).convert("RGB")
     crops = [crop_candidate(image, record.candidate_box) for record in group]
@@ -226,15 +222,56 @@ def score_candidate_group(
         image_batch_size=image_batch_size,
     )
     scores = image_features @ text_features.T
-    best_index = int(torch.argmax(scores.squeeze(1)).detach().cpu())
+    base_scores = scores.squeeze(1).detach().cpu()
+    parsed_region = parse_region_query(group[0].query).region
+    prior_scores = torch.tensor(
+        [
+            1.0 if candidate_matches_parsed_region(record.candidate_region, parsed_region)
+            else 0.0
+            for record in group
+        ],
+        dtype=torch.float32,
+    )
+    return {
+        "group": group,
+        "base_scores": base_scores,
+        "prior_scores": prior_scores,
+        "parsed_region": parsed_region,
+    }
+
+
+def select_scored_candidate(
+    scored_group: dict[str, Any],
+    region_prior_weight: float,
+) -> dict[str, Any]:
+    group = scored_group["group"]
+    base_scores = scored_group["base_scores"]
+    prior_scores = scored_group["prior_scores"]
+    blended_scores = base_scores + float(region_prior_weight) * prior_scores
+    best_index = int(torch.argmax(blended_scores).detach().cpu())
     selected = group[best_index]
     return {
         "query": selected.query,
         "target_region": selected.target_region,
         "selected_region": selected.candidate_region,
         "selected_iou": selected.iou,
-        "selected_score": float(scores[best_index].detach().cpu()),
+        "selected_score": float(blended_scores[best_index].detach().cpu()),
+        "clip_score": float(base_scores[best_index].detach().cpu()),
+        "region_prior": float(prior_scores[best_index].detach().cpu()),
+        "parsed_region": scored_group["parsed_region"],
     }
+
+
+def candidate_matches_parsed_region(
+    candidate_region: str,
+    parsed_region: str | None,
+) -> bool:
+    if parsed_region is None:
+        return False
+    if candidate_region == parsed_region:
+        return True
+    side_stripped = candidate_region.removeprefix("left_").removeprefix("right_")
+    return side_stripped == parsed_region
 
 
 def encode_text(query: str, model, processor, device: torch.device) -> torch.Tensor:
@@ -277,6 +314,13 @@ def _as_feature_tensor(output) -> torch.Tensor:
     raise TypeError(f"Unsupported feature output type: {type(output)!r}")
 
 
+def parse_region_prior_weights(value: str) -> tuple[float, ...]:
+    weights = tuple(float(item.strip()) for item in value.split(",") if item.strip())
+    if not weights:
+        raise ValueError("At least one region prior weight is required.")
+    return weights
+
+
 def crop_candidate(
     image: Image.Image,
     box: tuple[float, float, float, float],
@@ -314,20 +358,53 @@ def _group_key(record: LocalRegionCandidateRecord) -> tuple[Any, ...]:
     )
 
 
-def _finalize_by_region(metrics: dict[str, dict[str, Any]]) -> dict[str, Any]:
-    finalized = {}
-    for region, values in metrics.items():
-        num_records = int(values["num_records"])
-        finalized[region] = {
-            "num_records": num_records,
-            "avg_top1_iou": values["iou_sum"] / max(num_records, 1),
-            "weak_hit_at": {
-                threshold: count / max(num_records, 1)
-                for threshold, count in values["weak_hit_at"].items()
-            },
-            "selected_region_counts": dict(values["selected_region_counts"]),
-        }
-    return finalized
+def _empty_summary() -> dict[str, Any]:
+    return {
+        "num_records": 0,
+        "iou_sum": 0.0,
+        "weak_hit_at": {"0.3": 0, "0.5": 0},
+        "selected_region_counts": Counter(),
+        "by_region": {},
+    }
+
+
+def _update_summary(summary: dict[str, Any], selected: dict[str, Any]) -> None:
+    target_region = str(selected["target_region"])
+    selected_region = str(selected["selected_region"])
+    iou = float(selected["selected_iou"])
+    summary["num_records"] += 1
+    summary["iou_sum"] += iou
+    summary["selected_region_counts"][selected_region] += 1
+    for threshold in summary["weak_hit_at"]:
+        summary["weak_hit_at"][threshold] += int(iou >= float(threshold))
+
+    region_summary = summary["by_region"].setdefault(target_region, _empty_summary())
+    region_summary["num_records"] += 1
+    region_summary["iou_sum"] += iou
+    region_summary["selected_region_counts"][selected_region] += 1
+    for threshold in region_summary["weak_hit_at"]:
+        region_summary["weak_hit_at"][threshold] += int(iou >= float(threshold))
+
+
+def _finalize_summary(summary: dict[str, Any]) -> dict[str, Any]:
+    num_records = int(summary["num_records"])
+    return {
+        "num_records": num_records,
+        "avg_top1_iou": summary["iou_sum"] / max(num_records, 1),
+        "weak_hit_at": {
+            threshold: count / max(num_records, 1)
+            for threshold, count in summary["weak_hit_at"].items()
+        },
+        "selected_region_counts": dict(summary["selected_region_counts"]),
+        "by_region": {
+            region: _finalize_summary(values)
+            for region, values in summary["by_region"].items()
+        },
+    }
+
+
+def _format_weight(weight: float) -> str:
+    return f"{weight:g}"
 
 
 if __name__ == "__main__":

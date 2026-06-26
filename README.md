@@ -146,6 +146,7 @@ python scripts/eval/evaluate_chinese_clip_local_region_ranker.py \
   --model-name OFA-Sys/chinese-clip-vit-base-patch16 \
   --device cuda \
   --max-groups 2000 \
+  --region-prior-weights 0,0.01,0.02,0.05,0.1,0.2 \
   --output /root/autodl-tmp/outputs/local_region_chinese_clip_eval_2k.json
 ```
 
