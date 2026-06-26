@@ -227,7 +227,7 @@ def test_localize_region_from_instances_supports_zipper_query():
     assert 40 <= result.proposal.proposal.box[0] <= 50
 
 
-def test_learned_region_ranker_uses_candidate_listwise_checkpoint(tmp_path):
+def test_learned_region_ranker_uses_candidate_listwise_checkpoint_for_hem(tmp_path):
     mask = np.zeros((100, 100), dtype=bool)
     mask[10:90, 10:90] = True
     instance = FashionInstance(
@@ -252,6 +252,11 @@ def test_learned_region_ranker_uses_candidate_listwise_checkpoint(tmp_path):
     )
 
     ranker = LearnedRegionRanker(checkpoint_path, device="cpu")
+    hem_result = localize_region_from_instances(
+        segmentation,
+        "衣服下方的下摆",
+        ranker=ranker,
+    )
     shoulder_result = localize_region_from_instances(
         segmentation,
         "这件衣服的肩部",
@@ -264,9 +269,11 @@ def test_learned_region_ranker_uses_candidate_listwise_checkpoint(tmp_path):
     )
 
     assert ranker.checkpoint_kind == "candidate_listwise"
-    assert shoulder_result.ranker_backend == "hybrid_candidate_listwise_context_ranker"
+    assert hem_result.ranker_backend == "hybrid_candidate_listwise_context_ranker"
+    assert hem_result.proposal is not None
+    assert "listwise candidate" in hem_result.proposal.reason
     assert shoulder_result.proposal is not None
-    assert "listwise candidate" in shoulder_result.proposal.reason
+    assert "heuristic fallback" in shoulder_result.proposal.reason
     assert pocket_result.proposal is not None
     assert pocket_result.proposal.proposal.region == "right_pocket"
     assert "heuristic fallback" in pocket_result.proposal.reason

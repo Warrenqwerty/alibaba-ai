@@ -200,6 +200,9 @@ python scripts/eval/evaluate_local_region_weak_labels.py \
   --output /root/autodl-tmp/outputs/local_region_weak_eval_candidate_listwise_context_200.json
 ```
 
+The full weak-label result gates this checkpoint to `hem` only in online use;
+other regions fall back to the safer heuristic/hash path.
+
 Use a hybrid learned ranker checkpoint during 3.1.2 evaluation:
 
 ```bash

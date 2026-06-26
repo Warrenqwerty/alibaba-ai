@@ -43,7 +43,7 @@ REGION_EQUIVALENTS = {
 }
 
 HASH_RANKER_SUPPORTED_REGIONS = {"neckline", "hem"}
-CANDIDATE_LISTWISE_SUPPORTED_REGIONS = {"neckline", "hem", "shoulder"}
+CANDIDATE_LISTWISE_SUPPORTED_REGIONS = {"hem"}
 
 
 @dataclass(frozen=True)

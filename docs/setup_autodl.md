@@ -259,4 +259,9 @@ python scripts/eval/evaluate_local_region_weak_labels.py \
   --output /root/autodl-tmp/outputs/local_region_weak_eval_candidate_listwise_context_200.json
 ```
 
+Full weak-label result on 200 images: average weak IoU `0.2732`, below the
+safer tuned baseline. The online pipeline therefore gates this listwise context
+ranker to `hem` only and falls back for neckline, shoulder, and open-vocabulary
+queries.
+
 AutoDL dataset and checkpoint paths are configured in `configs/paths.autodl.yaml`.
