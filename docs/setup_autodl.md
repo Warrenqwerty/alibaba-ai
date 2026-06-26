@@ -190,4 +190,18 @@ fit than OpenCLIP here because the 3.1.2 queries are Chinese.
 If the mirror is unavailable, download `OFA-Sys/chinese-clip-vit-base-patch16`
 to an AutoDL-local directory and pass that directory with `--model-name`.
 
+When Chinese-CLIP selection is worse than the heuristic baseline, run candidate
+diagnostics to separate candidate quality from scorer quality:
+
+```bash
+python scripts/eval/evaluate_local_region_candidate_baselines.py \
+  --candidates /root/autodl-tmp/outputs/local_region_train_candidates.jsonl \
+  --max-groups 2000 \
+  --output /root/autodl-tmp/outputs/local_region_candidate_baselines_2k.json
+```
+
+Use `oracle_best_iou` as the candidate-set upper bound and
+`target_region_name` as the label-name baseline before training a CLIP-feature
+ranker.
+
 AutoDL dataset and checkpoint paths are configured in `configs/paths.autodl.yaml`.

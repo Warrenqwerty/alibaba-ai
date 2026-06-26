@@ -149,6 +149,15 @@ python scripts/eval/evaluate_chinese_clip_local_region_ranker.py \
   --output /root/autodl-tmp/outputs/local_region_chinese_clip_eval_2k.json
 ```
 
+Run candidate diagnostics:
+
+```bash
+python scripts/eval/evaluate_local_region_candidate_baselines.py \
+  --candidates /root/autodl-tmp/outputs/local_region_train_candidates.jsonl \
+  --max-groups 2000 \
+  --output /root/autodl-tmp/outputs/local_region_candidate_baselines_2k.json
+```
+
 Use a hybrid learned ranker checkpoint during 3.1.2 evaluation:
 
 ```bash

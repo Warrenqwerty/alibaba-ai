@@ -405,6 +405,74 @@ def test_chinese_clip_feature_output_accepts_pooler_output():
     assert torch.equal(module._as_feature_tensor(output), torch.ones(2, 4))
 
 
+def test_candidate_baseline_evaluator_reports_oracle_and_name_baselines(tmp_path):
+    import importlib.util
+    from pathlib import Path
+
+    script_path = (
+        Path(__file__).resolve().parents[1]
+        / "scripts"
+        / "eval"
+        / "evaluate_local_region_candidate_baselines.py"
+    )
+    spec = importlib.util.spec_from_file_location(
+        "evaluate_local_region_candidate_baselines",
+        script_path,
+    )
+    assert spec is not None
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+
+    candidates_path = tmp_path / "candidates.jsonl"
+    rows = [
+        {
+            "image": "/data/image/000001.jpg",
+            "annotation": "/data/annos/000001.json",
+            "item_key": "item1",
+            "query": "这件衣服的领口",
+            "target_region": "neckline",
+            "target_region_box": [2.0, 0.0, 18.0, 5.0],
+            "garment_box": [0.0, 0.0, 20.0, 20.0],
+            "candidate_region": "neckline",
+            "candidate_box": [2.0, 0.0, 18.0, 5.0],
+            "iou": 0.8,
+            "label": 1,
+            "weak_label_source": "landmark_pseudo_label",
+            "weak_label_confidence": 0.9,
+        },
+        {
+            "image": "/data/image/000001.jpg",
+            "annotation": "/data/annos/000001.json",
+            "item_key": "item1",
+            "query": "这件衣服的领口",
+            "target_region": "neckline",
+            "target_region_box": [2.0, 0.0, 18.0, 5.0],
+            "garment_box": [0.0, 0.0, 20.0, 20.0],
+            "candidate_region": "upper",
+            "candidate_box": [0.0, 0.0, 20.0, 10.0],
+            "iou": 0.4,
+            "label": 0,
+            "weak_label_source": "landmark_pseudo_label",
+            "weak_label_confidence": 0.9,
+        },
+    ]
+    candidates_path.write_text(
+        "\n".join(json.dumps(row, ensure_ascii=False) for row in rows),
+        encoding="utf-8",
+    )
+
+    metrics = module.evaluate_candidate_baselines(
+        candidates_path,
+        max_groups=None,
+        skip_groups=0,
+    )
+
+    assert metrics["num_groups"] == 1
+    assert metrics["baselines"]["oracle_best_iou"]["avg_top1_iou"] == 0.8
+    assert metrics["baselines"]["target_region_name"]["avg_top1_iou"] == 0.8
+
+
 def test_local_region_eval_summarizes_records():
     import importlib.util
     from pathlib import Path
