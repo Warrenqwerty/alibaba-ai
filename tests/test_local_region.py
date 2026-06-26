@@ -8,7 +8,10 @@ from fashion_mm.models.instance_segmentation import FashionInstance
 from fashion_mm.models.instance_segmentation import SegmentationResult
 from fashion_mm.models.local_region import box_iou
 from fashion_mm.models.local_region import build_pair_feature
+from fashion_mm.models.local_region import build_candidate_record_feature
 from fashion_mm.models.local_region import candidate_boxes_from_garment
+from fashion_mm.models.local_region import CandidateListwiseScorer
+from fashion_mm.models.local_region import candidate_prior_features
 from fashion_mm.models.local_region import HashingTextRegionScorer
 from fashion_mm.models.local_region import LearnedRegionRanker
 from fashion_mm.models.local_region import localize_region_from_instances
@@ -451,6 +454,87 @@ def test_chinese_clip_region_prior_selects_parsed_region():
     assert without_prior["selected_region"] == "right"
     assert with_prior["selected_region"] == "neckline"
     assert module.candidate_matches_parsed_region("left_cuff", "cuff") is True
+
+
+def test_candidate_listwise_feature_includes_parser_prior():
+    feature = build_candidate_record_feature(
+        "这件衣服的领口",
+        "neckline",
+        (0.0, 0.0, 100.0, 200.0),
+        (16.0, 0.0, 84.0, 44.0),
+        "neckline",
+        num_buckets=16,
+    )
+    model = CandidateListwiseScorer(num_buckets=16, hidden_dim=32)
+    logits = model(feature.unsqueeze(0))
+
+    assert feature.shape == (16 * 2 + 6 + 3,)
+    assert candidate_prior_features("left_cuff", "cuff") == (0.0, 1.0, 0.0)
+    assert logits.shape == (1,)
+
+
+def test_candidate_listwise_trainer_builds_best_iou_target(tmp_path):
+    import importlib.util
+    from pathlib import Path
+
+    script_path = (
+        Path(__file__).resolve().parents[1]
+        / "scripts"
+        / "train"
+        / "train_candidate_local_region_ranker.py"
+    )
+    spec = importlib.util.spec_from_file_location(
+        "train_candidate_local_region_ranker",
+        script_path,
+    )
+    assert spec is not None
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+
+    candidates_path = tmp_path / "candidates.jsonl"
+    rows = [
+        {
+            "image": "/data/image/000001.jpg",
+            "annotation": "/data/annos/000001.json",
+            "item_key": "item1",
+            "query": "这件衣服的领口",
+            "target_region": "neckline",
+            "target_region_box": [2.0, 0.0, 18.0, 5.0],
+            "garment_box": [0.0, 0.0, 20.0, 20.0],
+            "candidate_region": "neckline",
+            "candidate_box": [2.0, 0.0, 18.0, 5.0],
+            "iou": 0.4,
+            "label": 0,
+            "weak_label_source": "landmark_pseudo_label",
+            "weak_label_confidence": 0.9,
+        },
+        {
+            "image": "/data/image/000001.jpg",
+            "annotation": "/data/annos/000001.json",
+            "item_key": "item1",
+            "query": "这件衣服的领口",
+            "target_region": "neckline",
+            "target_region_box": [2.0, 0.0, 18.0, 5.0],
+            "garment_box": [0.0, 0.0, 20.0, 20.0],
+            "candidate_region": "whole_garment",
+            "candidate_box": [0.0, 0.0, 20.0, 20.0],
+            "iou": 0.8,
+            "label": 1,
+            "weak_label_source": "landmark_pseudo_label",
+            "weak_label_confidence": 0.9,
+        },
+    ]
+    candidates_path.write_text(
+        "\n".join(json.dumps(row, ensure_ascii=False) for row in rows),
+        encoding="utf-8",
+    )
+
+    group = next(module.iter_candidate_groups(candidates_path))
+    features, target_index = module.build_group_training_example(group, num_buckets=16)
+
+    assert features.shape == (2, 16 * 2 + 6 + 3)
+    assert target_index == 1
 
 
 def test_candidate_baseline_evaluator_reports_oracle_and_name_baselines(tmp_path):

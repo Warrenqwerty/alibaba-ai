@@ -208,4 +208,20 @@ Use `oracle_best_iou` as the candidate-set upper bound and
 `target_region_name` as the label-name baseline before training a CLIP-feature
 ranker.
 
+Train a supervised listwise candidate ranker from the candidate JSONL:
+
+```bash
+python scripts/train/train_candidate_local_region_ranker.py \
+  --candidates /root/autodl-tmp/outputs/local_region_train_candidates.jsonl \
+  --output /root/autodl-tmp/checkpoints/local_region_ranker/candidate_listwise_50k.pt \
+  --device cuda \
+  --max-groups 50000 \
+  --val-groups 2000 \
+  --num-epochs 1
+```
+
+This trains against the best-IoU candidate in each query group. Compare its
+`val_top1_iou` with the `target_region_name` baseline and the oracle upper
+bound before wiring it into the online 3.1.2 predictor.
+
 AutoDL dataset and checkpoint paths are configured in `configs/paths.autodl.yaml`.

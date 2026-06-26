@@ -57,6 +57,31 @@ class HashingTextRegionScorer(nn.Module):
         return self.network(features).squeeze(-1)
 
 
+class CandidateListwiseScorer(nn.Module):
+    """Small listwise scorer for candidate-level weak supervision."""
+
+    def __init__(
+        self,
+        num_buckets: int = 256,
+        hidden_dim: int = 160,
+        geometry_dim: int = 6,
+        prior_dim: int = 3,
+    ) -> None:
+        super().__init__()
+        self.num_buckets = num_buckets
+        input_dim = num_buckets * 2 + geometry_dim + prior_dim
+        self.network = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim // 2),
+            nn.ReLU(),
+            nn.Linear(hidden_dim // 2, 1),
+        )
+
+    def forward(self, features: torch.Tensor) -> torch.Tensor:
+        return self.network(features).squeeze(-1)
+
+
 def build_pair_feature(
     query: str,
     candidate: BoxCandidate,
@@ -75,6 +100,47 @@ def build_pair_feature(
             ),
         ]
     )
+
+
+def build_candidate_record_feature(
+    query: str,
+    candidate_region: str,
+    garment_box: tuple[float, float, float, float],
+    candidate_box: tuple[float, float, float, float],
+    parsed_region: str | None,
+    *,
+    num_buckets: int = 256,
+) -> torch.Tensor:
+    """Build a candidate-level feature vector for listwise ranking."""
+    return torch.cat(
+        [
+            hash_text(query, num_buckets),
+            hash_text(candidate_region, num_buckets),
+            torch.tensor(
+                normalized_box_features(garment_box, candidate_box),
+                dtype=torch.float32,
+            ),
+            torch.tensor(
+                candidate_prior_features(candidate_region, parsed_region),
+                dtype=torch.float32,
+            ),
+        ]
+    )
+
+
+def candidate_prior_features(
+    candidate_region: str,
+    parsed_region: str | None,
+) -> tuple[float, float, float]:
+    """Return query-parser prior features for a candidate region."""
+    exact_match = float(parsed_region is not None and candidate_region == parsed_region)
+    side_stripped = candidate_region.removeprefix("left_").removeprefix("right_")
+    side_match = float(parsed_region is not None and side_stripped == parsed_region)
+    is_generic = float(
+        candidate_region
+        in {"whole_garment", "upper", "lower", "left", "right", "center", "waist"}
+    )
+    return (exact_match, side_match, is_generic)
 
 
 def hash_text(text: str, num_buckets: int = 256) -> torch.Tensor:

@@ -159,6 +159,18 @@ python scripts/eval/evaluate_local_region_candidate_baselines.py \
   --output /root/autodl-tmp/outputs/local_region_candidate_baselines_2k.json
 ```
 
+Train a listwise candidate ranker from weak IoU labels:
+
+```bash
+python scripts/train/train_candidate_local_region_ranker.py \
+  --candidates /root/autodl-tmp/outputs/local_region_train_candidates.jsonl \
+  --output /root/autodl-tmp/checkpoints/local_region_ranker/candidate_listwise_50k.pt \
+  --device cuda \
+  --max-groups 50000 \
+  --val-groups 2000 \
+  --num-epochs 1
+```
+
 Use a hybrid learned ranker checkpoint during 3.1.2 evaluation:
 
 ```bash
