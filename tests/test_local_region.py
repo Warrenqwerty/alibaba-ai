@@ -227,6 +227,51 @@ def test_localize_region_from_instances_supports_zipper_query():
     assert 40 <= result.proposal.proposal.box[0] <= 50
 
 
+def test_learned_region_ranker_uses_candidate_listwise_checkpoint(tmp_path):
+    mask = np.zeros((100, 100), dtype=bool)
+    mask[10:90, 10:90] = True
+    instance = FashionInstance(
+        mask=mask,
+        box=(10.0, 10.0, 90.0, 90.0),
+        label_id=1,
+        label_name="top",
+        score=0.95,
+    )
+    segmentation = SegmentationResult(image_size=(100, 100), instances=[instance])
+    checkpoint_path = tmp_path / "candidate_ranker.pt"
+    model = CandidateListwiseScorer(num_buckets=16, hidden_dim=32)
+    torch.save(
+        {
+            "model_state_dict": model.state_dict(),
+            "num_buckets": 16,
+            "hidden_dim": 32,
+            "loss": "soft",
+            "softmax_temperature": 0.08,
+        },
+        checkpoint_path,
+    )
+
+    ranker = LearnedRegionRanker(checkpoint_path, device="cpu")
+    shoulder_result = localize_region_from_instances(
+        segmentation,
+        "这件衣服的肩部",
+        ranker=ranker,
+    )
+    pocket_result = localize_region_from_instances(
+        segmentation,
+        "右侧的口袋",
+        ranker=ranker,
+    )
+
+    assert ranker.checkpoint_kind == "candidate_listwise"
+    assert shoulder_result.ranker_backend == "hybrid_candidate_listwise_context_ranker"
+    assert shoulder_result.proposal is not None
+    assert "listwise candidate" in shoulder_result.proposal.reason
+    assert pocket_result.proposal is not None
+    assert pocket_result.proposal.proposal.region == "right_pocket"
+    assert "heuristic fallback" in pocket_result.proposal.reason
+
+
 def test_local_region_eval_collects_visible_images(tmp_path):
     import importlib.util
     from pathlib import Path

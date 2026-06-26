@@ -86,7 +86,12 @@ def localize_region_from_instances(
         selected_instance.box,
     )
     ranker = ranker or HeuristicRegionRanker()
-    ranked_candidates = ranker.rank(parsed_query, candidates, selected_instance.box)
+    ranked_candidates = ranker.rank(
+        parsed_query,
+        candidates,
+        selected_instance.box,
+        selected_instance.label_name,
+    )
     proposal = ranked_candidates[0] if ranked_candidates else None
     status = "ok" if proposal is not None else "no_region_candidate"
     return _result(

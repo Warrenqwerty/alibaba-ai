@@ -187,6 +187,19 @@ python scripts/train/train_candidate_local_region_ranker.py \
   --metrics-output /root/autodl-tmp/outputs/local_region_candidate_listwise_context_eval_offset50k.json
 ```
 
+Evaluate it in the full weak-label pipeline:
+
+```bash
+python scripts/eval/evaluate_local_region_weak_labels.py \
+  --image-dir /root/autodl-tmp/datasets/DeepFashion2/validation/image \
+  --anno-dir /root/autodl-tmp/datasets/DeepFashion2/validation/annos \
+  --checkpoint /root/autodl-tmp/checkpoints/deepfashion2_6class_hard_mining/instance_segmentation/epoch_001.pt \
+  --ranker-checkpoint /root/autodl-tmp/checkpoints/local_region_ranker/candidate_listwise_context_50k.pt \
+  --device cuda \
+  --max-images 200 \
+  --output /root/autodl-tmp/outputs/local_region_weak_eval_candidate_listwise_context_200.json
+```
+
 Use a hybrid learned ranker checkpoint during 3.1.2 evaluation:
 
 ```bash

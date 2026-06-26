@@ -7,7 +7,10 @@ import torch
 
 from fashion_mm.models.local_region.learned_ranker import BoxCandidate
 from fashion_mm.models.local_region.learned_ranker import build_pair_feature
+from fashion_mm.models.local_region.learned_ranker import build_candidate_record_feature
+from fashion_mm.models.local_region.learned_ranker import CandidateListwiseScorer
 from fashion_mm.models.local_region.learned_ranker import HashingTextRegionScorer
+from fashion_mm.models.local_region.learned_ranker import LEARNED_RANKER_CANDIDATE_REGIONS
 from fashion_mm.models.local_region.proposal import LocalRegionProposal
 from fashion_mm.models.local_region.query import ParsedRegionQuery
 
@@ -39,7 +42,8 @@ REGION_EQUIVALENTS = {
     "pocket": ("left_pocket", "right_pocket", "left", "right", "center"),
 }
 
-LEARNED_SUPPORTED_REGIONS = {"neckline", "hem"}
+HASH_RANKER_SUPPORTED_REGIONS = {"neckline", "hem"}
+CANDIDATE_LISTWISE_SUPPORTED_REGIONS = {"neckline", "hem", "shoulder"}
 
 
 @dataclass(frozen=True)
@@ -72,6 +76,7 @@ class HeuristicRegionRanker:
         query: ParsedRegionQuery,
         candidates: list[LocalRegionProposal],
         garment_box: tuple[float, float, float, float] | None = None,
+        category_text: str | None = None,
     ) -> list[RankedRegionCandidate]:
         ranked = [
             RankedRegionCandidate(
@@ -155,7 +160,7 @@ class HeuristicRegionRanker:
 class LearnedRegionRanker:
     """Checkpoint-backed lightweight text-region ranker for 3.1.2."""
 
-    backend_name = "hybrid_learned_hash_text_geometry_ranker"
+    backend_name = "hybrid_learned_local_region_ranker"
 
     def __init__(
         self,
@@ -169,10 +174,21 @@ class LearnedRegionRanker:
         checkpoint = torch.load(self.checkpoint_path, map_location="cpu")
         self.num_buckets = int(checkpoint.get("num_buckets", 256))
         self.hidden_dim = int(checkpoint.get("hidden_dim", 128))
-        self.model = HashingTextRegionScorer(
-            num_buckets=self.num_buckets,
-            hidden_dim=self.hidden_dim,
-        ).to(self.device)
+        self.checkpoint_kind = _checkpoint_kind(checkpoint)
+        if self.checkpoint_kind == "candidate_listwise":
+            self.backend_name = "hybrid_candidate_listwise_context_ranker"
+            self.supported_regions = CANDIDATE_LISTWISE_SUPPORTED_REGIONS
+            self.model = CandidateListwiseScorer(
+                num_buckets=self.num_buckets,
+                hidden_dim=self.hidden_dim,
+            ).to(self.device)
+        else:
+            self.backend_name = "hybrid_learned_hash_text_geometry_ranker"
+            self.supported_regions = HASH_RANKER_SUPPORTED_REGIONS
+            self.model = HashingTextRegionScorer(
+                num_buckets=self.num_buckets,
+                hidden_dim=self.hidden_dim,
+            ).to(self.device)
         self.model.load_state_dict(checkpoint["model_state_dict"])
         self.model.eval()
         self.fallback_ranker = HeuristicRegionRanker()
@@ -182,11 +198,19 @@ class LearnedRegionRanker:
         query: ParsedRegionQuery,
         candidates: list[LocalRegionProposal],
         garment_box: tuple[float, float, float, float] | None = None,
+        category_text: str | None = None,
     ) -> list[RankedRegionCandidate]:
-        if query.region not in LEARNED_SUPPORTED_REGIONS:
-            return self._fallback_rank(query, candidates, garment_box)
+        if query.region not in self.supported_regions:
+            return self._fallback_rank(query, candidates, garment_box, category_text)
         if garment_box is None:
             raise ValueError("garment_box is required for LearnedRegionRanker")
+        if self.checkpoint_kind == "candidate_listwise":
+            return self._rank_candidate_listwise(
+                query,
+                candidates,
+                garment_box,
+                category_text,
+            )
 
         ranked: list[RankedRegionCandidate] = []
         with torch.no_grad():
@@ -219,8 +243,9 @@ class LearnedRegionRanker:
         query: ParsedRegionQuery,
         candidates: list[LocalRegionProposal],
         garment_box: tuple[float, float, float, float] | None,
+        category_text: str | None,
     ) -> list[RankedRegionCandidate]:
-        ranked = self.fallback_ranker.rank(query, candidates, garment_box)
+        ranked = self.fallback_ranker.rank(query, candidates, garment_box, category_text)
         return [
             RankedRegionCandidate(
                 proposal=item.proposal,
@@ -230,6 +255,51 @@ class LearnedRegionRanker:
             for item in ranked
         ]
 
+    def _rank_candidate_listwise(
+        self,
+        query: ParsedRegionQuery,
+        candidates: list[LocalRegionProposal],
+        garment_box: tuple[float, float, float, float],
+        category_text: str | None,
+    ) -> list[RankedRegionCandidate]:
+        ranked: list[RankedRegionCandidate] = []
+        trained_regions = set(LEARNED_RANKER_CANDIDATE_REGIONS)
+        with torch.no_grad():
+            for candidate in candidates:
+                if candidate.box is None or candidate.region not in trained_regions:
+                    continue
+                feature = build_candidate_record_feature(
+                    query.query,
+                    candidate.region,
+                    garment_box,
+                    candidate.box,
+                    query.region,
+                    category_text=category_text,
+                    num_buckets=self.num_buckets,
+                ).to(self.device)
+                score = float(self.model(feature.unsqueeze(0)).detach().cpu()[0])
+                ranked.append(
+                    RankedRegionCandidate(
+                        proposal=candidate,
+                        score=round(score, 4),
+                        reason="learned listwise candidate context score",
+                    )
+                )
+
+        if not ranked:
+            return self._fallback_rank(query, candidates, garment_box, category_text)
+        return sorted(
+            ranked,
+            key=lambda item: (item.score, item.proposal.confidence, _area(item.proposal)),
+            reverse=True,
+        )
+
 
 def _area(proposal: LocalRegionProposal) -> int:
     return int(proposal.mask.sum())
+
+
+def _checkpoint_kind(checkpoint: dict) -> str:
+    if "loss" in checkpoint or "softmax_temperature" in checkpoint:
+        return "candidate_listwise"
+    return "hash_text_geometry"
