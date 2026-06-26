@@ -200,8 +200,11 @@ python scripts/eval/evaluate_local_region_weak_labels.py \
   --output /root/autodl-tmp/outputs/local_region_weak_eval_candidate_listwise_context_200.json
 ```
 
-The full weak-label result gates this checkpoint to `hem` only in online use;
-other regions fall back to the safer heuristic/hash path.
+The context-feature candidate ranker is strong offline, but the full weak-label
+pipeline currently gates this checkpoint to `hem` only in online use. On the
+200-image weak evaluation, the hem-gated hybrid reached average weak IoU
+`0.2818` with Hit@0.3 `0.4050`; neckline and shoulder fall back to the safer
+heuristic/hash path while hem uses the listwise context checkpoint.
 
 Use a hybrid learned ranker checkpoint during 3.1.2 evaluation:
 

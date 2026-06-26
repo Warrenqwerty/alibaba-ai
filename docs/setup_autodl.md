@@ -259,9 +259,11 @@ python scripts/eval/evaluate_local_region_weak_labels.py \
   --output /root/autodl-tmp/outputs/local_region_weak_eval_candidate_listwise_context_200.json
 ```
 
-Full weak-label result on 200 images: average weak IoU `0.2732`, below the
-safer tuned baseline. The online pipeline therefore gates this listwise context
-ranker to `hem` only and falls back for neckline, shoulder, and open-vocabulary
-queries.
+Full weak-label result on 200 images without gating: average weak IoU `0.2732`,
+below the safer tuned baseline. The online pipeline therefore gates this
+listwise context ranker to `hem` only and falls back for neckline, shoulder, and
+open-vocabulary queries. With hem-only gating, the 200-image weak evaluation
+recovers average weak IoU `0.2818` with Hit@0.3 `0.4050`; hem is handled by the
+listwise context checkpoint, while neckline and shoulder use the fallback path.
 
 AutoDL dataset and checkpoint paths are configured in `configs/paths.autodl.yaml`.

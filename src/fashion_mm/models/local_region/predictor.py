@@ -94,12 +94,13 @@ def localize_region_from_instances(
     )
     proposal = ranked_candidates[0] if ranked_candidates else None
     status = "ok" if proposal is not None else "no_region_candidate"
+    effective_backend = proposal.backend if proposal is not None else ranker.backend_name
     return _result(
         parsed_query,
         selected_instance,
         proposal,
         ranked_candidates,
-        ranker.backend_name,
+        effective_backend,
         status,
         proposal.proposal.reason if proposal is not None else "no candidate regions generated",
         start,

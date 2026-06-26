@@ -53,11 +53,13 @@ class RankedRegionCandidate:
     proposal: LocalRegionProposal
     score: float
     reason: str
+    backend: str
 
     def to_dict(self, include_mask: bool = False) -> dict:
         payload = self.proposal.to_dict(include_mask=include_mask)
         payload["match_score"] = self.score
         payload["match_reason"] = self.reason
+        payload["ranker_backend"] = self.backend
         return payload
 
 
@@ -83,6 +85,7 @@ class HeuristicRegionRanker:
                 proposal=candidate,
                 score=self._score_candidate(query, candidate),
                 reason=self._reason(query, candidate),
+                backend=self.backend_name,
             )
             for candidate in candidates
         ]
@@ -229,6 +232,7 @@ class LearnedRegionRanker:
                         proposal=candidate,
                         score=round(score, 4),
                         reason="learned hash text-geometry score",
+                        backend=self.backend_name,
                     )
                 )
 
@@ -251,6 +255,7 @@ class LearnedRegionRanker:
                 proposal=item.proposal,
                 score=item.score,
                 reason=f"heuristic fallback for unsupported learned region: {item.reason}",
+                backend=item.backend,
             )
             for item in ranked
         ]
@@ -283,6 +288,7 @@ class LearnedRegionRanker:
                         proposal=candidate,
                         score=round(score, 4),
                         reason="learned listwise candidate context score",
+                        backend=self.backend_name,
                     )
                 )
 

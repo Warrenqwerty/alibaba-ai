@@ -271,10 +271,15 @@ def test_learned_region_ranker_uses_candidate_listwise_checkpoint_for_hem(tmp_pa
     assert ranker.checkpoint_kind == "candidate_listwise"
     assert hem_result.ranker_backend == "hybrid_candidate_listwise_context_ranker"
     assert hem_result.proposal is not None
+    assert hem_result.proposal.backend == "hybrid_candidate_listwise_context_ranker"
     assert "listwise candidate" in hem_result.proposal.reason
     assert shoulder_result.proposal is not None
+    assert shoulder_result.ranker_backend == "heuristic_text_region_ranker"
+    assert shoulder_result.proposal.backend == "heuristic_text_region_ranker"
     assert "heuristic fallback" in shoulder_result.proposal.reason
     assert pocket_result.proposal is not None
+    assert pocket_result.ranker_backend == "heuristic_text_region_ranker"
+    assert pocket_result.proposal.backend == "heuristic_text_region_ranker"
     assert pocket_result.proposal.proposal.region == "right_pocket"
     assert "heuristic fallback" in pocket_result.proposal.reason
 
@@ -1087,8 +1092,9 @@ def test_learned_ranker_falls_back_for_untrained_open_query(tmp_path):
     )
 
     assert result.status == "ok"
-    assert result.ranker_backend == "hybrid_learned_hash_text_geometry_ranker"
+    assert result.ranker_backend == "heuristic_text_region_ranker"
     assert result.proposal is not None
+    assert result.proposal.backend == "heuristic_text_region_ranker"
     assert result.proposal.proposal.region == "right_pocket"
     assert "heuristic fallback" in result.proposal.reason
 
@@ -1124,5 +1130,7 @@ def test_learned_ranker_falls_back_for_shoulder_after_weak_eval_drop(tmp_path):
 
     assert result.status == "ok"
     assert result.proposal is not None
+    assert result.ranker_backend == "heuristic_text_region_ranker"
+    assert result.proposal.backend == "heuristic_text_region_ranker"
     assert result.proposal.proposal.region == "shoulder"
     assert "heuristic fallback" in result.proposal.reason

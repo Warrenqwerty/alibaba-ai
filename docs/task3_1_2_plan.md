@@ -208,6 +208,23 @@ be staged:
        heuristic baseline and gives only a very small gain, so the lightweight
        text-geometry scorer should be treated as a bridge rather than the final
        learned localizer.
+   - Context-feature listwise candidate ranker:
+     - 50k-query training result: validation top-1 candidate IoU 0.5113 on the
+       first 2k groups, close to the candidate-set oracle 0.5704 and clearly
+       above the target-region-name baseline 0.3589.
+     - Later-slice evaluation result: average top-1 candidate IoU 0.4456 on 5k
+       groups, with oracle 0.5193. This shows the ranker learns useful
+       query/candidate/context signals instead of only memorizing the first
+       validation slice.
+     - Full 3.1.2 weak-label pipeline result without gating: average weak IoU
+       0.2732 on 200 validation images, below the tuned heuristic baseline.
+       Neckline and shoulder degrade after the candidate score is transferred
+       back through the predicted instance mask.
+     - Online policy: gate the listwise context ranker to hem only, and keep
+       heuristic fallback for neckline, shoulder, and open-vocabulary regions.
+       The 200-image hem-gated result is average weak IoU 0.2818, Hit@0.3
+       0.4050, Hit@0.5 0.1333; by region: hem 0.2789, neckline 0.3000,
+       shoulder 0.2665.
    - This confirms the weak metric is sensitive enough for heuristic iteration,
      but the remaining gap should be handled by learned text-region matching.
 
