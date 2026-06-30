@@ -11,6 +11,13 @@ if str(ROOT) not in sys.path:
 from scripts.data.build_local_region_manual_eval_manifest import (
     build_manifest_records,
 )
+from scripts.data.annotate_local_region_bboxes import (
+    default_output_path,
+    load_annotation_records,
+    next_unlabeled_index,
+    update_record,
+    write_annotation_records,
+)
 from scripts.eval.evaluate_local_region_manual_labels import (
     parse_bbox,
     parse_manual_record,
@@ -79,3 +86,45 @@ def test_manual_eval_summary_uses_manual_bbox_iou():
     assert summary["manual_hit_at"]["0.3"] == pytest.approx(0.5)
     assert summary["manual_hit_at"]["0.5"] == pytest.approx(0.5)
     assert summary["by_region"]["neckline"]["avg_manual_bbox_iou"] == 0.6
+
+
+def test_annotator_default_output_path():
+    assert default_output_path("/tmp/manual_manifest.jsonl") == Path(
+        "/tmp/manual_manifest_labeled.jsonl"
+    )
+
+
+def test_annotator_updates_and_persists_records(tmp_path):
+    manifest = tmp_path / "manifest.jsonl"
+    output = tmp_path / "labels.jsonl"
+    manifest.write_text(
+        '{"image": "/tmp/1.jpg", "query_text": "这件衣服的领口", '
+        '"target_bbox": null, "label_status": "unlabeled"}\n',
+        encoding="utf-8",
+    )
+
+    records = load_annotation_records(manifest, output)
+    update_record(
+        records,
+        0,
+        target_bbox=[10.2, 11.8, 50.1, 60.9],
+        label_status="labeled",
+        notes="ok",
+    )
+    write_annotation_records(records, output)
+    restored = load_annotation_records(manifest, output)
+
+    assert restored[0]["target_bbox"] == [10, 12, 50, 61]
+    assert restored[0]["label_status"] == "labeled"
+    assert restored[0]["notes"] == "ok"
+
+
+def test_annotator_next_unlabeled_wraps():
+    records = [
+        {"label_status": "labeled"},
+        {"label_status": "skip"},
+        {"label_status": "unlabeled"},
+    ]
+
+    assert next_unlabeled_index(records, start=0) == 2
+    assert next_unlabeled_index(records, start=2) == 2

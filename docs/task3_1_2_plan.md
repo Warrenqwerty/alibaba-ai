@@ -243,7 +243,8 @@ be staged:
      - Label only `target_bbox` in xyxy image pixels, do not use landmarks, and
        do not use this file for training.
      - Use `scripts/data/build_local_region_manual_eval_manifest.py` to create
-       the annotation JSONL and `scripts/eval/evaluate_local_region_manual_labels.py`
+       the annotation JSONL, `scripts/data/annotate_local_region_bboxes.py` to
+       drag boxes in a browser, and `scripts/eval/evaluate_local_region_manual_labels.py`
        to evaluate full pipeline outputs against the manual boxes.
    - This keeps weak supervision useful for training while adding an
      independent human-localized benchmark to detect pseudo-label overfitting.

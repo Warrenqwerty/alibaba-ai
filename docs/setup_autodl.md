@@ -76,7 +76,7 @@ be used only for evaluation:
 
 ```bash
 cd /root/projects/alibaba-ai
-python scripts/data/build_local_region_manual_eval_manifest.py \
+PYTHONPATH=src python scripts/data/build_local_region_manual_eval_manifest.py \
   --image-dir /root/autodl-tmp/datasets/DeepFashion2/validation/image \
   --max-images 100 \
   --max-records 300 \
@@ -84,15 +84,27 @@ python scripts/data/build_local_region_manual_eval_manifest.py \
   --output /root/autodl-tmp/outputs/local_region_manual_eval_manifest.jsonl
 ```
 
-Fill `target_bbox` manually as `[x1, y1, x2, y2]` in image pixels and set
-`label_status` to `labeled`. Do not use landmarks or the weak-label generator
-while labeling this file.
+Start the browser annotator and drag one bbox for each image-query pair. The
+tool automatically writes `[x1, y1, x2, y2]` pixel coordinates, so there is no
+need to calculate bbox numbers manually:
+
+```bash
+PYTHONPATH=src python scripts/data/annotate_local_region_bboxes.py \
+  --manifest /root/autodl-tmp/outputs/local_region_manual_eval_manifest.jsonl \
+  --output /root/autodl-tmp/outputs/local_region_manual_eval_labeled.jsonl \
+  --host 0.0.0.0 \
+  --port 7860
+```
+
+Open the printed URL through the AutoDL port/proxy UI or by SSH port
+forwarding. Do not use landmarks or the weak-label generator while labeling
+this file.
 
 Evaluate the full 3.1.2 pipeline against the manual benchmark:
 
 ```bash
-python scripts/eval/evaluate_local_region_manual_labels.py \
-  --annotations /root/autodl-tmp/outputs/local_region_manual_eval_manifest.jsonl \
+PYTHONPATH=src python scripts/eval/evaluate_local_region_manual_labels.py \
+  --annotations /root/autodl-tmp/outputs/local_region_manual_eval_labeled.jsonl \
   --checkpoint /root/autodl-tmp/checkpoints/deepfashion2_6class_hard_mining/instance_segmentation/epoch_001.pt \
   --ranker-checkpoint /root/autodl-tmp/checkpoints/local_region_ranker/candidate_listwise_context_50k.pt \
   --device cuda \
