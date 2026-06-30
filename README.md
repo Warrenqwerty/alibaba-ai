@@ -104,6 +104,36 @@ python scripts/eval/evaluate_local_region_weak_labels.py \
 Add `--ranker-checkpoint /root/autodl-tmp/checkpoints/local_region_ranker/hash_text_geometry_500k.pt`
 to evaluate the hybrid learned ranker on the same weak-label metric.
 
+Build a small manual bbox benchmark for the true 3.1.2 metric. This is not a
+full DeepFashion2 relabeling task; label about 100-300 image-query pairs and use
+them only for evaluation, not training:
+
+```bash
+python scripts/data/build_local_region_manual_eval_manifest.py \
+  --image-dir /root/autodl-tmp/datasets/DeepFashion2/validation/image \
+  --max-images 100 \
+  --max-records 300 \
+  --shuffle \
+  --output /root/autodl-tmp/outputs/local_region_manual_eval_manifest.jsonl
+```
+
+Fill each `target_bbox` manually as `[x1, y1, x2, y2]` in image pixels and set
+`label_status` to `labeled`. Do not use DeepFashion2 landmarks while labeling.
+Then evaluate the full pipeline against the manual benchmark:
+
+```bash
+python scripts/eval/evaluate_local_region_manual_labels.py \
+  --annotations /root/autodl-tmp/outputs/local_region_manual_eval_manifest.jsonl \
+  --checkpoint /root/autodl-tmp/checkpoints/deepfashion2_6class_hard_mining/instance_segmentation/epoch_001.pt \
+  --ranker-checkpoint /root/autodl-tmp/checkpoints/local_region_ranker/candidate_listwise_context_50k.pt \
+  --device cuda \
+  --output /root/autodl-tmp/outputs/local_region_manual_eval_candidate_listwise_context.json
+```
+
+Treat pseudo-label metrics as development diagnostics. The manual bbox
+benchmark is the independent check for whether weak-supervised improvements
+match real language-guided local-region localization.
+
 Build weak query-region records for a learned 3.1.2 ranker:
 
 ```bash

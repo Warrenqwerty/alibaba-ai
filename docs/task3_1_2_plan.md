@@ -225,13 +225,34 @@ be staged:
        The 200-image hem-gated result is average weak IoU 0.2818, Hit@0.3
        0.4050, Hit@0.5 0.1333; by region: hem 0.2789, neckline 0.3000,
        shoulder 0.2665.
-   - This confirms the weak metric is sensitive enough for heuristic iteration,
-     but the remaining gap should be handled by learned text-region matching.
+   - Metric caveat after review:
+     - The weak-label train/eval loop uses landmark pseudo-labels plus rule
+       fallback, so it can be biased toward the pseudo-label geometry instead
+       of the real region a user would mark.
+     - Candidate-level experiments are optimistic because the records are
+       generated from DeepFashion2 GT masks and landmark-derived weak targets.
+       Full pipeline evaluation uses predicted 3.1.1 masks and no landmark
+       access, so it is the more realistic online metric.
+     - Therefore pseudo-label metrics should be treated as development
+       diagnostics, not final PRD accuracy.
+   - Manual bbox benchmark:
+     - Build a small independent evaluation set instead of relabeling all of
+       DeepFashion2.
+     - Target size: 100-300 image-query pairs, covering neckline, hem,
+       shoulder, cuff, pocket, zipper, and pattern.
+     - Label only `target_bbox` in xyxy image pixels, do not use landmarks, and
+       do not use this file for training.
+     - Use `scripts/data/build_local_region_manual_eval_manifest.py` to create
+       the annotation JSONL and `scripts/eval/evaluate_local_region_manual_labels.py`
+       to evaluate full pipeline outputs against the manual boxes.
+   - This keeps weak supervision useful for training while adding an
+     independent human-localized benchmark to detect pseudo-label overfitting.
 
 3. Human-labeled evaluation set:
    - Manually label a small set, e.g. 100-300 image-query pairs.
-   - Include common queries: collar, cuff, hem, shoulder, waist, print.
+   - Include common queries: collar, cuff, hem, shoulder, pocket, zipper, print.
    - Use this as the true metric set for localization accuracy.
+   - Keep it independent from pseudo-label generation and model training.
 
 4. Latency evaluation:
    - Measure 3.1.2 region localization time excluding or including 3.1.1,
