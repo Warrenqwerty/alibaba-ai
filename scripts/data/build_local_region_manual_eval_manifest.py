@@ -12,6 +12,21 @@ from fashion_mm.models.local_region import parse_region_query
 
 
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
+DEEPFASHION2_CATEGORY_NAMES = {
+    1: "short sleeve top",
+    2: "long sleeve top",
+    3: "short sleeve outerwear",
+    4: "long sleeve outerwear",
+    5: "vest",
+    6: "sling",
+    7: "shorts",
+    8: "trousers",
+    9: "skirt",
+    10: "short sleeve dress",
+    11: "long sleeve dress",
+    12: "vest dress",
+    13: "sling dress",
+}
 DEFAULT_MANUAL_QUERIES = [
     "这件衣服的领口",
     "衣服下方的下摆",
@@ -22,6 +37,21 @@ DEFAULT_MANUAL_QUERIES = [
     "衣服上的拉链",
     "这件衣服上的碎花图案",
 ]
+CLASS_AWARE_QUERY_TEMPLATES = {
+    1: ("这件上衣的领口", "这件上衣的肩部", "左边的袖口", "右边的袖口", "这件上衣的下摆", "这件上衣上的图案"),
+    2: ("这件上衣的领口", "这件上衣的肩部", "左边的袖口", "右边的袖口", "这件上衣的下摆", "这件上衣上的图案"),
+    3: ("这件外套的领口", "这件外套的肩部", "左边的袖口", "右边的袖口", "这件外套的下摆", "这件外套上的拉链", "右侧的口袋", "这件外套上的图案"),
+    4: ("这件外套的领口", "这件外套的肩部", "左边的袖口", "右边的袖口", "这件外套的下摆", "这件外套上的拉链", "右侧的口袋", "这件外套上的图案"),
+    5: ("这件上衣的领口", "这件上衣的肩部", "这件上衣的下摆", "这件上衣上的图案"),
+    6: ("这件上衣的领口", "这件上衣的肩部", "这件上衣的下摆", "这件上衣上的图案"),
+    7: ("这条裤子的腰部", "这条裤子的裤脚", "右侧的口袋", "裤子上的拉链", "裤子上的图案"),
+    8: ("这条裤子的腰部", "这条裤子的裤脚", "右侧的口袋", "裤子上的拉链", "裤子上的图案"),
+    9: ("这条裙子的腰部", "这条裙子的裙摆", "这条裙子上的图案"),
+    10: ("这件连衣裙的领口", "这件连衣裙的肩部", "左边的袖口", "右边的袖口", "这件连衣裙的腰部", "这件连衣裙的裙摆", "这件连衣裙上的图案"),
+    11: ("这件连衣裙的领口", "这件连衣裙的肩部", "左边的袖口", "右边的袖口", "这件连衣裙的腰部", "这件连衣裙的裙摆", "这件连衣裙上的图案"),
+    12: ("这件连衣裙的领口", "这件连衣裙的肩部", "这件连衣裙的腰部", "这件连衣裙的裙摆", "这件连衣裙上的图案"),
+    13: ("这件连衣裙的领口", "这件连衣裙的肩部", "这件连衣裙的腰部", "这件连衣裙的裙摆", "这件连衣裙上的图案"),
+}
 
 
 def parse_args() -> argparse.Namespace:
@@ -33,10 +63,21 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--image-dir", required=True, help="Directory of images to sample.")
     parser.add_argument(
+        "--anno-dir",
+        default=None,
+        help=(
+            "Optional DeepFashion2 annotation directory. When provided and "
+            "--queries is omitted, class-aware query templates are used."
+        ),
+    )
+    parser.add_argument(
         "--queries",
         nargs="+",
-        default=DEFAULT_MANUAL_QUERIES,
-        help="Natural-language queries to annotate for sampled images.",
+        default=None,
+        help=(
+            "Natural-language queries to annotate for sampled images. If omitted "
+            "with --anno-dir, queries are chosen from the garment category."
+        ),
     )
     parser.add_argument(
         "--max-images",
@@ -117,6 +158,64 @@ def build_manifest_records(
     return records
 
 
+def build_class_aware_manifest_records(
+    image_paths: list[Path],
+    anno_dir: str | Path,
+    max_records: int | None = None,
+) -> list[dict[str, Any]]:
+    """Create manual records using category-compatible query templates."""
+    records: list[dict[str, Any]] = []
+    annotation_dir = Path(anno_dir)
+    for image_path in image_paths:
+        annotation_path = annotation_dir / f"{image_path.stem}.json"
+        if not annotation_path.exists():
+            continue
+        annotation = json.loads(annotation_path.read_text(encoding="utf-8"))
+        width, height = Image.open(image_path).size
+        for item_key, item in iter_annotation_items(annotation):
+            category_id = int(item.get("category_id", 0))
+            for query in queries_for_category(category_id):
+                parsed = parse_region_query(query)
+                records.append(
+                    {
+                        "id": f"{image_path.stem}_{item_key}__{len(records):06d}",
+                        "image": str(image_path),
+                        "annotation": str(annotation_path),
+                        "source_item_key": item_key,
+                        "category_id": category_id,
+                        "category_name": DEEPFASHION2_CATEGORY_NAMES.get(
+                            category_id,
+                            "unknown",
+                        ),
+                        "query_text": query,
+                        "target_region": parsed.region,
+                        "image_width": width,
+                        "image_height": height,
+                        "target_bbox": None,
+                        "bbox_format": "xyxy",
+                        "label_status": "unlabeled",
+                        "notes": "",
+                    }
+                )
+                if max_records is not None and len(records) >= max_records:
+                    return records
+    return records
+
+
+def iter_annotation_items(annotation: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
+    """Return DeepFashion2 item entries in deterministic order."""
+    return [
+        (key, annotation[key])
+        for key in sorted(annotation)
+        if key.startswith("item") and isinstance(annotation[key], dict)
+    ]
+
+
+def queries_for_category(category_id: int) -> tuple[str, ...]:
+    """Return garment-category-compatible manual eval queries."""
+    return CLASS_AWARE_QUERY_TEMPLATES.get(category_id, tuple(DEFAULT_MANUAL_QUERIES))
+
+
 def write_jsonl(records: list[dict[str, Any]], output_path: Path) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("w", encoding="utf-8") as file:
@@ -135,19 +234,34 @@ def main() -> None:
     if not image_paths:
         raise ValueError(f"No images found in {args.image_dir}")
 
-    records = build_manifest_records(
-        image_paths,
-        list(args.queries),
-        max_records=args.max_records,
-    )
+    if args.anno_dir is not None and args.queries is None:
+        records = build_class_aware_manifest_records(
+            image_paths,
+            args.anno_dir,
+            max_records=args.max_records,
+        )
+        query_mode = "class_aware"
+        queries = "category-dependent"
+    else:
+        queries = list(args.queries or DEFAULT_MANUAL_QUERIES)
+        records = build_manifest_records(
+            image_paths,
+            queries,
+            max_records=args.max_records,
+        )
+        query_mode = "fixed"
+    if not records:
+        raise ValueError("No manual annotation records generated")
     output_path = Path(args.output)
     write_jsonl(records, output_path)
     summary = {
         "image_dir": str(Path(args.image_dir)),
+        "anno_dir": str(Path(args.anno_dir)) if args.anno_dir else None,
         "output": str(output_path),
         "num_images": len(image_paths),
         "num_records": len(records),
-        "queries": list(args.queries),
+        "query_mode": query_mode,
+        "queries": queries,
         "annotation_instruction": (
             "Fill target_bbox as [x1, y1, x2, y2] in image pixels and set "
             "label_status to labeled. Do not use landmarks while labeling."

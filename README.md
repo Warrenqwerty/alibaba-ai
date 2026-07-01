@@ -111,11 +111,16 @@ them only for evaluation, not training:
 ```bash
 PYTHONPATH=src python scripts/data/build_local_region_manual_eval_manifest.py \
   --image-dir /root/autodl-tmp/datasets/DeepFashion2/validation/image \
-  --max-images 100 \
-  --max-records 300 \
+  --anno-dir /root/autodl-tmp/datasets/DeepFashion2/validation/annos \
+  --max-images 50 \
+  --max-records 150 \
   --shuffle \
   --output /root/autodl-tmp/outputs/local_region_manual_eval_manifest.jsonl
 ```
+
+When `--anno-dir` is provided, the manifest uses class-aware query templates so
+pants receive waist/pant-hem/pocket/zipper queries instead of neckline or
+shoulder queries. This reduces skipped records while keeping annotation small.
 
 Start the browser annotator, then drag a bbox for each image-query pair. The
 tool writes pixel-coordinate `target_bbox` values into a labeled JSONL file, so

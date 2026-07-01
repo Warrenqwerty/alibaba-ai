@@ -78,11 +78,17 @@ be used only for evaluation:
 cd /root/projects/alibaba-ai
 PYTHONPATH=src python scripts/data/build_local_region_manual_eval_manifest.py \
   --image-dir /root/autodl-tmp/datasets/DeepFashion2/validation/image \
-  --max-images 100 \
-  --max-records 300 \
+  --anno-dir /root/autodl-tmp/datasets/DeepFashion2/validation/annos \
+  --max-images 50 \
+  --max-records 150 \
   --shuffle \
   --output /root/autodl-tmp/outputs/local_region_manual_eval_manifest.jsonl
 ```
+
+With `--anno-dir`, the manifest uses category-aware query templates. For
+example, pants receive waist/pant-hem/pocket/zipper queries instead of neckline
+or shoulder queries. This should reduce the skip rate in the next annotation
+round.
 
 Start the browser annotator and drag one bbox for each image-query pair. The
 tool automatically writes `[x1, y1, x2, y2]` pixel coordinates, so there is no

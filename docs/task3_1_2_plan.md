@@ -224,13 +224,16 @@ be staged:
        recovered the 200-image weak metric to average weak IoU 0.2818, Hit@0.3
        0.4050, Hit@0.5 0.1333; by region: hem 0.2789, neckline 0.3000,
        shoulder 0.2665.
-     - Manual benchmark result: on the initial 55 manually labeled bbox
+   - Manual benchmark result: on the initial 55 manually labeled bbox
        records, pure heuristic outperformed the hem-gated candidate-listwise
        hybrid (average bbox IoU 0.2544 vs 0.2324; Hit@0.3 0.4000 vs 0.3455).
        Hem dropped from 0.3077 to 0.1982 when the listwise branch was used.
      - Current online policy: use the pure heuristic open-vocabulary pipeline
        by default. Keep candidate-listwise rankers as weak-supervised
        experimental branches until they improve the manual benchmark.
+     - Next annotation step: expand to about 120-150 labeled records using
+       class-aware query sampling so pants/skirt/dress/top images receive
+       compatible local-region queries and the skip rate is lower.
    - Metric caveat after review:
      - The weak-label train/eval loop uses landmark pseudo-labels plus rule
        fallback, so it can be biased toward the pseudo-label geometry instead
@@ -248,6 +251,8 @@ be staged:
        shoulder, cuff, pocket, zipper, and pattern.
      - Label only `target_bbox` in xyxy image pixels, do not use landmarks, and
        do not use this file for training.
+     - Use `--anno-dir` when building the manifest to enable class-aware query
+       templates and avoid impossible pairs such as pants + neckline.
      - Use `scripts/data/build_local_region_manual_eval_manifest.py` to create
        the annotation JSONL, `scripts/data/annotate_local_region_bboxes.py` to
        drag boxes in a browser, and `scripts/eval/evaluate_local_region_manual_labels.py`

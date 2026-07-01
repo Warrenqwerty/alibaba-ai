@@ -9,7 +9,9 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from scripts.data.build_local_region_manual_eval_manifest import (
+    build_class_aware_manifest_records,
     build_manifest_records,
+    queries_for_category,
 )
 from scripts.data.annotate_local_region_bboxes import (
     default_output_path,
@@ -42,6 +44,30 @@ def test_manual_manifest_records_start_unlabeled(tmp_path):
     assert records[0]["image_width"] == 80
     assert records[0]["image_height"] == 100
     assert records[1]["target_region"] == "pocket"
+
+
+def test_class_aware_manifest_uses_category_queries(tmp_path):
+    image_path = tmp_path / "000001.jpg"
+    anno_dir = tmp_path / "annos"
+    anno_dir.mkdir()
+    Image.new("RGB", (80, 100)).save(image_path)
+    (anno_dir / "000001.json").write_text(
+        '{"source": "000001.jpg", "item1": {"category_id": 8}}',
+        encoding="utf-8",
+    )
+
+    records = build_class_aware_manifest_records([image_path], anno_dir)
+
+    assert [record["query_text"] for record in records] == list(queries_for_category(8))
+    assert {record["target_region"] for record in records} == {
+        "waist",
+        "hem",
+        "pocket",
+        "zipper",
+        "pattern",
+    }
+    assert all(record["category_name"] == "trousers" for record in records)
+    assert all(record["source_item_key"] == "item1" for record in records)
 
 
 def test_parse_manual_record_validates_bbox_shape():
