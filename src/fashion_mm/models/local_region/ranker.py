@@ -43,7 +43,9 @@ REGION_EQUIVALENTS = {
 }
 
 HASH_RANKER_SUPPORTED_REGIONS = {"neckline", "hem"}
-CANDIDATE_LISTWISE_SUPPORTED_REGIONS = {"hem"}
+# Manual bbox evaluation showed the candidate-listwise weak-supervised ranker
+# underperforms the heuristic online pipeline, so keep it disabled for inference.
+CANDIDATE_LISTWISE_SUPPORTED_REGIONS: set[str] = set()
 
 
 @dataclass(frozen=True)

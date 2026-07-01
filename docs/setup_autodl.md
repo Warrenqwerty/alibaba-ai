@@ -106,14 +106,16 @@ Evaluate the full 3.1.2 pipeline against the manual benchmark:
 PYTHONPATH=src python scripts/eval/evaluate_local_region_manual_labels.py \
   --annotations /root/autodl-tmp/outputs/local_region_manual_eval_labeled.jsonl \
   --checkpoint /root/autodl-tmp/checkpoints/deepfashion2_6class_hard_mining/instance_segmentation/epoch_001.pt \
-  --ranker-checkpoint /root/autodl-tmp/checkpoints/local_region_ranker/candidate_listwise_context_50k.pt \
   --device cuda \
-  --output /root/autodl-tmp/outputs/local_region_manual_eval_candidate_listwise_context.json
+  --output /root/autodl-tmp/outputs/local_region_manual_eval_heuristic.json
 ```
 
 Use this manual result as the independent benchmark. The landmark/rule
 weak-label metric remains useful for debugging and large-scale development, but
-it is not a replacement for human-localized query regions.
+it is not a replacement for human-localized query regions. The first 55-record
+manual benchmark favored the pure heuristic baseline over the hem-gated
+candidate-listwise hybrid (`0.2544` vs `0.2324` average bbox IoU), so the
+current online policy is heuristic-only.
 
 Build weak query-region records for the learned `3.1.2` ranker:
 
@@ -182,10 +184,10 @@ python scripts/eval/evaluate_local_region_queries.py \
   --vis-dir /root/autodl-tmp/outputs/local_region_vis_hybrid
 ```
 
-The learned checkpoint is used only for regions where the weak evaluation is
-neutral or helpful (`neckline`, `hem`). Shoulder and other open-vocabulary
-queries, such as cuff, pocket, zipper, and pattern, fall back to the heuristic
-ranker to preserve coverage.
+The hash checkpoint remains an experimental branch. After the manual bbox
+benchmark, the default online policy is to omit `--ranker-checkpoint` and use
+the pure heuristic open-vocabulary pipeline unless a learned branch improves
+the manual benchmark.
 
 20-image hybrid sanity result: 140/140 ok, average local-region latency
 `16.93 ms`, and open-query outputs remain diverse instead of collapsing to the
@@ -291,24 +293,12 @@ python scripts/train/train_candidate_local_region_ranker.py \
   --metrics-output /root/autodl-tmp/outputs/local_region_candidate_listwise_context_eval_offset50k.json
 ```
 
-Evaluate the listwise context ranker inside the full 3.1.2 weak-label pipeline:
-
-```bash
-python scripts/eval/evaluate_local_region_weak_labels.py \
-  --image-dir /root/autodl-tmp/datasets/DeepFashion2/validation/image \
-  --anno-dir /root/autodl-tmp/datasets/DeepFashion2/validation/annos \
-  --checkpoint /root/autodl-tmp/checkpoints/deepfashion2_6class_hard_mining/instance_segmentation/epoch_001.pt \
-  --ranker-checkpoint /root/autodl-tmp/checkpoints/local_region_ranker/candidate_listwise_context_50k.pt \
-  --device cuda \
-  --max-images 200 \
-  --output /root/autodl-tmp/outputs/local_region_weak_eval_candidate_listwise_context_200.json
-```
-
-Full weak-label result on 200 images without gating: average weak IoU `0.2732`,
-below the safer tuned baseline. The online pipeline therefore gates this
-listwise context ranker to `hem` only and falls back for neckline, shoulder, and
-open-vocabulary queries. With hem-only gating, the 200-image weak evaluation
-recovers average weak IoU `0.2818` with Hit@0.3 `0.4050`; hem is handled by the
-listwise context checkpoint, while neckline and shoulder use the fallback path.
+Historical full weak-label result on 200 images without gating: average weak
+IoU `0.2732`, below the safer tuned baseline. A hem-only gate recovered the
+weak metric, but the manual bbox benchmark showed the pure heuristic baseline
+is better online than the hem-gated candidate-listwise hybrid.
+Candidate-listwise checkpoints are therefore disabled in online inference by
+default and should remain an experimental branch until they improve the manual
+benchmark.
 
 AutoDL dataset and checkpoint paths are configured in `configs/paths.autodl.yaml`.

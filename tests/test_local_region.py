@@ -227,7 +227,7 @@ def test_localize_region_from_instances_supports_zipper_query():
     assert 40 <= result.proposal.proposal.box[0] <= 50
 
 
-def test_learned_region_ranker_uses_candidate_listwise_checkpoint_for_hem(tmp_path):
+def test_candidate_listwise_ranker_falls_back_online_after_manual_benchmark(tmp_path):
     mask = np.zeros((100, 100), dtype=bool)
     mask[10:90, 10:90] = True
     instance = FashionInstance(
@@ -269,10 +269,11 @@ def test_learned_region_ranker_uses_candidate_listwise_checkpoint_for_hem(tmp_pa
     )
 
     assert ranker.checkpoint_kind == "candidate_listwise"
-    assert hem_result.ranker_backend == "hybrid_candidate_listwise_context_ranker"
     assert hem_result.proposal is not None
-    assert hem_result.proposal.backend == "hybrid_candidate_listwise_context_ranker"
-    assert "listwise candidate" in hem_result.proposal.reason
+    assert hem_result.ranker_backend == "heuristic_text_region_ranker"
+    assert hem_result.proposal.backend == "heuristic_text_region_ranker"
+    assert hem_result.proposal.proposal.region == "hem"
+    assert "heuristic fallback" in hem_result.proposal.reason
     assert shoulder_result.proposal is not None
     assert shoulder_result.ranker_backend == "heuristic_text_region_ranker"
     assert shoulder_result.proposal.backend == "heuristic_text_region_ranker"

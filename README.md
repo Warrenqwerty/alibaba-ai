@@ -136,14 +136,17 @@ pipeline against the manual benchmark:
 PYTHONPATH=src python scripts/eval/evaluate_local_region_manual_labels.py \
   --annotations /root/autodl-tmp/outputs/local_region_manual_eval_labeled.jsonl \
   --checkpoint /root/autodl-tmp/checkpoints/deepfashion2_6class_hard_mining/instance_segmentation/epoch_001.pt \
-  --ranker-checkpoint /root/autodl-tmp/checkpoints/local_region_ranker/candidate_listwise_context_50k.pt \
   --device cuda \
-  --output /root/autodl-tmp/outputs/local_region_manual_eval_candidate_listwise_context.json
+  --output /root/autodl-tmp/outputs/local_region_manual_eval_heuristic.json
 ```
 
 Treat pseudo-label metrics as development diagnostics. The manual bbox
 benchmark is the independent check for whether weak-supervised improvements
-match real language-guided local-region localization.
+match real language-guided local-region localization. The initial 55-record
+manual benchmark favored the pure heuristic online baseline over the hem-gated
+candidate-listwise hybrid (`0.2544` vs `0.2324` average bbox IoU), so the
+default online policy is heuristic-only. Keep learned rankers as experimental
+branches until they improve this manual benchmark.
 
 Build weak query-region records for a learned 3.1.2 ranker:
 
@@ -228,26 +231,15 @@ python scripts/train/train_candidate_local_region_ranker.py \
   --metrics-output /root/autodl-tmp/outputs/local_region_candidate_listwise_context_eval_offset50k.json
 ```
 
-Evaluate it in the full weak-label pipeline:
+The context-feature candidate ranker is strong offline, but manual bbox
+evaluation did not confirm an online gain. On the initial 55-record manual
+benchmark, pure heuristic reached average bbox IoU `0.2544` while the hem-gated
+candidate-listwise hybrid reached `0.2324`. Candidate-listwise checkpoints are
+therefore disabled in online inference by default and should be treated as an
+experimental weak-supervision branch, not the deployed 3.1.2 baseline.
 
-```bash
-python scripts/eval/evaluate_local_region_weak_labels.py \
-  --image-dir /root/autodl-tmp/datasets/DeepFashion2/validation/image \
-  --anno-dir /root/autodl-tmp/datasets/DeepFashion2/validation/annos \
-  --checkpoint /root/autodl-tmp/checkpoints/deepfashion2_6class_hard_mining/instance_segmentation/epoch_001.pt \
-  --ranker-checkpoint /root/autodl-tmp/checkpoints/local_region_ranker/candidate_listwise_context_50k.pt \
-  --device cuda \
-  --max-images 200 \
-  --output /root/autodl-tmp/outputs/local_region_weak_eval_candidate_listwise_context_200.json
-```
-
-The context-feature candidate ranker is strong offline, but the full weak-label
-pipeline currently gates this checkpoint to `hem` only in online use. On the
-200-image weak evaluation, the hem-gated hybrid reached average weak IoU
-`0.2818` with Hit@0.3 `0.4050`; neckline and shoulder fall back to the safer
-heuristic/hash path while hem uses the listwise context checkpoint.
-
-Use a hybrid learned ranker checkpoint during 3.1.2 evaluation:
+Optionally compare an experimental learned ranker checkpoint against the
+heuristic default:
 
 ```bash
 python scripts/eval/evaluate_local_region_queries.py \

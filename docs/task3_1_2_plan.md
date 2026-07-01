@@ -220,11 +220,17 @@ be staged:
        0.2732 on 200 validation images, below the tuned heuristic baseline.
        Neckline and shoulder degrade after the candidate score is transferred
        back through the predicted instance mask.
-     - Online policy: gate the listwise context ranker to hem only, and keep
-       heuristic fallback for neckline, shoulder, and open-vocabulary regions.
-       The 200-image hem-gated result is average weak IoU 0.2818, Hit@0.3
+     - Weak-label online attempt: gating the listwise context ranker to hem
+       recovered the 200-image weak metric to average weak IoU 0.2818, Hit@0.3
        0.4050, Hit@0.5 0.1333; by region: hem 0.2789, neckline 0.3000,
        shoulder 0.2665.
+     - Manual benchmark result: on the initial 55 manually labeled bbox
+       records, pure heuristic outperformed the hem-gated candidate-listwise
+       hybrid (average bbox IoU 0.2544 vs 0.2324; Hit@0.3 0.4000 vs 0.3455).
+       Hem dropped from 0.3077 to 0.1982 when the listwise branch was used.
+     - Current online policy: use the pure heuristic open-vocabulary pipeline
+       by default. Keep candidate-listwise rankers as weak-supervised
+       experimental branches until they improve the manual benchmark.
    - Metric caveat after review:
      - The weak-label train/eval loop uses landmark pseudo-labels plus rule
        fallback, so it can be biased toward the pseudo-label geometry instead
@@ -248,6 +254,8 @@ be staged:
        to evaluate full pipeline outputs against the manual boxes.
    - This keeps weak supervision useful for training while adding an
      independent human-localized benchmark to detect pseudo-label overfitting.
+     The current manual result already shows pseudo-label/candidate-level gains
+     should not be treated as online improvements without this check.
 
 3. Human-labeled evaluation set:
    - Manually label a small set, e.g. 100-300 image-query pairs.
@@ -318,9 +326,10 @@ point is labeled with its DeepFashion2 landmark index.
 
 - DeepFashion2 landmarks are not directly named by semantic region in the local
   metadata, so weak labels may be noisy.
-- The current heuristic ranker is only a prototype. It makes the interface
-  open-vocabulary, but true PRD performance requires learned visual-text
-  similarity using DINOv2/CLIP-style features or a stronger grounding model.
+- The current heuristic ranker is only a prototype, but it is the safest online
+  baseline after the first manual bbox benchmark. True PRD performance still
+  requires learned visual-text similarity using DINOv2/CLIP-style features or a
+  stronger grounding model.
 - Rule-based candidates can cover neckline/hem/waist, but pocket, pattern,
   decoration, zipper, button, and relation queries need visual feature matching.
 - PRD latency target is tight; a heavy grounding model may exceed 30 ms unless
@@ -336,8 +345,8 @@ Implement the open-vocabulary baseline first:
 - generate multiple region candidates inside the garment
 - rank candidates against raw natural-language query text
 - visualize selected region plus top candidate scores
-- then replace the heuristic ranker with DINOv2/text-feature similarity when
-  model weights and runtime dependencies are available
+- evaluate any learned replacement against the manual bbox benchmark before
+  enabling it in the online path
 
 This matches the PRD more closely than fixed-part segmentation, while keeping
 the current code measurable and easy to debug.
