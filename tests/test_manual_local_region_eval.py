@@ -13,6 +13,10 @@ from scripts.data.build_local_region_manual_eval_manifest import (
     build_manifest_records,
     queries_for_category,
 )
+from scripts.data.merge_local_region_manual_eval_labels import (
+    merge_labeled_records,
+    record_key,
+)
 from scripts.data.annotate_local_region_bboxes import (
     default_output_path,
     load_annotation_records,
@@ -154,3 +158,43 @@ def test_annotator_next_unlabeled_wraps():
 
     assert next_unlabeled_index(records, start=0) == 2
     assert next_unlabeled_index(records, start=2) == 2
+
+
+def test_merge_manual_labels_keeps_labeled_and_deduplicates(tmp_path):
+    first = tmp_path / "first.jsonl"
+    second = tmp_path / "second.jsonl"
+    first.write_text(
+        "\n".join(
+            [
+                '{"image": "/tmp/1.jpg", "query_text": "q", "target_region": "hem", '
+                '"target_bbox": [1, 2, 3, 4], "label_status": "labeled"}',
+                '{"image": "/tmp/2.jpg", "query_text": "q2", "target_region": "cuff", '
+                '"target_bbox": null, "label_status": "unlabeled"}',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    second.write_text(
+        '{"image": "/tmp/1.jpg", "query_text": "q", "target_region": "hem", '
+        '"target_bbox": [5, 6, 7, 8], "label_status": "labeled"}\n',
+        encoding="utf-8",
+    )
+
+    merged, summary = merge_labeled_records([first, second])
+
+    assert len(merged) == 1
+    assert merged[0]["target_bbox"] == [5, 6, 7, 8]
+    assert merged[0]["merge_source"] == str(second)
+    assert summary["num_duplicate_keys_replaced"] == 1
+    assert summary["input_label_status_counts"] == {"labeled": 2, "unlabeled": 1}
+
+
+def test_merge_record_key_uses_image_query_region():
+    assert record_key(
+        {
+            "image": "/tmp/1.jpg",
+            "query_text": "这件衣服的领口",
+            "target_region": "neckline",
+            "target_bbox": [1, 2, 3, 4],
+        }
+    ) == ("/tmp/1.jpg", "这件衣服的领口", "neckline")

@@ -123,6 +123,23 @@ manual benchmark favored the pure heuristic baseline over the hem-gated
 candidate-listwise hybrid (`0.2544` vs `0.2324` average bbox IoU), so the
 current online policy is heuristic-only.
 
+After multiple annotation rounds, merge the labeled files and run the combined
+benchmark:
+
+```bash
+PYTHONPATH=src python scripts/data/merge_local_region_manual_eval_labels.py \
+  --inputs \
+    /root/autodl-tmp/outputs/local_region_manual_eval_labeled.jsonl \
+    /root/autodl-tmp/outputs/local_region_manual_eval_labeled_class_aware.jsonl \
+  --output /root/autodl-tmp/outputs/local_region_manual_eval_labeled_combined.jsonl
+
+PYTHONPATH=src python scripts/eval/evaluate_local_region_manual_labels.py \
+  --annotations /root/autodl-tmp/outputs/local_region_manual_eval_labeled_combined.jsonl \
+  --checkpoint /root/autodl-tmp/checkpoints/deepfashion2_6class_hard_mining/instance_segmentation/epoch_001.pt \
+  --device cuda \
+  --output /root/autodl-tmp/outputs/local_region_manual_eval_heuristic_combined.json
+```
+
 Build weak query-region records for the learned `3.1.2` ranker:
 
 ```bash
