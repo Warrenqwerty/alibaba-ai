@@ -140,6 +140,19 @@ PYTHONPATH=src python scripts/eval/evaluate_local_region_manual_labels.py \
   --output /root/autodl-tmp/outputs/local_region_manual_eval_heuristic_combined.json
 ```
 
+Current combined result: `122` labeled records, average bbox IoU `0.2812`,
+Hit@0.3 `0.4344`, Hit@0.5 `0.2623`. Export low-IoU manual failure cases for
+qualitative analysis:
+
+```bash
+PYTHONPATH=src python scripts/eval/export_local_region_manual_failures.py \
+  --eval-json /root/autodl-tmp/outputs/local_region_manual_eval_heuristic_combined.json \
+  --output-dir /root/autodl-tmp/outputs/local_region_manual_failures_combined \
+  --iou-threshold 0.1 \
+  --regions cuff pocket waist \
+  --max-cases 80
+```
+
 Build weak query-region records for the learned `3.1.2` ranker:
 
 ```bash

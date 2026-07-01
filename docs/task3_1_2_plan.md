@@ -234,6 +234,13 @@ be staged:
      - Next annotation step: expand to about 120-150 labeled records using
        class-aware query sampling so pants/skirt/dress/top images receive
        compatible local-region queries and the skip rate is lower.
+     - Combined manual benchmark after two annotation rounds: 122 labeled
+       records, average bbox IoU 0.2812, Hit@0.3 0.4344, Hit@0.5 0.2623.
+       Shoulder, neckline, and hem are relatively stable; cuff, pocket, and
+       waist are the main failure regions.
+     - Use `scripts/eval/export_local_region_manual_failures.py` to export
+       low-IoU visual cases for qualitative review before changing model
+       direction.
    - Metric caveat after review:
      - The weak-label train/eval loop uses landmark pseudo-labels plus rule
        fallback, so it can be biased toward the pseudo-label geometry instead

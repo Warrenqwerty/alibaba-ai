@@ -29,6 +29,10 @@ from scripts.eval.evaluate_local_region_manual_labels import (
     parse_manual_record,
     summarize_records,
 )
+from scripts.eval.export_local_region_manual_failures import (
+    safe_stem,
+    select_failure_records,
+)
 
 
 def test_manual_manifest_records_start_unlabeled(tmp_path):
@@ -198,3 +202,25 @@ def test_merge_record_key_uses_image_query_region():
             "target_bbox": [1, 2, 3, 4],
         }
     ) == ("/tmp/1.jpg", "这件衣服的领口", "neckline")
+
+
+def test_select_manual_failure_records_filters_region_and_iou():
+    records = [
+        {"manual_bbox_iou": 0.05, "target_region": "cuff", "image": "/tmp/2.jpg"},
+        {"manual_bbox_iou": 0.2, "target_region": "cuff", "image": "/tmp/1.jpg"},
+        {"manual_bbox_iou": 0.0, "target_region": "hem", "image": "/tmp/3.jpg"},
+    ]
+
+    selected = select_failure_records(
+        records,
+        iou_threshold=0.1,
+        regions={"cuff"},
+    )
+
+    assert len(selected) == 1
+    assert selected[0]["target_region"] == "cuff"
+    assert selected[0]["manual_bbox_iou"] == 0.05
+
+
+def test_failure_safe_stem_removes_path_punctuation():
+    assert safe_stem("abc/def ghi") == "abc_def_ghi"
