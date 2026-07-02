@@ -39,7 +39,7 @@ REGION_TEXT_HINTS = {
 REGION_EQUIVALENTS = {
     "cuff": ("left_cuff", "right_cuff"),
     "decoration": ("decoration", "center", "upper", "whole_garment"),
-    "pocket": ("left_pocket", "right_pocket", "left", "right", "center"),
+    "pocket": ("left_pocket", "right_pocket"),
 }
 
 HASH_RANKER_SUPPORTED_REGIONS = {"neckline", "hem"}
@@ -119,14 +119,22 @@ class HeuristicRegionRanker:
     def _spatial_score(self, text: str, region: str) -> float:
         score = 0.0
         if any(term in text for term in ("左边", "左侧", "左面", "左")):
-            if region in {"left", "left_cuff", "left_pocket"}:
+            if region == "left":
                 score += 0.9
-            if region in {"right", "right_cuff", "right_pocket"}:
+            if region in {"right_cuff", "right_pocket"}:
+                score += 0.9
+            if region == "right":
+                score -= 0.4
+            if region in {"left_cuff", "left_pocket"}:
                 score -= 0.4
         if any(term in text for term in ("右边", "右侧", "右面", "右")):
-            if region in {"right", "right_cuff", "right_pocket"}:
+            if region == "right":
                 score += 0.9
-            if region in {"left", "left_cuff", "left_pocket"}:
+            if region in {"left_cuff", "left_pocket"}:
+                score += 0.9
+            if region == "left":
+                score -= 0.4
+            if region in {"right_cuff", "right_pocket"}:
                 score -= 0.4
         if any(term in text for term in ("上方", "上面", "上半", "顶部")) and region in {
             "upper",

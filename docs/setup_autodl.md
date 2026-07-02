@@ -156,6 +156,20 @@ PYTHONPATH=src python scripts/eval/export_local_region_manual_failures.py \
 The export directory contains per-case images, `failure_summary.json`, and
 `failure_review.html` for grouped visual inspection.
 
+After the first failure review, the online heuristic policy was refined for
+cuff, pocket, and waist: side-specific cuff/pocket queries use garment/wearer
+left-right convention, cuff candidates are narrowed to sleeve ends, and waist
+uses category-aware vertical bands. Re-run the combined manual benchmark after
+pulling the change:
+
+```bash
+PYTHONPATH=src python scripts/eval/evaluate_local_region_manual_labels.py \
+  --annotations /root/autodl-tmp/outputs/local_region_manual_eval_labeled_combined.jsonl \
+  --checkpoint /root/autodl-tmp/checkpoints/deepfashion2_6class_hard_mining/instance_segmentation/epoch_001.pt \
+  --device cuda \
+  --output /root/autodl-tmp/outputs/local_region_manual_eval_heuristic_refined.json
+```
+
 Build weak query-region records for the learned `3.1.2` ranker:
 
 ```bash

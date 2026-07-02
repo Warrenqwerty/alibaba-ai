@@ -84,6 +84,7 @@ def localize_region_from_instances(
     candidates = generate_open_vocab_candidates(
         selected_instance.mask,
         selected_instance.box,
+        category_text=selected_instance.label_name,
     )
     ranker = ranker or HeuristicRegionRanker()
     ranked_candidates = ranker.rank(

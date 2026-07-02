@@ -241,6 +241,10 @@ be staged:
      - Use `scripts/eval/export_local_region_manual_failures.py` to export
        low-IoU visual cases plus `failure_review.html` for qualitative review
        before changing model direction.
+     - First failure review found that many cuff/pocket zero-IoU cases were
+       caused by image-left/image-right vs garment-left/garment-right mismatch,
+       and that cuff/waist/pocket windows were too coarse. The online heuristic
+       policy was therefore refined before returning to any learned ranker work.
    - Metric caveat after review:
      - The weak-label train/eval loop uses landmark pseudo-labels plus rule
        fallback, so it can be biased toward the pseudo-label geometry instead

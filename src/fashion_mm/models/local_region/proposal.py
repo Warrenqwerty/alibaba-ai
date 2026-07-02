@@ -104,6 +104,7 @@ def generate_open_vocab_candidates(
     garment_mask: np.ndarray,
     garment_box: tuple[float, float, float, float] | list[float],
     regions: Iterable[str] = OPEN_VOCAB_CANDIDATE_REGIONS,
+    category_text: str | None = None,
 ) -> list[LocalRegionProposal]:
     """Generate generic region candidates for language-guided matching.
 
@@ -116,7 +117,12 @@ def generate_open_vocab_candidates(
 
     candidates: list[LocalRegionProposal] = []
     for region in regions:
-        proposal = _propose_open_vocab_candidate(mask, garment_box, region)
+        proposal = _propose_open_vocab_candidate(
+            mask,
+            garment_box,
+            region,
+            category_text=category_text,
+        )
         if proposal.status == "ok":
             candidates.append(proposal)
     return candidates
@@ -166,21 +172,30 @@ def _propose_open_vocab_candidate(
     garment_mask: np.ndarray,
     garment_box: tuple[float, float, float, float] | list[float],
     region: str,
+    category_text: str | None = None,
 ) -> LocalRegionProposal:
     if region == "whole_garment":
         region_mask = garment_mask.copy()
     elif region == "pattern":
         region_mask = garment_mask.copy()
-    elif region in {"neckline", "hem", "shoulder", "waist"}:
+    elif region in {"neckline", "hem", "shoulder"}:
         baseline_region = "neckline" if region == "neckline" else region
         proposal = propose_local_region(garment_mask, garment_box, baseline_region)
         return _as_open_vocab_source(proposal)
-    elif region in {"left_cuff", "right_cuff"}:
-        region_mask = garment_mask & _single_side_cuff_window(
+    elif region == "waist":
+        region_mask = garment_mask & _waist_window(
             garment_box,
             garment_mask.shape,
-            side="left" if region == "left_cuff" else "right",
+            category_text=category_text,
         )
+    elif region in {"left_cuff", "right_cuff"}:
+        side = "left" if region == "left_cuff" else "right"
+        broad_mask = garment_mask & _single_side_cuff_window(
+            garment_box,
+            garment_mask.shape,
+            side=side,
+        )
+        region_mask = _terminal_cuff_mask(broad_mask, side=side)
     elif region in {"left_pocket", "right_pocket"}:
         region_mask = garment_mask & _single_side_pocket_window(
             garment_box,
@@ -269,12 +284,61 @@ def _single_side_cuff_window(
     box_width = max(x2 - x1, 1)
     box_height = max(y2 - y1, 1)
     window = np.zeros((height, width), dtype=bool)
-    wy1 = y1 + int(box_height * 0.25)
-    wy2 = y1 + int(box_height * 0.90)
+    wy1 = y1 + int(box_height * 0.18)
+    wy2 = y1 + int(box_height * 0.95)
     if side == "left":
-        window[wy1:wy2, x1 : x1 + int(box_width * 0.24)] = True
+        window[wy1:wy2, x1 : x1 + int(box_width * 0.34)] = True
     else:
-        window[wy1:wy2, x1 + int(box_width * 0.76) : x2] = True
+        window[wy1:wy2, x1 + int(box_width * 0.66) : x2] = True
+    return window
+
+
+def _terminal_cuff_mask(mask: np.ndarray, side: Literal["left", "right"]) -> np.ndarray:
+    """Keep the sleeve end instead of the whole side sleeve strip."""
+    box = _mask_to_box(mask)
+    if box is None:
+        return mask
+    x1, y1, x2, y2 = [int(round(value)) for value in box]
+    width = max(x2 - x1, 1)
+    height = max(y2 - y1, 1)
+    window = np.zeros(mask.shape, dtype=bool)
+    if height >= width * 1.25:
+        terminal_y1 = y1 + int(height * 0.68)
+        window[terminal_y1:y2, x1:x2] = True
+    elif side == "left":
+        terminal_x2 = x1 + int(width * 0.42)
+        window[y1:y2, x1:terminal_x2] = True
+    else:
+        terminal_x1 = x1 + int(width * 0.58)
+        window[y1:y2, terminal_x1:x2] = True
+    refined = mask & window
+    return refined if refined.any() else mask
+
+
+def _waist_window(
+    box: tuple[float, float, float, float] | list[float],
+    image_shape: tuple[int, int],
+    category_text: str | None = None,
+) -> np.ndarray:
+    x1, y1, x2, y2 = _clip_box(box, image_shape)
+    height, width = image_shape
+    box_width = max(x2 - x1, 1)
+    box_height = max(y2 - y1, 1)
+    window = np.zeros((height, width), dtype=bool)
+    category = (category_text or "").lower()
+    if any(term in category for term in ("pants", "trousers", "shorts", "skirt")):
+        start, end = 0.06, 0.26
+    elif "dress" in category:
+        start, end = 0.26, 0.46
+    elif any(term in category for term in ("top", "shirt", "sleeve", "outerwear", "coat")):
+        start, end = 0.52, 0.74
+    else:
+        start, end = 0.35, 0.55
+    wy1 = y1 + int(box_height * start)
+    wy2 = y1 + int(box_height * end)
+    wx1 = x1 + int(box_width * 0.06)
+    wx2 = x1 + int(box_width * 0.94)
+    window[wy1:wy2, wx1:wx2] = True
     return window
 
 
@@ -288,13 +352,13 @@ def _single_side_pocket_window(
     box_width = max(x2 - x1, 1)
     box_height = max(y2 - y1, 1)
     window = np.zeros((height, width), dtype=bool)
-    wy1 = y1 + int(box_height * 0.42)
-    wy2 = y1 + int(box_height * 0.78)
+    wy1 = y1 + int(box_height * 0.18)
+    wy2 = y1 + int(box_height * 0.48)
     if side == "left":
         wx1 = x1 + int(box_width * 0.08)
-        wx2 = x1 + int(box_width * 0.42)
+        wx2 = x1 + int(box_width * 0.36)
     else:
-        wx1 = x1 + int(box_width * 0.58)
+        wx1 = x1 + int(box_width * 0.64)
         wx2 = x1 + int(box_width * 0.92)
     window[wy1:wy2, wx1:wx2] = True
     return window

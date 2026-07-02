@@ -14,6 +14,7 @@ from fashion_mm.models.local_region import candidate_boxes_from_garment
 from fashion_mm.models.local_region import CandidateListwiseScorer
 from fashion_mm.models.local_region import candidate_prior_features
 from fashion_mm.models.local_region import HashingTextRegionScorer
+from fashion_mm.models.local_region import generate_open_vocab_candidates
 from fashion_mm.models.local_region import LearnedRegionRanker
 from fashion_mm.models.local_region import localize_region_from_instances
 from fashion_mm.models.local_region import parse_region_query
@@ -180,9 +181,9 @@ def test_localize_region_from_instances_uses_spatial_words_for_cuff_query():
 
     assert result.status == "ok"
     assert result.proposal is not None
-    assert result.proposal.proposal.region == "left_cuff"
+    assert result.proposal.proposal.region == "right_cuff"
     assert result.proposal.proposal.box is not None
-    assert result.proposal.proposal.box[0] < 40
+    assert result.proposal.proposal.box[0] > 50
 
 
 def test_localize_region_from_instances_supports_pocket_query():
@@ -201,9 +202,61 @@ def test_localize_region_from_instances_supports_pocket_query():
 
     assert result.status == "ok"
     assert result.proposal is not None
-    assert result.proposal.proposal.region == "right_pocket"
+    assert result.proposal.proposal.region == "left_pocket"
     assert result.proposal.proposal.box is not None
-    assert result.proposal.proposal.box[0] > 50
+    assert result.proposal.proposal.box[0] < 50
+
+
+def test_open_vocab_cuff_candidate_keeps_terminal_sleeve_area():
+    mask = np.zeros((120, 100), dtype=bool)
+    mask[10:110, 10:90] = True
+    mask[35:100, 10:35] = True
+
+    candidates = generate_open_vocab_candidates(
+        mask,
+        (10.0, 10.0, 90.0, 110.0),
+        regions=("left_cuff",),
+    )
+
+    assert len(candidates) == 1
+    assert candidates[0].box is not None
+    assert candidates[0].box[1] >= 70
+    assert candidates[0].box[3] <= 110
+    assert candidates[0].box[3] - candidates[0].box[1] <= 35
+
+
+def test_open_vocab_waist_candidate_uses_lower_garment_top_band():
+    mask = np.zeros((120, 100), dtype=bool)
+    mask[10:110, 20:80] = True
+
+    candidates = generate_open_vocab_candidates(
+        mask,
+        (20.0, 10.0, 80.0, 110.0),
+        regions=("waist",),
+        category_text="trousers",
+    )
+
+    assert len(candidates) == 1
+    assert candidates[0].box is not None
+    assert 15 <= candidates[0].box[1] <= 20
+    assert candidates[0].box[3] <= 40
+
+
+def test_open_vocab_pocket_candidate_uses_upper_side_band():
+    mask = np.zeros((120, 100), dtype=bool)
+    mask[10:110, 20:80] = True
+
+    candidates = generate_open_vocab_candidates(
+        mask,
+        (20.0, 10.0, 80.0, 110.0),
+        regions=("left_pocket",),
+    )
+
+    assert len(candidates) == 1
+    assert candidates[0].box is not None
+    assert candidates[0].box[0] < 45
+    assert candidates[0].box[1] < 35
+    assert candidates[0].box[3] <= 60
 
 
 def test_localize_region_from_instances_supports_zipper_query():
@@ -281,7 +334,7 @@ def test_candidate_listwise_ranker_falls_back_online_after_manual_benchmark(tmp_
     assert pocket_result.proposal is not None
     assert pocket_result.ranker_backend == "heuristic_text_region_ranker"
     assert pocket_result.proposal.backend == "heuristic_text_region_ranker"
-    assert pocket_result.proposal.proposal.region == "right_pocket"
+    assert pocket_result.proposal.proposal.region == "left_pocket"
     assert "heuristic fallback" in pocket_result.proposal.reason
 
 
@@ -1096,7 +1149,7 @@ def test_learned_ranker_falls_back_for_untrained_open_query(tmp_path):
     assert result.ranker_backend == "heuristic_text_region_ranker"
     assert result.proposal is not None
     assert result.proposal.backend == "heuristic_text_region_ranker"
-    assert result.proposal.proposal.region == "right_pocket"
+    assert result.proposal.proposal.region == "left_pocket"
     assert "heuristic fallback" in result.proposal.reason
 
 

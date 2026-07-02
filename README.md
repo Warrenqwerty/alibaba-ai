@@ -190,6 +190,13 @@ PYTHONPATH=src python scripts/eval/export_local_region_manual_failures.py \
 The export directory contains per-case images, `failure_summary.json`, and
 `failure_review.html` for a grouped browser review page.
 
+Failure review on the 34 exported cases showed three concrete policy issues:
+side-specific cuff/pocket queries should follow garment/wearer left-right
+convention instead of raw image left-right, cuff candidates should cover the
+sleeve end rather than the whole side sleeve strip, and waist/pocket candidates
+need category-aware upper-band geometry. Re-run the combined manual benchmark
+after any policy refinement before changing the learned ranker.
+
 Build weak query-region records for a learned 3.1.2 ranker:
 
 ```bash
