@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import html
 import json
 from collections import Counter
 from pathlib import Path
@@ -40,6 +41,11 @@ def parse_args() -> argparse.Namespace:
         help="Optional target_region filter, e.g. cuff waist pocket.",
     )
     parser.add_argument("--max-cases", type=int, default=80)
+    parser.add_argument(
+        "--html-name",
+        default="failure_review.html",
+        help="Filename for the generated HTML review page inside output-dir.",
+    )
     return parser.parse_args()
 
 
@@ -174,6 +180,109 @@ def export_failure_cases(
     return summary
 
 
+def write_failure_review_html(
+    summary: dict[str, Any],
+    output_path: str | Path,
+) -> None:
+    """Write a compact HTML gallery for qualitative failure review."""
+    output = Path(output_path)
+    rows_by_region: dict[str, list[dict[str, Any]]] = {}
+    for case in summary.get("cases", []):
+        rows_by_region.setdefault(str(case.get("target_region") or "unknown"), []).append(case)
+
+    sections = []
+    for region, cases in sorted(rows_by_region.items()):
+        cards = "\n".join(render_case_card(case, output.parent) for case in cases)
+        sections.append(
+            f"""
+            <section>
+              <h2>{escape(region)} <span>{len(cases)} cases</span></h2>
+              <div class="grid">{cards}</div>
+            </section>
+            """
+        )
+
+    page = f"""<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>Local Region Failure Review</title>
+  <style>
+    body {{
+      margin: 24px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: #1f2328;
+      background: #f6f8fa;
+    }}
+    h1 {{ margin-bottom: 4px; font-size: 24px; }}
+    .meta {{ margin-bottom: 24px; color: #57606a; }}
+    section {{ margin: 28px 0; }}
+    h2 {{ font-size: 18px; }}
+    h2 span {{ color: #57606a; font-size: 14px; font-weight: 500; }}
+    .grid {{
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 16px;
+    }}
+    .card {{
+      border: 1px solid #d0d7de;
+      border-radius: 8px;
+      background: #fff;
+      overflow: hidden;
+    }}
+    .card img {{
+      display: block;
+      width: 100%;
+      height: auto;
+      background: #fff;
+    }}
+    .info {{ padding: 10px 12px 12px; font-size: 13px; line-height: 1.45; }}
+    .query {{ font-weight: 600; margin-bottom: 6px; }}
+    .kv {{ color: #57606a; }}
+    code {{ font-size: 12px; }}
+  </style>
+</head>
+<body>
+  <h1>Local Region Failure Review</h1>
+  <div class="meta">
+    IoU &lt; {float(summary.get("iou_threshold") or 0.0):.3f};
+    exported {int(summary.get("num_exported_cases") or 0)} /
+    {int(summary.get("num_input_records") or 0)} records.
+    Green = manual bbox, red = predicted bbox.
+  </div>
+  {"".join(sections)}
+</body>
+</html>
+"""
+    output.write_text(page, encoding="utf-8")
+
+
+def render_case_card(case: dict[str, Any], html_dir: Path) -> str:
+    visualization = Path(str(case.get("visualization") or ""))
+    image_src = visualization.name
+    if visualization.is_absolute():
+        try:
+            image_src = visualization.relative_to(html_dir).as_posix()
+        except ValueError:
+            image_src = visualization.as_posix()
+    return f"""
+      <article class="card">
+        <img src="{escape(image_src)}" alt="{escape(case.get('id') or '')}">
+        <div class="info">
+          <div class="query">{escape(case.get('query_text') or '')}</div>
+          <div class="kv">target: <code>{escape(case.get('target_region') or '')}</code></div>
+          <div class="kv">selected: <code>{escape(case.get('selected_region') or '')}</code></div>
+          <div class="kv">IoU: {float(case.get('manual_bbox_iou') or 0.0):.3f}</div>
+          <div class="kv">id: <code>{escape(case.get('id') or '')}</code></div>
+        </div>
+      </article>
+    """
+
+
+def escape(value: Any) -> str:
+    return html.escape(str(value), quote=True)
+
+
 def safe_stem(value: Any, max_chars: int = 48) -> str:
     """Return a filesystem-friendly filename stem."""
     text = str(value)[:max_chars]
@@ -190,6 +299,9 @@ def main() -> None:
         regions=set(args.regions) if args.regions else None,
         max_cases=args.max_cases,
     )
+    html_path = Path(args.output_dir) / args.html_name
+    write_failure_review_html(summary, html_path)
+    summary["html"] = str(html_path)
     print(json.dumps({key: value for key, value in summary.items() if key != "cases"}, ensure_ascii=False, indent=2))
 
 

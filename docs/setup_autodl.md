@@ -153,6 +153,9 @@ PYTHONPATH=src python scripts/eval/export_local_region_manual_failures.py \
   --max-cases 80
 ```
 
+The export directory contains per-case images, `failure_summary.json`, and
+`failure_review.html` for grouped visual inspection.
+
 Build weak query-region records for the learned `3.1.2` ranker:
 
 ```bash

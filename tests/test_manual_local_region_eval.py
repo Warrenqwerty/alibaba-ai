@@ -32,6 +32,7 @@ from scripts.eval.evaluate_local_region_manual_labels import (
 from scripts.eval.export_local_region_manual_failures import (
     safe_stem,
     select_failure_records,
+    write_failure_review_html,
 )
 
 
@@ -224,3 +225,33 @@ def test_select_manual_failure_records_filters_region_and_iou():
 
 def test_failure_safe_stem_removes_path_punctuation():
     assert safe_stem("abc/def ghi") == "abc_def_ghi"
+
+
+def test_write_failure_review_html_uses_relative_visualization_path(tmp_path):
+    image = tmp_path / "000_cuff_iou0.000_case.jpg"
+    image.write_bytes(b"fake")
+    output = tmp_path / "failure_review.html"
+
+    write_failure_review_html(
+        {
+            "iou_threshold": 0.1,
+            "num_exported_cases": 1,
+            "num_input_records": 2,
+            "cases": [
+                {
+                    "id": "case/1",
+                    "query_text": "左边的袖口",
+                    "target_region": "cuff",
+                    "selected_region": "left_cuff",
+                    "manual_bbox_iou": 0.0,
+                    "visualization": str(image),
+                }
+            ],
+        },
+        output,
+    )
+
+    html = output.read_text(encoding="utf-8")
+    assert 'src="000_cuff_iou0.000_case.jpg"' in html
+    assert "左边的袖口" in html
+    assert "case/1" in html
