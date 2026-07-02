@@ -170,6 +170,21 @@ PYTHONPATH=src python scripts/eval/evaluate_local_region_manual_labels.py \
   --output /root/autodl-tmp/outputs/local_region_manual_eval_heuristic_refined.json
 ```
 
+Current refined result: `122` labeled records, average bbox IoU `0.3064`,
+Hit@0.3 `0.4754`, Hit@0.5 `0.2787`. Compared with the pre-refinement manual
+benchmark, cuff improved from `0.0190` to `0.0592`, pocket from `0.0000` to
+`0.1337`, and waist from `0.0961` to `0.2306`. Export the remaining cuff
+failures for the next review pass:
+
+```bash
+PYTHONPATH=src python scripts/eval/export_local_region_manual_failures.py \
+  --eval-json /root/autodl-tmp/outputs/local_region_manual_eval_heuristic_refined.json \
+  --output-dir /root/autodl-tmp/outputs/local_region_manual_failures_refined_cuff \
+  --iou-threshold 0.3 \
+  --regions cuff \
+  --max-cases 80
+```
+
 Build weak query-region records for the learned `3.1.2` ranker:
 
 ```bash

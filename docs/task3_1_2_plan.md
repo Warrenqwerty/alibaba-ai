@@ -245,6 +245,10 @@ be staged:
        caused by image-left/image-right vs garment-left/garment-right mismatch,
        and that cuff/waist/pocket windows were too coarse. The online heuristic
        policy was therefore refined before returning to any learned ranker work.
+     - Refined heuristic manual benchmark: 122 labeled records, average bbox
+       IoU 0.3064, Hit@0.3 0.4754, Hit@0.5 0.2787. Targeted failure regions
+       improved, especially waist (0.0961 -> 0.2306) and pocket (0.0000 ->
+       0.1337), while cuff remains weak (0.0190 -> 0.0592).
    - Metric caveat after review:
      - The weak-label train/eval loop uses landmark pseudo-labels plus rule
        fallback, so it can be biased toward the pseudo-label geometry instead
