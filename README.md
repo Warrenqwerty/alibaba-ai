@@ -202,6 +202,9 @@ improved to average bbox IoU `0.3064`, Hit@0.3 `0.4754`, and Hit@0.5 `0.2787`.
 The targeted failure regions also improved: cuff `0.0190 -> 0.0592`, pocket
 `0.0000 -> 0.1337`, and waist `0.0961 -> 0.2306`. Cuff remains the main
 bottleneck and should be reviewed again before introducing more training.
+The next cuff-only refinement emits both upper-sleeve and lower-terminal cuff
+candidates, because the remaining manual failures mix short-sleeve/armhole
+cases with long-sleeve terminal cases.
 
 Build weak query-region records for a learned 3.1.2 ranker:
 

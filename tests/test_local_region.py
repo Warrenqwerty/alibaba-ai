@@ -218,11 +218,42 @@ def test_open_vocab_cuff_candidate_keeps_terminal_sleeve_area():
         regions=("left_cuff",),
     )
 
-    assert len(candidates) == 1
-    assert candidates[0].box is not None
-    assert candidates[0].box[1] >= 70
-    assert candidates[0].box[3] <= 110
-    assert candidates[0].box[3] - candidates[0].box[1] <= 35
+    assert len(candidates) == 2
+    lower = next(
+        candidate
+        for candidate in candidates
+        if candidate.reason == "lower terminal cuff candidate"
+    )
+    assert lower.box is not None
+    assert lower.box[1] >= 70
+    assert lower.box[3] <= 110
+    assert lower.box[3] - lower.box[1] <= 35
+
+
+def test_open_vocab_cuff_candidate_includes_upper_sleeve_variant():
+    mask = np.zeros((120, 100), dtype=bool)
+    mask[20:56, 10:42] = True
+    mask[20:110, 36:90] = True
+
+    candidates = generate_open_vocab_candidates(
+        mask,
+        (10.0, 10.0, 90.0, 110.0),
+        regions=("left_cuff",),
+        category_text="top",
+    )
+    upper = next(
+        candidate
+        for candidate in candidates
+        if candidate.reason == "upper sleeve cuff candidate"
+    )
+
+    assert upper.box is not None
+    assert upper.confidence > max(
+        candidate.confidence
+        for candidate in candidates
+        if candidate.reason == "lower terminal cuff candidate"
+    )
+    assert upper.box[1] < 60
 
 
 def test_open_vocab_waist_candidate_uses_lower_garment_top_band():

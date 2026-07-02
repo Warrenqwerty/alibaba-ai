@@ -249,6 +249,10 @@ be staged:
        IoU 0.3064, Hit@0.3 0.4754, Hit@0.5 0.2787. Targeted failure regions
        improved, especially waist (0.0961 -> 0.2306) and pocket (0.0000 ->
        0.1337), while cuff remains weak (0.0190 -> 0.0592).
+     - Second cuff review separated short-sleeve/armhole failures from
+       long-sleeve terminal failures. The online policy now emits upper-sleeve
+       and lower-terminal cuff candidates so the heuristic can choose between
+       them without adding learned-ranker dependence.
    - Metric caveat after review:
      - The weak-label train/eval loop uses landmark pseudo-labels plus rule
        fallback, so it can be biased toward the pseudo-label geometry instead

@@ -185,6 +185,20 @@ PYTHONPATH=src python scripts/eval/export_local_region_manual_failures.py \
   --max-cases 80
 ```
 
+The second cuff review showed that short-sleeve/armhole examples often need an
+upper-side sleeve candidate, while long sleeves still need a lower terminal
+candidate. The online policy therefore generates both cuff variants and lets the
+heuristic ranker choose by confidence. Re-run the manual benchmark after pulling
+that change:
+
+```bash
+PYTHONPATH=src python scripts/eval/evaluate_local_region_manual_labels.py \
+  --annotations /root/autodl-tmp/outputs/local_region_manual_eval_labeled_combined.jsonl \
+  --checkpoint /root/autodl-tmp/checkpoints/deepfashion2_6class_hard_mining/instance_segmentation/epoch_001.pt \
+  --device cuda \
+  --output /root/autodl-tmp/outputs/local_region_manual_eval_heuristic_cuff_variants.json
+```
+
 Build weak query-region records for the learned `3.1.2` ranker:
 
 ```bash

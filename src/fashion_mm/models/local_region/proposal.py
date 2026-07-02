@@ -117,6 +117,16 @@ def generate_open_vocab_candidates(
 
     candidates: list[LocalRegionProposal] = []
     for region in regions:
+        if region in {"left_cuff", "right_cuff"}:
+            candidates.extend(
+                _propose_cuff_candidates(
+                    mask,
+                    garment_box,
+                    region,
+                    category_text=category_text,
+                )
+            )
+            continue
         proposal = _propose_open_vocab_candidate(
             mask,
             garment_box,
@@ -188,14 +198,6 @@ def _propose_open_vocab_candidate(
             garment_mask.shape,
             category_text=category_text,
         )
-    elif region in {"left_cuff", "right_cuff"}:
-        side = "left" if region == "left_cuff" else "right"
-        broad_mask = garment_mask & _single_side_cuff_window(
-            garment_box,
-            garment_mask.shape,
-            side=side,
-        )
-        region_mask = _terminal_cuff_mask(broad_mask, side=side)
     elif region in {"left_pocket", "right_pocket"}:
         region_mask = garment_mask & _single_side_pocket_window(
             garment_box,
@@ -278,19 +280,88 @@ def _single_side_cuff_window(
     box: tuple[float, float, float, float] | list[float],
     image_shape: tuple[int, int],
     side: Literal["left", "right"],
+    vertical_band: tuple[float, float] = (0.18, 0.95),
+    side_width: float = 0.34,
 ) -> np.ndarray:
     x1, y1, x2, y2 = _clip_box(box, image_shape)
     height, width = image_shape
     box_width = max(x2 - x1, 1)
     box_height = max(y2 - y1, 1)
     window = np.zeros((height, width), dtype=bool)
-    wy1 = y1 + int(box_height * 0.18)
-    wy2 = y1 + int(box_height * 0.95)
+    wy1 = y1 + int(box_height * vertical_band[0])
+    wy2 = y1 + int(box_height * vertical_band[1])
     if side == "left":
-        window[wy1:wy2, x1 : x1 + int(box_width * 0.34)] = True
+        window[wy1:wy2, x1 : x1 + int(box_width * side_width)] = True
     else:
-        window[wy1:wy2, x1 + int(box_width * 0.66) : x2] = True
+        window[wy1:wy2, x1 + int(box_width * (1.0 - side_width)) : x2] = True
     return window
+
+
+def _propose_cuff_candidates(
+    garment_mask: np.ndarray,
+    garment_box: tuple[float, float, float, float] | list[float],
+    region: str,
+    category_text: str | None = None,
+) -> list[LocalRegionProposal]:
+    side = "left" if region == "left_cuff" else "right"
+    upper_seed = garment_mask & _single_side_cuff_window(
+        garment_box,
+        garment_mask.shape,
+        side=side,
+        vertical_band=(0.12, 0.58),
+        side_width=0.38,
+    )
+    lower_seed = garment_mask & _single_side_cuff_window(
+        garment_box,
+        garment_mask.shape,
+        side=side,
+        vertical_band=(0.38, 0.96),
+        side_width=0.24,
+    )
+    upper_mask = _side_terminal_cuff_mask(upper_seed, side=side)
+    lower_mask = _terminal_cuff_mask(lower_seed, side=side)
+    upper_confidence, lower_confidence = _cuff_variant_confidences(
+        upper_mask,
+        lower_mask,
+        category_text=category_text,
+    )
+
+    proposals = []
+    for mask, confidence, reason in (
+        (upper_mask, upper_confidence, "upper sleeve cuff candidate"),
+        (lower_mask, lower_confidence, "lower terminal cuff candidate"),
+    ):
+        box = _mask_to_box(mask)
+        if box is None:
+            continue
+        proposals.append(
+            LocalRegionProposal(
+                region=region,
+                mask=mask,
+                box=box,
+                confidence=confidence,
+                source="open_vocab_candidate",
+                status="ok",
+                reason=reason,
+            )
+        )
+    return proposals
+
+
+def _side_terminal_cuff_mask(mask: np.ndarray, side: Literal["left", "right"]) -> np.ndarray:
+    """Keep the outer sleeve edge for short sleeves and arm openings."""
+    box = _mask_to_box(mask)
+    if box is None:
+        return mask
+    x1, y1, x2, y2 = [int(round(value)) for value in box]
+    width = max(x2 - x1, 1)
+    window = np.zeros(mask.shape, dtype=bool)
+    if side == "left":
+        window[y1:y2, x1 : x1 + max(1, int(width * 0.55))] = True
+    else:
+        window[y1:y2, x1 + int(width * 0.45) : x2] = True
+    refined = mask & window
+    return refined if refined.any() else mask
 
 
 def _terminal_cuff_mask(mask: np.ndarray, side: Literal["left", "right"]) -> np.ndarray:
@@ -313,6 +384,27 @@ def _terminal_cuff_mask(mask: np.ndarray, side: Literal["left", "right"]) -> np.
         window[y1:y2, terminal_x1:x2] = True
     refined = mask & window
     return refined if refined.any() else mask
+
+
+def _cuff_variant_confidences(
+    upper_mask: np.ndarray,
+    lower_mask: np.ndarray,
+    category_text: str | None = None,
+) -> tuple[float, float]:
+    upper_area = int(upper_mask.sum())
+    lower_area = int(lower_mask.sum())
+    category = (category_text or "").lower()
+    upper_confidence = 0.58
+    lower_confidence = 0.55
+    if upper_area >= max(1, int(lower_area * 0.60)):
+        upper_confidence += 0.04
+    if lower_area > max(1, int(upper_area * 1.25)):
+        lower_confidence += 0.06
+    if any(term in category for term in ("dress", "top")):
+        upper_confidence += 0.01
+    if any(term in category for term in ("outerwear", "coat")):
+        lower_confidence += 0.02
+    return round(upper_confidence, 4), round(lower_confidence, 4)
 
 
 def _waist_window(
