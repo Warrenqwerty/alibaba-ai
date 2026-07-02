@@ -199,6 +199,11 @@ PYTHONPATH=src python scripts/eval/evaluate_local_region_manual_labels.py \
   --output /root/autodl-tmp/outputs/local_region_manual_eval_heuristic_cuff_variants.json
 ```
 
+Current cuff-variant result: `122` labeled records, average bbox IoU `0.3123`,
+Hit@0.3 `0.4836`, Hit@0.5 `0.2705`. Cuff improved from `0.0592` to `0.0904`,
+so the variant policy is better than the previous heuristic, but cuff is still
+the main residual weakness.
+
 Build weak query-region records for the learned `3.1.2` ranker:
 
 ```bash

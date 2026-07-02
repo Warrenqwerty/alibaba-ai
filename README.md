@@ -206,6 +206,11 @@ The next cuff-only refinement emits both upper-sleeve and lower-terminal cuff
 candidates, because the remaining manual failures mix short-sleeve/armhole
 cases with long-sleeve terminal cases.
 
+The cuff-variant policy improved the 122-record benchmark again to average bbox
+IoU `0.3123`, Hit@0.3 `0.4836`, and Hit@0.5 `0.2705`; cuff improved from
+`0.0592` to `0.0904`. This confirms the visual diagnosis, but cuff remains a
+low-confidence region where pure geometry is near its limit.
+
 Build weak query-region records for a learned 3.1.2 ranker:
 
 ```bash

@@ -253,6 +253,10 @@ be staged:
        long-sleeve terminal failures. The online policy now emits upper-sleeve
        and lower-terminal cuff candidates so the heuristic can choose between
        them without adding learned-ranker dependence.
+     - Cuff-variant manual benchmark: 122 labeled records, average bbox IoU
+       0.3123, Hit@0.3 0.4836, Hit@0.5 0.2705. Cuff improved again (0.0592 ->
+       0.0904), but remains a low-confidence region where geometry-only rules
+       are likely close to their practical ceiling.
    - Metric caveat after review:
      - The weak-label train/eval loop uses landmark pseudo-labels plus rule
        fallback, so it can be biased toward the pseudo-label geometry instead
