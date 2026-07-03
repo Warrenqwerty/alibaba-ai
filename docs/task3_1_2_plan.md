@@ -57,7 +57,15 @@ Full validation result:
 the image plus 3.1.1 garment instances, then localize the requested part inside
 the relevant garment instance.
 
-### Important Data Observation
+### Revised Direction After Data Review
+
+The original PRD points to a pretrained visual-text grounding route: extract
+region features, compare them with text features, and return the region that
+best matches the natural-language query. That means 3.1.2 should be framed as
+open-vocabulary language-guided localization, not fixed part segmentation and
+not a pure DeepFashion2 pseudo-label training task.
+
+The current project data makes this distinction important:
 
 DeepFashion2 provides:
 
@@ -66,16 +74,19 @@ DeepFashion2 provides:
 - garment category labels
 - landmarks / keypoints
 
-This is useful for weakly deriving local regions, but the current JSON category
-metadata names landmarks only as numeric ids (`1` to `30`). It does not directly
-name keypoints as "collar", "cuff", "hem", etc. Therefore the first baseline
-should treat DeepFashion2 local regions as weak supervision derived from spatial
-rules and landmarks, not as perfect semantic part labels.
+This is useful for garment-level grounding and weak diagnostics, but it does
+not provide query-level human annotations such as "左边的袖口" or "衣服上的拉链"
+mapped to a bbox or mask. The current JSON category metadata names landmarks
+only as numeric ids (`1` to `30`). It does not directly name keypoints as
+"collar", "cuff", "hem", etc. Therefore DeepFashion2 local regions should be
+treated as weak supervision or candidate-generation hints, not as perfect
+semantic language-region labels.
 
 The rule-based rectangles in the first demo are not suitable as training labels.
-They are only sanity-check proposals. The real 3.1.2 training signal should come
-from DeepFashion2 masks and landmarks, then be converted into weak local-region
-pseudo labels.
+They are only sanity-check proposals and online fallback candidates. The
+previous pseudo-label ranker experiments are useful engineering exploration, but
+they cannot be the main evidence for PRD 3.1.2 because their labels come from
+landmark pseudo-labels and rule fallback.
 
 FashionAI-Attributes is still needed for the broader attribute pipeline in
 3.1.3, and may help define part-related query words such as collar and sleeve.
@@ -84,7 +95,8 @@ local-region masks, so it is not enough by itself for 3.1.2 mask supervision.
 
 ### Final Baseline Direction
 
-Use a PRD-aligned open-vocabulary grounding baseline:
+Use a PRD-aligned open-vocabulary grounding baseline. The baseline has two
+tracks: a safe heuristic online track and an offline pretrained grounding track.
 
 1. Whole-garment grounding from 3.1.1:
    - Run the frozen instance segmentation model.
@@ -104,17 +116,25 @@ Use a PRD-aligned open-vocabulary grounding baseline:
      final task definition.
 
 3. Text-region matching:
-   - First version: lightweight heuristic ranker that scores candidates from
+   - Current online version: lightweight heuristic ranker that scores candidates from
      raw Chinese query text, spatial words, attribute words, relation words,
      and part words.
-   - Target version: DINOv2 region features plus a text encoder, following the
-     PRD direction of "区域特征与文本特征相似度匹配".
+   - Target offline version: pretrained grounding / visual-text matching,
+     following the PRD direction of "区域特征与文本特征相似度匹配".
+     Candidate models include GroundingDINO, OWL-ViT/OWL-V2, Chinese-CLIP,
+     CLIP with Chinese-to-English prompt mapping, or DINOv2 region features
+     paired with a separate text encoder.
    - This should support open descriptions such as "左边的袖口", "碎花图案",
      "衣服上的拉链", and "外套里面的内搭" better than fixed-part
      classification.
 
 This means the old fixed-region parser is no longer the main decision maker.
 It is only a helper for candidate scoring.
+
+The default online path remains heuristic-only until a pretrained grounding
+model improves the manual benchmark. Candidate-listwise weak rankers are
+disabled in online inference because manual evaluation did not confirm their
+offline pseudo-label gains.
 
 ### Suggested Output Schema
 
@@ -147,14 +167,41 @@ It is only a helper for candidate scoring.
 
 ### Evaluation Plan
 
-Because there is no ready-made local-region ground truth yet, evaluation should
-be staged:
+Because there is no ready-made query-level local-region ground truth,
+evaluation should be staged and manual-first:
 
-1. Functional sanity test:
+1. Manual bbox benchmark:
+   - Use this as the main 3.1.2 decision metric.
+   - Target size: 100-300 image-query pairs, covering neckline, hem, shoulder,
+     cuff, pocket, zipper, pattern, decoration, and waist where applicable.
+   - Label only `target_bbox` in xyxy image pixels, do not use landmarks, and
+     do not use this file for training.
+   - Use `--anno-dir` when building the manifest to enable class-aware query
+     templates and avoid impossible pairs such as pants + neckline.
+   - Current combined benchmark: 122 labeled records.
+   - Current heuristic-only result after cuff-variant refinement: average bbox
+     IoU 0.3123, Hit@0.3 0.4836, Hit@0.5 0.2705.
+   - Strong regions: shoulder, neckline, hem.
+   - Weak regions: cuff, pocket, waist, zipper/pattern when target is small or
+     visually ambiguous.
+
+2. Functional sanity test:
    - Given fixed images and queries, verify the pipeline returns non-empty masks
      within the selected garment instance.
 
-2. Weak automatic evaluation:
+3. Pretrained grounding evaluation:
+   - Add an offline evaluator for GroundingDINO / OWL-ViT / Chinese-CLIP or
+     CLIP-style crop reranking.
+   - For English-centric grounding models, map Chinese query words to English
+     prompts, e.g. `领口 -> neckline`, `袖口 -> cuff`, `口袋 -> pocket`,
+     `拉链 -> zipper`, `下摆 -> hem`.
+   - Compare every model against the same manual bbox benchmark before changing
+     the online policy.
+   - If a pretrained model beats the heuristic baseline on manual IoU and hard
+     regions, integrate it as an optional backend; otherwise keep it as an
+     offline experiment.
+
+4. Weak automatic evaluation:
    - Use DeepFashion2 landmarks and garment masks to approximate regions such as
      neckline, hem, shoulder, waist.
    - Measure whether the returned region overlaps the weakly derived target.
@@ -267,31 +314,7 @@ be staged:
        access, so it is the more realistic online metric.
      - Therefore pseudo-label metrics should be treated as development
        diagnostics, not final PRD accuracy.
-   - Manual bbox benchmark:
-     - Build a small independent evaluation set instead of relabeling all of
-       DeepFashion2.
-     - Target size: 100-300 image-query pairs, covering neckline, hem,
-       shoulder, cuff, pocket, zipper, and pattern.
-     - Label only `target_bbox` in xyxy image pixels, do not use landmarks, and
-       do not use this file for training.
-     - Use `--anno-dir` when building the manifest to enable class-aware query
-       templates and avoid impossible pairs such as pants + neckline.
-     - Use `scripts/data/build_local_region_manual_eval_manifest.py` to create
-       the annotation JSONL, `scripts/data/annotate_local_region_bboxes.py` to
-       drag boxes in a browser, and `scripts/eval/evaluate_local_region_manual_labels.py`
-       to evaluate full pipeline outputs against the manual boxes.
-   - This keeps weak supervision useful for training while adding an
-     independent human-localized benchmark to detect pseudo-label overfitting.
-     The current manual result already shows pseudo-label/candidate-level gains
-     should not be treated as online improvements without this check.
-
-3. Human-labeled evaluation set:
-   - Manually label a small set, e.g. 100-300 image-query pairs.
-   - Include common queries: collar, cuff, hem, shoulder, pocket, zipper, print.
-   - Use this as the true metric set for localization accuracy.
-   - Keep it independent from pseudo-label generation and model training.
-
-4. Latency evaluation:
+5. Latency evaluation:
    - Measure 3.1.2 region localization time excluding or including 3.1.1,
      depending on final system definition.
 
@@ -314,8 +337,14 @@ be staged:
    - representative validation images
    - visualization grid for quick manual review
 
-5. Decide whether to build a small human-labeled validation set before training
-   any learned region localizer.
+5. Add a pretrained grounding baseline evaluator:
+   - first target: run offline against the 122-record manual benchmark
+   - output: selected bbox, confidence, IoU, and visualization
+   - gate: do not change online inference until it beats heuristic-only
+
+6. Keep weak-label ranker scripts as archived experiments:
+   - useful for reproducibility and ablation
+   - not the default route for PRD 3.1.2
 
 ### Current Baseline Usage
 
@@ -367,13 +396,16 @@ point is labeled with its DeepFashion2 landmark index.
 
 ### Recommended Immediate Next Step
 
-Implement the open-vocabulary baseline first:
+Implement the pretrained grounding benchmark while keeping the current
+heuristic baseline fixed:
 
 - keep selected-garment instance handoff from 3.1.1
-- generate multiple region candidates inside the garment
-- rank candidates against raw natural-language query text
+- keep the current heuristic-only policy as the control baseline
+- add a script that evaluates a pretrained grounding model or CLIP-style crop
+  ranker on the manual JSONL
+- support Chinese-to-English prompt templates for English-centric models
 - visualize selected region plus top candidate scores
-- evaluate any learned replacement against the manual bbox benchmark before
+- compare the pretrained model against the 122-record manual benchmark before
   enabling it in the online path
 
 This matches the PRD more closely than fixed-part segmentation, while keeping

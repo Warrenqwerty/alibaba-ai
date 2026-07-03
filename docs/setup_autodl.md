@@ -36,8 +36,21 @@ python scripts/eval/evaluate_local_region_queries.py \
 The `3.1.2` command runs the frozen `3.1.1` garment instance model first, then
 uses the open-vocabulary local-region candidate ranker for queries such as
 `左边的袖口`, `右侧的口袋`, `衣服上的拉链`, and `这件衣服上的碎花图案`.
-Review the JSON summary and visualization directory before moving to learned
-DINOv2/text-region similarity.
+Review the JSON summary and visualization directory, but do not treat this
+sanity run as the PRD metric.
+
+### Current 3.1.2 Direction
+
+After the manual benchmark and mentor feedback, the recommended direction is:
+
+1. Keep heuristic-only local-region inference as the online control baseline.
+2. Use the manual bbox benchmark as the main decision metric.
+3. Add an offline pretrained grounding baseline next, such as GroundingDINO,
+   OWL-ViT/OWL-V2, or CLIP/Chinese-CLIP crop reranking with Chinese-to-English
+   query templates where needed.
+4. Keep DeepFashion2 landmark pseudo-label and candidate-listwise ranker work as
+   historical weak-supervision experiments. They are useful for debugging, but
+   they are not enough to prove language-guided localization accuracy.
 
 Weak-label evaluation command for `3.1.2`:
 
@@ -204,6 +217,13 @@ Hit@0.3 `0.4836`, Hit@0.5 `0.2705`. Cuff improved from `0.0592` to `0.0904`,
 so the variant policy is better than the previous heuristic, but cuff is still
 the main residual weakness.
 
+Next recommended AutoDL work is to evaluate a pretrained grounding baseline on
+`/root/autodl-tmp/outputs/local_region_manual_eval_labeled_combined.jsonl`.
+Do not run more weak-label ranker training as the main path unless the
+pretrained grounding baseline has already been measured.
+
+### Archived Weak-Supervision Commands
+
 Build weak query-region records for the learned `3.1.2` ranker:
 
 ```bash
@@ -218,7 +238,7 @@ python scripts/data/build_deepfashion2_local_region_queries.py \
 The JSONL records contain image paths, item keys, Chinese query templates,
 garment boxes, weak local-region boxes, and whether the region came from
 landmarks or rule fallback. Use this as the first weak supervision source for
-the learned text-region matching baseline.
+the archived learned text-region matching baseline.
 
 Train a lightweight learned text-region ranker:
 
@@ -236,8 +256,8 @@ python scripts/train/train_local_region_ranker.py \
 
 This first learned baseline uses hashed Chinese query text plus normalized
 candidate geometry. It is not the final DINOv2/CLIP-style ranker, but it gives
-a trainable checkpoint and top-1 weak IoU metric before adding heavier
-vision-language dependencies.
+a reproducible checkpoint and top-1 weak IoU metric. It should not be expanded
+as the main 3.1.2 plan after the manual benchmark showed no online gain.
 
 Initial 50k-record smoke result: loss `0.4699`, validation top-1 box IoU
 `0.3540`.
@@ -284,8 +304,8 @@ whole garment.
 This recovers the tuned heuristic baseline, but the gain is too small to treat
 the hash text-geometry scorer as the final model.
 
-Export candidate-level records for the next CLIP/OpenCLIP or DINOv2
-text-region ranker:
+Export candidate-level records for historical CLIP/OpenCLIP or DINOv2
+text-region experiments:
 
 ```bash
 python scripts/data/build_local_region_candidate_records.py \
@@ -296,8 +316,10 @@ python scripts/data/build_local_region_candidate_records.py \
 
 Each input query record is expanded into candidate boxes with IoU labels against
 the weak region box. This keeps image paths and candidate boxes together, so the
-next training script can crop candidate regions and learn image-text matching
-instead of relying only on geometry.
+experimental scripts can crop candidate regions and learn image-text matching
+instead of relying only on geometry. Because the target boxes are still
+weak-label boxes, validate any gain on the manual benchmark before drawing a
+3.1.2 conclusion.
 
 Install the Chinese-CLIP dependencies:
 

@@ -89,7 +89,22 @@ python scripts/eval/evaluate_local_region_queries.py \
   --vis-dir /root/autodl-tmp/outputs/local_region_vis
 ```
 
-Run weak-label evaluation with DeepFashion2 annotations:
+### 3.1.2 Current Plan
+
+The PRD direction is language-guided grounding: image plus natural-language
+query should return a local-region mask and bbox. DeepFashion2 provides garment
+masks, boxes, categories, and landmarks, but it does not provide query-level
+human labels such as "右侧口袋" -> bbox/mask. Therefore the current 3.1.2 plan is:
+
+1. Keep the heuristic open-vocabulary pipeline as the online baseline.
+2. Use a small manual bbox benchmark as the main evaluation signal.
+3. Add pretrained grounding / vision-language baselines next, such as
+   GroundingDINO or OWL-ViT, and Chinese/translated CLIP-style reranking.
+4. Treat landmark pseudo-label and weak-ranker results as diagnostics only.
+   They are useful for exploration, but they are not enough to prove PRD
+   language-guided localization accuracy.
+
+Run weak-label evaluation with DeepFashion2 annotations only as a diagnostic:
 
 ```bash
 python scripts/eval/evaluate_local_region_weak_labels.py \
@@ -101,8 +116,9 @@ python scripts/eval/evaluate_local_region_weak_labels.py \
   --output /root/autodl-tmp/outputs/local_region_weak_eval.json
 ```
 
-Add `--ranker-checkpoint /root/autodl-tmp/checkpoints/local_region_ranker/hash_text_geometry_500k.pt`
-to evaluate the hybrid learned ranker on the same weak-label metric.
+Do not use weak-label IoU as the final PRD metric. It depends on landmark
+pseudo-labels plus rule fallback and can reward geometry that does not match
+human-labeled query intent.
 
 Build a small manual bbox benchmark for the true 3.1.2 metric. This is not a
 full DeepFashion2 relabeling task; label about 100-300 image-query pairs and use
@@ -211,6 +227,40 @@ IoU `0.3123`, Hit@0.3 `0.4836`, and Hit@0.5 `0.2705`; cuff improved from
 `0.0592` to `0.0904`. This confirms the visual diagnosis, but cuff remains a
 low-confidence region where pure geometry is near its limit.
 
+### 3.1.2 Next Experiments
+
+The next implementation direction should return to the PRD's pretrained
+visual-text matching route instead of expanding pseudo-label ranker training:
+
+1. Add an offline pretrained grounding evaluator.
+   - Candidate models: GroundingDINO, OWL-ViT/OWL-V2, or Chinese-CLIP/CLIP crop
+     reranking with SAM/3.1.1 masks as candidate regions.
+   - If the model is English-centric, map Chinese query words to English
+     prompts, e.g. `领口 -> neckline`, `袖口 -> cuff`, `口袋 -> pocket`,
+     `拉链 -> zipper`, `下摆 -> hem`.
+   - Evaluate only against
+     `/root/autodl-tmp/outputs/local_region_manual_eval_labeled_combined.jsonl`.
+
+2. Keep the online policy heuristic-only until a pretrained grounding baseline
+   beats the 122-record manual benchmark:
+   - current heuristic avg bbox IoU: `0.3123`
+   - Hit@0.3: `0.4836`
+   - Hit@0.5: `0.2705`
+
+3. Use failure review to decide whether a model improves the hard cases:
+   - cuff: needs real visual evidence for sleeve ends and armholes
+   - pocket: needs side-aware small-object grounding
+   - zipper/pattern/decoration: needs visual-text matching more than geometry
+
+4. Only consider fine-tuning after the pretrained baseline is measured. If more
+   training data is needed, add a small targeted calibration set instead of
+   relabeling all of DeepFashion2.
+
+### Archived Weak-Supervision Experiments
+
+These commands are kept for reproducibility, but they are no longer the main
+3.1.2 plan after the manual benchmark and mentor review.
+
 Build weak query-region records for a learned 3.1.2 ranker:
 
 ```bash
@@ -243,7 +293,7 @@ python scripts/data/build_local_region_candidate_records.py \
   --max-records 500000
 ```
 
-Install and evaluate Chinese-CLIP candidate reranking:
+Install and evaluate Chinese-CLIP candidate reranking on weak candidates:
 
 ```bash
 pip install "transformers>=4.37.0" sentencepiece
