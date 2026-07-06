@@ -229,8 +229,8 @@ def add_direction_table(doc: Document) -> None:
 def build_report() -> None:
     doc = Document()
     section = doc.sections[0]
-    section.top_margin = Inches(0.7)
-    section.bottom_margin = Inches(0.7)
+    section.top_margin = Inches(0.75)
+    section.bottom_margin = Inches(0.75)
     section.left_margin = Inches(0.9)
     section.right_margin = Inches(0.9)
     configure_styles(doc)
@@ -239,69 +239,79 @@ def build_report() -> None:
     doc.add_heading("一、本周主要工作", level=1)
     add_paragraph(
         doc,
-        "本周主要围绕 3.1.2「语言引导的局部区域定位」做方向复盘和评估体系重构。"
-        "根据导师反馈，前几周的训练和评估过度依赖 landmark pseudo-label 与规则 fallback，虽然能形成工程闭环，"
-        "但缺少人工真实标注作为基准，容易把模型优化到伪标签几何上，而不是真正的语言引导定位能力。"
+        "本周主要围绕 3.1.2「语言引导的局部区域定位」做方向复盘和评估体系重构。根据导师反馈，前几周的训练和评估过度依赖 "
+        "landmark pseudo-label + rule fallback，缺少人工真实标注作为基准，容易把模型优化到伪标签几何上。因此本周重点从继续训练 "
+        "weak ranker，调整为建立小规模人工 benchmark、复查 PRD 中 DINOv2/CLIP 的图文匹配路线，并把后续主线改为 pretrained grounding。"
     )
+
+    doc.add_heading("二、导师反馈与本周调整", level=1)
+    table = doc.add_table(rows=1, cols=3)
+    table.style = "Table Grid"
+    headers = ["反馈/问题", "本周处理", "当前结论"]
+    for i, header in enumerate(headers):
+        set_cell_text(table.rows[0].cells[i], header, True)
+        set_cell_shading(table.rows[0].cells[i], "F2F4F7")
+    rows = [
+        (
+            "训练/评估都来自伪标签，可能围绕 noisy pseudo-label 跑偏",
+            "建立人工 bbox benchmark，不使用 landmark 标注",
+            "manual benchmark 作为 3.1.2 主要评估依据",
+        ),
+        (
+            "候选区域利用 GT mask 和 landmark 先验，候选级结果偏乐观",
+            "把 candidate-listwise ranker 从 online path 暂时关掉",
+            "线上默认 heuristic-only，learned ranker 只保留为实验分支",
+        ),
+        (
+            "PRD 更接近 DINOv2/CLIP 区域特征与文本特征匹配路线",
+            "重构 README、AutoDL setup 和 3.1.2 plan",
+            "下一步优先验证 GroundingDINO/OWL-ViT/CLIP 类 baseline",
+        ),
+    ]
+    for row in rows:
+        cells = table.add_row().cells
+        for i, value in enumerate(row):
+            set_cell_text(cells[i], value, size=9.5)
+
+    doc.add_heading("三、Manual Benchmark 与策略修正", level=1)
     add_paragraph(
         doc,
-        "因此我本周把重点从继续训练 weak ranker，调整为建立小规模人工 benchmark、复查 PRD 中 DINOv2/CLIP 的图文匹配路线、"
-        "并重新整理 3.1.2 后续计划。当前结论是：DeepFashion2 可以提供 garment mask、bbox、category 和 landmark，"
-        "但不能直接提供「右侧口袋」「袖口设计」「碎花图案」这类自然语言 query 对应的人工 bbox/mask。"
-        "所以它适合作为弱监督和候选生成来源，但不足以单独支撑 PRD 级语言 grounding 训练。"
+        "本周完成两轮人工标注合并，共得到 122 条有效 labeled records。标注时只根据图片和 query 手动画 bbox，"
+        "不可标注 query 标为 unlabeled，不再用 DeepFashion2 landmark 作为评估真值。"
     )
-
-    doc.add_heading("二、导师反馈与问题复盘", level=1)
-    add_feedback_table(doc)
-
-    doc.add_page_break()
-    doc.add_heading("三、人工 benchmark 建设与结果", level=1)
+    table = doc.add_table(rows=1, cols=5)
+    table.style = "Table Grid"
+    headers = ["阶段", "规模", "avg bbox IoU", "Hit@0.3 / Hit@0.5", "结论"]
+    for i, header in enumerate(headers):
+        set_cell_text(table.rows[0].cells[i], header, True)
+        set_cell_shading(table.rows[0].cells[i], "F2F4F7")
+    rows = [
+        ("初始 heuristic", "55", "0.2544", "0.4000 / 0.2545", "优于 learned hybrid"),
+        ("candidate-listwise hybrid", "55", "0.2324", "0.3455 / 0.2000", "人工评估未带来收益"),
+        ("合并人工集 baseline", "122", "0.2812", "0.4344 / 0.2623", "作为后续比较基线"),
+        ("failure review + rule refinement", "122", "0.3123", "0.4836 / 0.2705", "整体提升，cuff 仍是瓶颈"),
+    ]
+    for row in rows:
+        cells = table.add_row().cells
+        for i, value in enumerate(row):
+            set_cell_text(cells[i], value, size=9.5)
     add_paragraph(
         doc,
-        "为了避免继续只围绕 pseudo-label IoU 调参，本周建立了一个小规模人工 bbox benchmark。"
-        "标注时不使用 landmark，只根据图片和 query 手动框出目标区域；同时允许 impossible query 标为 unlabeled，"
-        "例如裤子没有 neckline，避免把不存在的部位强行纳入评估。"
-    )
-    add_bullet(doc, "实现人工标注 manifest 生成脚本，并加入 class-aware query templates，降低不合理 query 的比例。")
-    add_bullet(doc, "实现浏览器 bbox 标注工具，支持拖框、保存 labeled JSONL、跳过不可标注样例。")
-    add_bullet(doc, "实现多轮标注合并工具，将两轮人工标注合并为 122 条有效 labeled records。")
-    add_bullet(doc, "实现 manual eval 脚本，用 3.1.1 预测结果 + 3.1.2 online policy 与人工 bbox 计算 IoU。")
-    add_manual_benchmark_table(doc)
-
-    doc.add_heading("四、Failure Review 与策略修正", level=1)
-    add_paragraph(
-        doc,
-        "在人工 benchmark 上，candidate-listwise hybrid 没有超过 heuristic baseline，因此我把 candidate listwise ranker 从 online path 暂时关掉，"
-        "避免后续误传 --ranker-checkpoint 导致结果变差。随后我导出低 IoU failure cases，并用 HTML review 页面逐类复查 cuff、pocket、waist 的失败原因。"
-    )
-    add_region_table(doc)
-
-    doc.add_heading("五、3.1.2 路线重构", level=1)
-    add_paragraph(
-        doc,
-        "复查 PRD 后，我认为文档真正暗示的路线不是固定部位分割，也不是完全依赖 DeepFashion2 pseudo-label 训练，"
-        "而是「候选区域/区域特征 + 文本特征相似度匹配」的预训练图文 grounding 路线。"
-        "我们之前做的 weak-label ranker 是为了解决数据不足的一种工程替代方案，但现在看只能作为探索实验，不能作为最终主线。"
-    )
-    add_direction_table(doc)
-    add_paragraph(
-        doc,
-        "因此，当前 3.1.2 的重新定位是：heuristic-only 作为线上 baseline，manual benchmark 作为主要评估标准；"
-        "后续新增 GroundingDINO、OWL-ViT/OWL-V2、Chinese-CLIP 或 CLIP + 中文到英文 prompt mapping 的离线 baseline。"
-        "只有当新模型在 122 条人工 benchmark 上超过 heuristic baseline，才考虑接入 online path。"
+        "Failure review 后主要修正了三类问题：cuff 增加 upper-sleeve / lower-terminal 候选；pocket 左右方向改为服饰/穿着者左右；"
+        "waist 根据 garment category 使用不同纵向区域。pocket 和 waist 提升明显，但 cuff 仍然较弱，说明纯几何规则接近上限。"
     )
 
-    doc.add_heading("六、代码与文档整理", level=1)
-    add_bullet(doc, "将 README、AutoDL setup 和 3.1.2 plan 统一改为 manual benchmark + pretrained grounding 的新路线。")
-    add_bullet(doc, "在文档中明确 weak-label 指标只能作为 development diagnostics，不能作为最终 PRD accuracy。")
-    add_bullet(doc, "将 candidate-listwise ranker 标记为 archived weak-supervision experiment，不再作为默认 online baseline。")
-    add_bullet(doc, "代码中保持 heuristic-only online policy，并保留人工标注、合并、评估和 failure export 工具作为统一评估入口。")
+    doc.add_heading("四、当前判断", level=1)
+    add_bullet(doc, "DeepFashion2 有 mask、bbox、category 和 landmark，但没有 query-level 语言区域人工标注，不能单独支撑 3.1.2 的完整训练。")
+    add_bullet(doc, "weak-label ranker 可以作为历史实验和辅助诊断，但不能作为 PRD 级语言 grounding 的主要结论。")
+    add_bullet(doc, "当前 online policy 固定为 heuristic-only；只有新模型超过 manual benchmark，才考虑接入 online path。")
+    add_bullet(doc, "3.1.2 后续主线应回到预训练 grounding / 图文匹配：GroundingDINO、OWL-ViT/OWL-V2、Chinese-CLIP 或 CLIP prompt mapping。")
 
-    doc.add_heading("七、下周计划", level=1)
+    doc.add_heading("五、下周计划", level=1)
     add_bullet(doc, "实现 pretrained grounding 离线评估脚本，输入人工标注 JSONL，输出预测 bbox、IoU、可视化和 summary。")
-    add_bullet(doc, "优先验证 GroundingDINO 或 OWL-ViT/OWL-V2；如果模型偏英文，增加中文 query 到英文 prompt 的模板映射。")
+    add_bullet(doc, "优先验证 GroundingDINO 或 OWL-ViT/OWL-V2；若模型偏英文，增加中文 query 到英文 prompt 的模板映射。")
     add_bullet(doc, "继续保留 heuristic-only 作为 control baseline；新模型必须超过 manual benchmark 才能进入 online path。")
-    add_bullet(doc, "重点比较 cuff、pocket、zipper、pattern 等规则困难区域，并只做小规模、有目标的补充标注。")
+    add_bullet(doc, "重点比较 cuff、pocket、zipper、pattern 等规则困难区域；如需继续标注，只做小规模、有目标的补充标注。")
 
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     doc.save(OUTPUT)
