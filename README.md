@@ -284,8 +284,16 @@ PYTHONPATH=src python scripts/eval/compare_local_region_manual_evals.py \
     /root/autodl-tmp/outputs/local_region_manual_eval_heuristic_cuff_variants.json \
     /root/autodl-tmp/outputs/local_region_manual_eval_grounding_dino_tiny.json \
   --names heuristic grounding_dino_tiny \
+  --default-eval heuristic \
+  --region-policy pattern=grounding_dino_tiny zipper=grounding_dino_tiny \
   --output /root/autodl-tmp/outputs/local_region_manual_eval_heuristic_vs_grounding_dino.json
 ```
+
+   - The fixed semantic-region hybrid (`pattern/zipper -> GroundingDINO`,
+     others -> heuristic) reaches average bbox IoU `0.3465`, Hit@0.3 `0.5246`,
+     Hit@0.5 `0.3197` on the 122-record benchmark. This is better than the
+     heuristic-only control, but it is still a small benchmark and should be
+     validated on a larger manual split before changing the default online path.
 
 2. Keep the online policy heuristic-only until a pretrained grounding baseline
    beats the 122-record manual benchmark:

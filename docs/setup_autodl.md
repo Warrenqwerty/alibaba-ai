@@ -274,12 +274,18 @@ PYTHONPATH=src python scripts/eval/compare_local_region_manual_evals.py \
     /root/autodl-tmp/outputs/local_region_manual_eval_heuristic_cuff_variants.json \
     /root/autodl-tmp/outputs/local_region_manual_eval_grounding_dino_tiny.json \
   --names heuristic grounding_dino_tiny \
+  --default-eval heuristic \
+  --region-policy pattern=grounding_dino_tiny zipper=grounding_dino_tiny \
   --output /root/autodl-tmp/outputs/local_region_manual_eval_heuristic_vs_grounding_dino.json
 ```
 
-The practical next design is a hybrid policy: keep heuristic geometry for
-structural regions and use visual grounding only for semantic details such as
-pattern and zipper after the comparison confirms the per-region choice.
+The fixed semantic-region hybrid (`pattern/zipper -> GroundingDINO`, all other
+regions -> heuristic) reaches average bbox IoU `0.3465`, Hit@0.3 `0.5246`, and
+Hit@0.5 `0.3197` on the 122-record manual benchmark. The practical next design
+is therefore a gated hybrid: keep heuristic geometry for structural regions and
+use visual grounding only for semantic appearance details such as pattern and
+zipper. Do not switch the full online path until this holds on a larger manual
+split.
 
 ### Archived Weak-Supervision Commands
 

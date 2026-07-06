@@ -40,7 +40,10 @@ from scripts.eval.evaluate_pretrained_grounding_manual_labels import (
     grounding_dino_text_prompt,
     summarize_records as summarize_pretrained_grounding_records,
 )
-from scripts.eval.compare_local_region_manual_evals import compare_evals
+from scripts.eval.compare_local_region_manual_evals import (
+    compare_evals,
+    parse_fixed_region_policy,
+)
 
 
 def test_manual_manifest_records_start_unlabeled(tmp_path):
@@ -253,6 +256,69 @@ def test_compare_manual_evals_builds_region_hybrid_oracle():
         "pattern": "grounding_dino",
     }
     assert comparison["region_hybrid_oracle"]["avg_manual_bbox_iou"] == pytest.approx(0.7)
+
+
+def test_compare_manual_evals_builds_fixed_region_hybrid():
+    heuristic = {
+        "name": "heuristic",
+        "path": "/tmp/heuristic.json",
+        "summary": {},
+        "records": [
+            {
+                "image": "/tmp/1.jpg",
+                "query_text": "衣服下方的下摆",
+                "target_region": "hem",
+                "manual_bbox_iou": 0.6,
+            },
+            {
+                "image": "/tmp/2.jpg",
+                "query_text": "这件衣服上的碎花图案",
+                "target_region": "pattern",
+                "manual_bbox_iou": 0.2,
+            },
+        ],
+    }
+    grounding_dino = {
+        "name": "grounding_dino",
+        "path": "/tmp/grounding_dino.json",
+        "summary": {},
+        "records": [
+            {
+                "image": "/tmp/1.jpg",
+                "query_text": "衣服下方的下摆",
+                "target_region": "hem",
+                "manual_bbox_iou": 0.1,
+            },
+            {
+                "image": "/tmp/2.jpg",
+                "query_text": "这件衣服上的碎花图案",
+                "target_region": "pattern",
+                "manual_bbox_iou": 0.8,
+            },
+        ],
+    }
+    policy = parse_fixed_region_policy(
+        ["pattern=grounding_dino"],
+        default_eval="heuristic",
+        regions=["hem", "pattern"],
+    )
+
+    comparison = compare_evals(
+        [heuristic, grounding_dino],
+        fixed_region_policy=policy,
+    )
+
+    assert comparison["fixed_region_hybrid"]["region_policy"] == {
+        "hem": "heuristic",
+        "pattern": "grounding_dino",
+    }
+    assert comparison["fixed_region_hybrid"]["summary"]["avg_manual_bbox_iou"] == (
+        pytest.approx(0.7)
+    )
+    assert [
+        record["hybrid_source_eval"]
+        for record in comparison["fixed_region_hybrid_records"]
+    ] == ["heuristic", "grounding_dino"]
 
 
 def test_annotator_default_output_path():

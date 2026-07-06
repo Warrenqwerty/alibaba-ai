@@ -452,8 +452,16 @@ PYTHONPATH=src python scripts/eval/compare_local_region_manual_evals.py \
     /root/autodl-tmp/outputs/local_region_manual_eval_heuristic_cuff_variants.json \
     /root/autodl-tmp/outputs/local_region_manual_eval_grounding_dino_tiny.json \
   --names heuristic grounding_dino_tiny \
+  --default-eval heuristic \
+  --region-policy pattern=grounding_dino_tiny zipper=grounding_dino_tiny \
   --output /root/autodl-tmp/outputs/local_region_manual_eval_heuristic_vs_grounding_dino.json
 ```
+
+The fixed semantic-region hybrid reaches average bbox IoU `0.3465`, Hit@0.3
+`0.5246`, and Hit@0.5 `0.3197`, compared with heuristic-only `0.3123` /
+`0.4836` / `0.2705`. This supports a gated design rather than a full detector
+replacement: use GroundingDINO for appearance semantics (`pattern`, `zipper`) and
+keep heuristic geometry for neckline, hem, shoulder, cuff, pocket, and waist.
 
 This matches the PRD more closely than fixed-part segmentation, while keeping
 the current code measurable and easy to debug.

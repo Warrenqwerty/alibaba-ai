@@ -35,6 +35,24 @@ def parse_args() -> argparse.Namespace:
         default="outputs/local_region_manual_eval_comparison.json",
         help="Path to save comparison summary.",
     )
+    parser.add_argument(
+        "--default-eval",
+        default=None,
+        help=(
+            "Optional default eval name for a fixed hybrid policy. Regions not "
+            "listed in --region-policy use this eval."
+        ),
+    )
+    parser.add_argument(
+        "--region-policy",
+        nargs="*",
+        default=None,
+        metavar="REGION=EVAL_NAME",
+        help=(
+            "Optional fixed policy entries, e.g. pattern=grounding_dino_tiny "
+            "zipper=grounding_dino_tiny."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -52,7 +70,11 @@ def load_eval(path: str | Path, name: str | None = None) -> dict[str, Any]:
     }
 
 
-def compare_evals(evals: list[dict[str, Any]]) -> dict[str, Any]:
+def compare_evals(
+    evals: list[dict[str, Any]],
+    *,
+    fixed_region_policy: dict[str, str] | None = None,
+) -> dict[str, Any]:
     keyed_records = {evaluation["name"]: records_by_key(evaluation["records"]) for evaluation in evals}
     common_keys = sorted(set.intersection(*(set(records) for records in keyed_records.values())))
     if not common_keys:
@@ -70,8 +92,21 @@ def compare_evals(evals: list[dict[str, Any]]) -> dict[str, Any]:
         for region, region_summary in per_region.items()
     }
     hybrid_records = build_region_hybrid_records(keyed_records, common_keys, region_policy)
+    fixed_hybrid = None
+    if fixed_region_policy is not None:
+        validate_region_policy(fixed_region_policy, keyed_records, per_region)
+        fixed_records = build_region_hybrid_records(
+            keyed_records,
+            common_keys,
+            fixed_region_policy,
+        )
+        fixed_hybrid = {
+            "region_policy": fixed_region_policy,
+            "summary": summarize_records(fixed_records),
+            "records": fixed_records,
+        }
 
-    return {
+    comparison = {
         "evals": [
             {
                 "name": evaluation["name"],
@@ -86,6 +121,12 @@ def compare_evals(evals: list[dict[str, Any]]) -> dict[str, Any]:
         "region_hybrid_oracle": summarize_records(hybrid_records),
         "records": hybrid_records,
     }
+    if fixed_hybrid is not None:
+        comparison["fixed_region_hybrid"] = {
+            key: value for key, value in fixed_hybrid.items() if key != "records"
+        }
+        comparison["fixed_region_hybrid_records"] = fixed_hybrid["records"]
+    return comparison
 
 
 def records_by_key(records: list[dict[str, Any]]) -> dict[tuple[str, str, str], dict[str, Any]]:
@@ -154,6 +195,43 @@ def build_region_hybrid_records(
     return records
 
 
+def validate_region_policy(
+    region_policy: dict[str, str],
+    keyed_records: dict[str, dict[tuple[str, str, str], dict[str, Any]]],
+    per_region: dict[str, Any],
+) -> None:
+    eval_names = set(keyed_records)
+    unknown_evals = sorted(set(region_policy.values()) - eval_names)
+    if unknown_evals:
+        raise ValueError(f"Unknown eval names in region policy: {unknown_evals}")
+    missing_regions = sorted(set(per_region) - set(region_policy))
+    if missing_regions:
+        raise ValueError(f"Region policy missing regions: {missing_regions}")
+
+
+def parse_fixed_region_policy(
+    entries: list[str] | None,
+    *,
+    default_eval: str | None,
+    regions: list[str],
+) -> dict[str, str] | None:
+    if default_eval is None and not entries:
+        return None
+    if default_eval is None:
+        raise ValueError("--default-eval is required when --region-policy is set")
+    policy = {region: default_eval for region in regions}
+    for entry in entries or []:
+        if "=" not in entry:
+            raise ValueError(f"Invalid --region-policy entry: {entry}")
+        region, eval_name = entry.split("=", maxsplit=1)
+        region = region.strip()
+        eval_name = eval_name.strip()
+        if not region or not eval_name:
+            raise ValueError(f"Invalid --region-policy entry: {entry}")
+        policy[region] = eval_name
+    return policy
+
+
 def summarize_records(records: list[dict[str, Any]]) -> dict[str, Any]:
     ious = [manual_iou(record) for record in records]
     return {
@@ -183,7 +261,19 @@ def main() -> None:
         raise ValueError("--names must have the same length as --eval-json")
     names = args.names or [None] * len(args.eval_json)
     evals = [load_eval(path, name=name) for path, name in zip(args.eval_json, names, strict=True)]
-    comparison = compare_evals(evals)
+    regions = sorted(
+        {
+            record_key(record)[2] or "unknown"
+            for evaluation in evals
+            for record in evaluation["records"]
+        }
+    )
+    fixed_region_policy = parse_fixed_region_policy(
+        args.region_policy,
+        default_eval=args.default_eval,
+        regions=regions,
+    )
+    comparison = compare_evals(evals, fixed_region_policy=fixed_region_policy)
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(
@@ -192,7 +282,11 @@ def main() -> None:
     )
     print(
         json.dumps(
-            {key: value for key, value in comparison.items() if key != "records"},
+            {
+                key: value
+                for key, value in comparison.items()
+                if key not in {"records", "fixed_region_hybrid_records"}
+            },
             ensure_ascii=False,
             indent=2,
         )
