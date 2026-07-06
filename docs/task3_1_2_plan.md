@@ -421,5 +421,22 @@ PYTHONPATH=src HF_ENDPOINT=https://hf-mirror.com python scripts/eval/evaluate_pr
   --output /root/autodl-tmp/outputs/local_region_manual_eval_owlvit.json
 ```
 
+OWL-ViT base result on the 122-record manual benchmark: average bbox IoU
+`0.0305`, Hit@0.3 `0.0410`, Hit@0.5 `0.0000`, with `101/122` records returning
+`no_detection`. This confirms that a generic OWL-ViT detector is not enough for
+fine-grained fashion local regions. The next offline baseline should be
+GroundingDINO tiny:
+
+```bash
+PYTHONPATH=src HF_ENDPOINT=https://hf-mirror.com python scripts/eval/evaluate_pretrained_grounding_manual_labels.py \
+  --annotations /root/autodl-tmp/outputs/local_region_manual_eval_labeled_combined.jsonl \
+  --backend auto \
+  --model-name IDEA-Research/grounding-dino-tiny \
+  --prompt-mode english \
+  --device cuda \
+  --score-threshold 0.15 \
+  --output /root/autodl-tmp/outputs/local_region_manual_eval_grounding_dino_tiny.json
+```
+
 This matches the PRD more closely than fixed-part segmentation, while keeping
 the current code measurable and easy to debug.

@@ -253,6 +253,24 @@ PYTHONPATH=src HF_ENDPOINT=https://hf-mirror.com python scripts/eval/evaluate_pr
   --output /root/autodl-tmp/outputs/local_region_manual_eval_owlvit.json
 ```
 
+   - OWL-ViT base result on the 122-record manual benchmark was very weak:
+     average bbox IoU `0.0305`, Hit@0.3 `0.0410`, Hit@0.5 `0.0000`, with
+     `101/122` records returning no detection. Treat this as a negative
+     generic open-vocabulary detector baseline, not as the final pretrained
+     grounding route.
+   - Next model to test:
+
+```bash
+PYTHONPATH=src HF_ENDPOINT=https://hf-mirror.com python scripts/eval/evaluate_pretrained_grounding_manual_labels.py \
+  --annotations /root/autodl-tmp/outputs/local_region_manual_eval_labeled_combined.jsonl \
+  --backend auto \
+  --model-name IDEA-Research/grounding-dino-tiny \
+  --prompt-mode english \
+  --device cuda \
+  --score-threshold 0.15 \
+  --output /root/autodl-tmp/outputs/local_region_manual_eval_grounding_dino_tiny.json
+```
+
 2. Keep the online policy heuristic-only until a pretrained grounding baseline
    beats the 122-record manual benchmark:
    - current heuristic avg bbox IoU: `0.3123`

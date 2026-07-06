@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import inspect
 import json
 import sys
 from collections import Counter
@@ -132,7 +133,7 @@ class HFZeroShotGrounder:
         if not prompts:
             return {"status": "no_prompt", "detections": [], "best": None}
         inputs = self.processor(
-            text=[prompts],
+            text=processor_text_input(self.processor, prompts),
             images=image,
             return_tensors="pt",
         )
@@ -154,6 +155,7 @@ class HFZeroShotGrounder:
             target_sizes=target_sizes,
             threshold=self.score_threshold,
             prompts=prompts,
+            inputs=inputs,
         )
         detections = detections_from_hf_output(processed, prompts)
         best = max(detections, key=lambda item: item["score"]) if detections else None
@@ -224,6 +226,7 @@ def post_process_grounding_outputs(
     target_sizes: Any,
     threshold: float,
     prompts: list[str],
+    inputs: dict[str, Any],
 ) -> dict[str, Any]:
     """Call the post-process API used by the installed transformers version."""
     if hasattr(processor, "post_process_object_detection"):
@@ -240,6 +243,7 @@ def post_process_grounding_outputs(
             target_sizes=target_sizes,
             threshold=threshold,
             text_labels=[prompts],
+            input_ids=inputs.get("input_ids"),
         )
     raise AttributeError(
         "Processor has no supported object-detection post-process method. "
@@ -255,8 +259,24 @@ def call_post_process_method(
     target_sizes: Any,
     threshold: float,
     text_labels: list[list[str]] | None = None,
+    input_ids: Any = None,
 ) -> dict[str, Any]:
     """Try common HuggingFace post-process signatures across versions."""
+    parameters = inspect.signature(method).parameters
+    if "box_threshold" in parameters and "text_threshold" in parameters:
+        if input_ids is None:
+            raise ValueError(
+                "GroundingDINO-style post-process requires input_ids, but the "
+                "processor output did not include them."
+            )
+        return method(
+            outputs,
+            input_ids=input_ids,
+            box_threshold=threshold,
+            text_threshold=threshold,
+            target_sizes=target_sizes,
+        )[0]
+
     calls: list[dict[str, Any]] = [
         {
             "outputs": outputs,
@@ -299,6 +319,26 @@ def call_post_process_method(
             last_error = exc
     assert last_error is not None
     raise last_error
+
+
+def processor_text_input(processor: Any, prompts: list[str]) -> list[Any]:
+    if is_grounding_dino_processor(processor):
+        return [grounding_dino_text_prompt(prompts)]
+    return [prompts]
+
+
+def is_grounding_dino_processor(processor: Any) -> bool:
+    return "GroundingDino" in processor.__class__.__name__
+
+
+def grounding_dino_text_prompt(prompts: list[str]) -> str:
+    phrases = []
+    for prompt in prompts:
+        prompt = prompt.strip()
+        if not prompt:
+            continue
+        phrases.append(prompt if prompt.endswith(".") else f"{prompt}.")
+    return " ".join(phrases)
 
 
 def detections_from_hf_output(

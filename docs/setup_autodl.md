@@ -237,6 +237,26 @@ PYTHONPATH=src HF_ENDPOINT=https://hf-mirror.com python scripts/eval/evaluate_pr
   --output /root/autodl-tmp/outputs/local_region_manual_eval_owlvit.json
 ```
 
+Observed OWL-ViT base result on the 122-record manual benchmark: average bbox
+IoU `0.0305`, Hit@0.3 `0.0410`, Hit@0.5 `0.0000`, with `101/122` records
+returning `no_detection`. This is a negative baseline and is far below the
+heuristic control result (`0.3123` average bbox IoU).
+
+Run GroundingDINO tiny next:
+
+```bash
+cd /root/projects/alibaba-ai
+git pull
+PYTHONPATH=src HF_ENDPOINT=https://hf-mirror.com python scripts/eval/evaluate_pretrained_grounding_manual_labels.py \
+  --annotations /root/autodl-tmp/outputs/local_region_manual_eval_labeled_combined.jsonl \
+  --backend auto \
+  --model-name IDEA-Research/grounding-dino-tiny \
+  --prompt-mode english \
+  --device cuda \
+  --score-threshold 0.15 \
+  --output /root/autodl-tmp/outputs/local_region_manual_eval_grounding_dino_tiny.json
+```
+
 ### Archived Weak-Supervision Commands
 
 Build weak query-region records for the learned `3.1.2` ranker:

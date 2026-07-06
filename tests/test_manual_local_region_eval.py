@@ -37,6 +37,7 @@ from scripts.eval.export_local_region_manual_failures import (
 from scripts.eval.evaluate_pretrained_grounding_manual_labels import (
     build_prompts,
     detections_from_hf_output,
+    grounding_dino_text_prompt,
     summarize_records as summarize_pretrained_grounding_records,
 )
 
@@ -144,6 +145,12 @@ def test_pretrained_grounding_prompt_builder_uses_region_and_side():
     assert "pocket" in pocket_prompts
     assert "这件衣服上的碎花图案" in pattern_prompts
     assert "floral pattern" in pattern_prompts
+
+
+def test_grounding_dino_text_prompt_joins_phrases_with_periods():
+    assert grounding_dino_text_prompt(["neckline", "sleeve cuff."]) == (
+        "neckline. sleeve cuff."
+    )
 
 
 def test_pretrained_grounding_summary_uses_manual_iou():
