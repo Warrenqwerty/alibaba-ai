@@ -240,6 +240,18 @@ visual-text matching route instead of expanding pseudo-label ranker training:
      `拉链 -> zipper`, `下摆 -> hem`.
    - Evaluate only against
      `/root/autodl-tmp/outputs/local_region_manual_eval_labeled_combined.jsonl`.
+   - First AutoDL command:
+
+```bash
+PYTHONPATH=src HF_ENDPOINT=https://hf-mirror.com python scripts/eval/evaluate_pretrained_grounding_manual_labels.py \
+  --annotations /root/autodl-tmp/outputs/local_region_manual_eval_labeled_combined.jsonl \
+  --backend owlvit \
+  --model-name google/owlvit-base-patch32 \
+  --prompt-mode english \
+  --device cuda \
+  --score-threshold 0.05 \
+  --output /root/autodl-tmp/outputs/local_region_manual_eval_owlvit.json
+```
 
 2. Keep the online policy heuristic-only until a pretrained grounding baseline
    beats the 122-record manual benchmark:

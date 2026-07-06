@@ -34,6 +34,11 @@ from scripts.eval.export_local_region_manual_failures import (
     select_failure_records,
     write_failure_review_html,
 )
+from scripts.eval.evaluate_pretrained_grounding_manual_labels import (
+    build_prompts,
+    detections_from_hf_output,
+    summarize_records as summarize_pretrained_grounding_records,
+)
 
 
 def test_manual_manifest_records_start_unlabeled(tmp_path):
@@ -121,6 +126,63 @@ def test_manual_eval_summary_uses_manual_bbox_iou():
     assert summary["manual_hit_at"]["0.3"] == pytest.approx(0.5)
     assert summary["manual_hit_at"]["0.5"] == pytest.approx(0.5)
     assert summary["by_region"]["neckline"]["avg_manual_bbox_iou"] == 0.6
+
+
+def test_pretrained_grounding_prompt_builder_uses_region_and_side():
+    pocket_prompts = build_prompts(
+        "右侧的口袋",
+        "pocket",
+        prompt_mode="english",
+    )
+    pattern_prompts = build_prompts(
+        "这件衣服上的碎花图案",
+        None,
+        prompt_mode="both",
+    )
+
+    assert pocket_prompts[0] == "right pocket"
+    assert "pocket" in pocket_prompts
+    assert "这件衣服上的碎花图案" in pattern_prompts
+    assert "floral pattern" in pattern_prompts
+
+
+def test_pretrained_grounding_summary_uses_manual_iou():
+    summary = summarize_pretrained_grounding_records(
+        [
+            {
+                "status": "ok",
+                "target_region": "neckline",
+                "selected_region": "collar",
+                "manual_bbox_iou": 0.7,
+            },
+            {
+                "status": "no_detection",
+                "target_region": "cuff",
+                "selected_region": None,
+                "manual_bbox_iou": 0.0,
+            },
+        ]
+    )
+
+    assert summary["num_records"] == 2
+    assert summary["status_counts"] == {"ok": 1, "no_detection": 1}
+    assert summary["avg_manual_bbox_iou"] == pytest.approx(0.35)
+    assert summary["manual_hit_at"]["0.3"] == pytest.approx(0.5)
+    assert summary["by_region"]["cuff"]["avg_manual_bbox_iou"] == 0.0
+
+
+def test_detections_from_hf_output_maps_prompt_labels():
+    processed = {
+        "scores": [0.2, 0.8],
+        "labels": [0, 1],
+        "boxes": [[0, 0, 10, 10], [1, 2, 11, 12]],
+    }
+
+    detections = detections_from_hf_output(processed, ["neckline", "cuff"])
+
+    assert detections[0]["prompt"] == "cuff"
+    assert detections[0]["score"] == pytest.approx(0.8)
+    assert detections[0]["bbox"] == [1.0, 2.0, 11.0, 12.0]
 
 
 def test_annotator_default_output_path():

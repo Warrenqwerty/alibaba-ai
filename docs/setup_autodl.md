@@ -222,6 +222,21 @@ Next recommended AutoDL work is to evaluate a pretrained grounding baseline on
 Do not run more weak-label ranker training as the main path unless the
 pretrained grounding baseline has already been measured.
 
+First pretrained grounding baseline command:
+
+```bash
+cd /root/projects/alibaba-ai
+git pull
+PYTHONPATH=src HF_ENDPOINT=https://hf-mirror.com python scripts/eval/evaluate_pretrained_grounding_manual_labels.py \
+  --annotations /root/autodl-tmp/outputs/local_region_manual_eval_labeled_combined.jsonl \
+  --backend owlvit \
+  --model-name google/owlvit-base-patch32 \
+  --prompt-mode english \
+  --device cuda \
+  --score-threshold 0.05 \
+  --output /root/autodl-tmp/outputs/local_region_manual_eval_owlvit.json
+```
+
 ### Archived Weak-Supervision Commands
 
 Build weak query-region records for the learned `3.1.2` ranker:

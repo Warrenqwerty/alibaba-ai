@@ -401,12 +401,25 @@ heuristic baseline fixed:
 
 - keep selected-garment instance handoff from 3.1.1
 - keep the current heuristic-only policy as the control baseline
-- add a script that evaluates a pretrained grounding model or CLIP-style crop
-  ranker on the manual JSONL
+- use `scripts/eval/evaluate_pretrained_grounding_manual_labels.py` to evaluate
+  OWL-ViT/OWL-V2-style pretrained grounding models on the manual JSONL
 - support Chinese-to-English prompt templates for English-centric models
 - visualize selected region plus top candidate scores
 - compare the pretrained model against the 122-record manual benchmark before
   enabling it in the online path
+
+First offline baseline to run on AutoDL:
+
+```bash
+PYTHONPATH=src HF_ENDPOINT=https://hf-mirror.com python scripts/eval/evaluate_pretrained_grounding_manual_labels.py \
+  --annotations /root/autodl-tmp/outputs/local_region_manual_eval_labeled_combined.jsonl \
+  --backend owlvit \
+  --model-name google/owlvit-base-patch32 \
+  --prompt-mode english \
+  --device cuda \
+  --score-threshold 0.05 \
+  --output /root/autodl-tmp/outputs/local_region_manual_eval_owlvit.json
+```
 
 This matches the PRD more closely than fixed-part segmentation, while keeping
 the current code measurable and easy to debug.
