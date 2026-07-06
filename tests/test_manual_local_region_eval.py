@@ -40,6 +40,7 @@ from scripts.eval.evaluate_pretrained_grounding_manual_labels import (
     grounding_dino_text_prompt,
     summarize_records as summarize_pretrained_grounding_records,
 )
+from scripts.eval.compare_local_region_manual_evals import compare_evals
 
 
 def test_manual_manifest_records_start_unlabeled(tmp_path):
@@ -203,6 +204,55 @@ def test_detections_from_hf_output_accepts_text_labels():
 
     assert detections[0]["prompt"] == "sleeve cuff"
     assert detections[0]["prompt_index"] == 1
+
+
+def test_compare_manual_evals_builds_region_hybrid_oracle():
+    heuristic = {
+        "name": "heuristic",
+        "path": "/tmp/heuristic.json",
+        "summary": {},
+        "records": [
+            {
+                "image": "/tmp/1.jpg",
+                "query_text": "衣服下方的下摆",
+                "target_region": "hem",
+                "manual_bbox_iou": 0.6,
+            },
+            {
+                "image": "/tmp/2.jpg",
+                "query_text": "这件衣服上的碎花图案",
+                "target_region": "pattern",
+                "manual_bbox_iou": 0.2,
+            },
+        ],
+    }
+    grounding_dino = {
+        "name": "grounding_dino",
+        "path": "/tmp/grounding_dino.json",
+        "summary": {},
+        "records": [
+            {
+                "image": "/tmp/1.jpg",
+                "query_text": "衣服下方的下摆",
+                "target_region": "hem",
+                "manual_bbox_iou": 0.1,
+            },
+            {
+                "image": "/tmp/2.jpg",
+                "query_text": "这件衣服上的碎花图案",
+                "target_region": "pattern",
+                "manual_bbox_iou": 0.8,
+            },
+        ],
+    }
+
+    comparison = compare_evals([heuristic, grounding_dino])
+
+    assert comparison["region_policy"] == {
+        "hem": "heuristic",
+        "pattern": "grounding_dino",
+    }
+    assert comparison["region_hybrid_oracle"]["avg_manual_bbox_iou"] == pytest.approx(0.7)
 
 
 def test_annotator_default_output_path():

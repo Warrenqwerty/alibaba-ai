@@ -271,6 +271,22 @@ PYTHONPATH=src HF_ENDPOINT=https://hf-mirror.com python scripts/eval/evaluate_pr
   --output /root/autodl-tmp/outputs/local_region_manual_eval_grounding_dino_tiny.json
 ```
 
+   - GroundingDINO tiny result on the 122-record manual benchmark: average bbox
+     IoU `0.2225`, Hit@0.3 `0.2295`, Hit@0.5 `0.1639`. It is still below the
+     heuristic control overall, but it is much stronger on visual semantic
+     regions: pattern `0.8262`, zipper `0.8233`, neckline `0.3843`. It is weak
+     on geometry/structural regions such as hem, shoulder, cuff, and pocket.
+   - Compare heuristic and GroundingDINO by region:
+
+```bash
+PYTHONPATH=src python scripts/eval/compare_local_region_manual_evals.py \
+  --eval-json \
+    /root/autodl-tmp/outputs/local_region_manual_eval_heuristic_cuff_variants.json \
+    /root/autodl-tmp/outputs/local_region_manual_eval_grounding_dino_tiny.json \
+  --names heuristic grounding_dino_tiny \
+  --output /root/autodl-tmp/outputs/local_region_manual_eval_heuristic_vs_grounding_dino.json
+```
+
 2. Keep the online policy heuristic-only until a pretrained grounding baseline
    beats the 122-record manual benchmark:
    - current heuristic avg bbox IoU: `0.3123`

@@ -257,6 +257,30 @@ PYTHONPATH=src HF_ENDPOINT=https://hf-mirror.com python scripts/eval/evaluate_pr
   --output /root/autodl-tmp/outputs/local_region_manual_eval_grounding_dino_tiny.json
 ```
 
+Observed GroundingDINO tiny result on the 122-record manual benchmark: average
+bbox IoU `0.2225`, Hit@0.3 `0.2295`, Hit@0.5 `0.1639`. This is below the
+heuristic control overall, but it is much better for visual semantic regions:
+pattern `0.8262`, zipper `0.8233`, neckline `0.3843`. It remains weak for
+structural geometry regions: cuff `0.0698`, hem `0.1345`, shoulder `0.1895`,
+pocket `0.0332`.
+
+Compare the heuristic and GroundingDINO outputs by region:
+
+```bash
+cd /root/projects/alibaba-ai
+git pull
+PYTHONPATH=src python scripts/eval/compare_local_region_manual_evals.py \
+  --eval-json \
+    /root/autodl-tmp/outputs/local_region_manual_eval_heuristic_cuff_variants.json \
+    /root/autodl-tmp/outputs/local_region_manual_eval_grounding_dino_tiny.json \
+  --names heuristic grounding_dino_tiny \
+  --output /root/autodl-tmp/outputs/local_region_manual_eval_heuristic_vs_grounding_dino.json
+```
+
+The practical next design is a hybrid policy: keep heuristic geometry for
+structural regions and use visual grounding only for semantic details such as
+pattern and zipper after the comparison confirms the per-region choice.
+
 ### Archived Weak-Supervision Commands
 
 Build weak query-region records for the learned `3.1.2` ranker:

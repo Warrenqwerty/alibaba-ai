@@ -438,5 +438,22 @@ PYTHONPATH=src HF_ENDPOINT=https://hf-mirror.com python scripts/eval/evaluate_pr
   --output /root/autodl-tmp/outputs/local_region_manual_eval_grounding_dino_tiny.json
 ```
 
+GroundingDINO tiny result on the same benchmark: average bbox IoU `0.2225`,
+Hit@0.3 `0.2295`, Hit@0.5 `0.1639`. This still does not replace the heuristic
+control overall, but it changes the direction: visual grounding is clearly
+useful for semantic appearance regions, especially pattern (`0.8262`) and
+zipper (`0.8233`), while structural geometry regions still favor the heuristic.
+
+Use the comparison utility before changing online behavior:
+
+```bash
+PYTHONPATH=src python scripts/eval/compare_local_region_manual_evals.py \
+  --eval-json \
+    /root/autodl-tmp/outputs/local_region_manual_eval_heuristic_cuff_variants.json \
+    /root/autodl-tmp/outputs/local_region_manual_eval_grounding_dino_tiny.json \
+  --names heuristic grounding_dino_tiny \
+  --output /root/autodl-tmp/outputs/local_region_manual_eval_heuristic_vs_grounding_dino.json
+```
+
 This matches the PRD more closely than fixed-part segmentation, while keeping
 the current code measurable and easy to debug.
