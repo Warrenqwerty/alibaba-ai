@@ -148,18 +148,13 @@ class HFZeroShotGrounder:
             dtype=self.torch.float,
             device=self.device,
         )
-        try:
-            processed = self.processor.post_process_object_detection(
-                outputs=outputs,
-                target_sizes=target_sizes,
-                threshold=self.score_threshold,
-            )[0]
-        except TypeError:
-            processed = self.processor.post_process_object_detection(
-                outputs,
-                target_sizes=target_sizes,
-                threshold=self.score_threshold,
-            )[0]
+        processed = post_process_grounding_outputs(
+            self.processor,
+            outputs,
+            target_sizes=target_sizes,
+            threshold=self.score_threshold,
+            prompts=prompts,
+        )
         detections = detections_from_hf_output(processed, prompts)
         best = max(detections, key=lambda item: item["score"]) if detections else None
         return {
@@ -222,31 +217,149 @@ def load_hf_grounder(
         ) from exc
 
 
+def post_process_grounding_outputs(
+    processor: Any,
+    outputs: Any,
+    *,
+    target_sizes: Any,
+    threshold: float,
+    prompts: list[str],
+) -> dict[str, Any]:
+    """Call the post-process API used by the installed transformers version."""
+    if hasattr(processor, "post_process_object_detection"):
+        return call_post_process_method(
+            processor.post_process_object_detection,
+            outputs,
+            target_sizes=target_sizes,
+            threshold=threshold,
+        )
+    if hasattr(processor, "post_process_grounded_object_detection"):
+        return call_post_process_method(
+            processor.post_process_grounded_object_detection,
+            outputs,
+            target_sizes=target_sizes,
+            threshold=threshold,
+            text_labels=[prompts],
+        )
+    raise AttributeError(
+        "Processor has no supported object-detection post-process method. "
+        "Expected post_process_object_detection or "
+        "post_process_grounded_object_detection."
+    )
+
+
+def call_post_process_method(
+    method: Any,
+    outputs: Any,
+    *,
+    target_sizes: Any,
+    threshold: float,
+    text_labels: list[list[str]] | None = None,
+) -> dict[str, Any]:
+    """Try common HuggingFace post-process signatures across versions."""
+    calls: list[dict[str, Any]] = [
+        {
+            "outputs": outputs,
+            "target_sizes": target_sizes,
+            "threshold": threshold,
+        },
+        {
+            "target_sizes": target_sizes,
+            "threshold": threshold,
+        },
+    ]
+    if text_labels is not None:
+        calls.insert(
+            0,
+            {
+                "outputs": outputs,
+                "target_sizes": target_sizes,
+                "threshold": threshold,
+                "text_labels": text_labels,
+            },
+        )
+        calls.insert(
+            1,
+            {
+                "target_sizes": target_sizes,
+                "threshold": threshold,
+                "text_labels": text_labels,
+            },
+        )
+
+    last_error: TypeError | None = None
+    for kwargs in calls:
+        try:
+            if "outputs" in kwargs:
+                result = method(**kwargs)
+            else:
+                result = method(outputs, **kwargs)
+            return result[0]
+        except TypeError as exc:
+            last_error = exc
+    assert last_error is not None
+    raise last_error
+
+
 def detections_from_hf_output(
     processed: dict[str, Any],
     prompts: list[str],
 ) -> list[dict[str, Any]]:
     scores = processed.get("scores", [])
-    labels = processed.get("labels", [])
+    labels = processed.get("labels", processed.get("text_labels", []))
+    text_labels = processed.get("text_labels", [])
     boxes = processed.get("boxes", [])
     detections = []
-    for score, label, box in zip(scores, labels, boxes, strict=False):
-        label_index = int(label.detach().cpu().item() if hasattr(label, "detach") else label)
+    for index, (score, label, box) in enumerate(
+        zip(scores, labels, boxes, strict=False)
+    ):
         score_value = float(score.detach().cpu().item() if hasattr(score, "detach") else score)
         box_values = (
             box.detach().cpu().tolist() if hasattr(box, "detach") else list(box)
         )
-        prompt = prompts[label_index] if 0 <= label_index < len(prompts) else str(label_index)
+        prompt_index, prompt = prompt_from_detection_label(
+            label,
+            prompts,
+            text_labels=text_labels,
+            detection_index=index,
+        )
         detections.append(
             {
                 "prompt": prompt,
-                "prompt_index": label_index,
+                "prompt_index": prompt_index,
                 "score": score_value,
                 "bbox": [float(value) for value in box_values],
             }
         )
     detections.sort(key=lambda item: item["score"], reverse=True)
     return detections
+
+
+def prompt_from_detection_label(
+    label: Any,
+    prompts: list[str],
+    *,
+    text_labels: list[Any],
+    detection_index: int,
+) -> tuple[int | None, str]:
+    if hasattr(label, "detach"):
+        label = label.detach().cpu().item()
+    if isinstance(label, str):
+        prompt = label
+        prompt_index = prompts.index(prompt) if prompt in prompts else None
+        return prompt_index, prompt
+    try:
+        label_index = int(label)
+    except (TypeError, ValueError):
+        prompt = str(label)
+        return None, prompt
+    if 0 <= label_index < len(prompts):
+        return label_index, prompts[label_index]
+    if 0 <= detection_index < len(text_labels):
+        prompt = str(text_labels[detection_index])
+        prompt_index = prompts.index(prompt) if prompt in prompts else None
+        return prompt_index, prompt
+    return label_index, str(label_index)
 
 
 def build_prompts(

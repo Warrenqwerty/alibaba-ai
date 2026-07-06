@@ -185,6 +185,19 @@ def test_detections_from_hf_output_maps_prompt_labels():
     assert detections[0]["bbox"] == [1.0, 2.0, 11.0, 12.0]
 
 
+def test_detections_from_hf_output_accepts_text_labels():
+    processed = {
+        "scores": [0.8],
+        "labels": ["sleeve cuff"],
+        "boxes": [[1, 2, 11, 12]],
+    }
+
+    detections = detections_from_hf_output(processed, ["neckline", "sleeve cuff"])
+
+    assert detections[0]["prompt"] == "sleeve cuff"
+    assert detections[0]["prompt_index"] == 1
+
+
 def test_annotator_default_output_path():
     assert default_output_path("/tmp/manual_manifest.jsonl") == Path(
         "/tmp/manual_manifest_labeled.jsonl"
