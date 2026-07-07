@@ -412,6 +412,33 @@ Observed result: avg bbox IoU `0.3060`, Hit@0.3 `0.4503`, Hit@0.5 `0.2749`,
 with `41` records routed to GroundingDINO and `130` records routed to the
 heuristic path.
 
+Run the same policy on a single image only when explicitly testing the gated
+experimental path. The default `predict_local_region.py` command remains
+heuristic-only:
+
+```bash
+cd /root/projects/alibaba-ai
+git pull
+PYTHONPATH=src HF_ENDPOINT=https://hf-mirror.com python scripts/inference/predict_gated_hybrid_local_region.py \
+  /root/autodl-tmp/datasets/DeepFashion2/validation/image/000001.jpg \
+  "这件衣服上的碎花图案" \
+  --checkpoint /root/autodl-tmp/checkpoints/deepfashion2_6class_hard_mining/instance_segmentation/epoch_001.pt \
+  --device cuda \
+  --grounding-regions pattern pocket \
+  --grounding-backend auto \
+  --grounding-model-name IDEA-Research/grounding-dino-tiny \
+  --prompt-mode english \
+  --score-threshold 0.15 \
+  --output /root/autodl-tmp/outputs/local_region_gated_single.json \
+  --vis-output /root/autodl-tmp/outputs/local_region_gated_single.jpg
+```
+
+For `pattern` and `pocket` queries this script loads GroundingDINO and does not
+run the 3.1.1 segmentation model. For all other parsed regions, it runs the
+existing segmentation plus heuristic local-region path and writes the same
+local-region JSON shape as the default command, with `gated_policy_route`
+showing which branch was used.
+
 ### Archived Weak-Supervision Commands
 
 Build weak query-region records for the learned `3.1.2` ranker:

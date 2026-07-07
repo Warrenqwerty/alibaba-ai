@@ -47,6 +47,11 @@ from scripts.eval.evaluate_pretrained_grounding_manual_labels import (
     summarize_records as summarize_pretrained_grounding_records,
 )
 from scripts.eval.evaluate_gated_hybrid_manual_labels import should_route_to_grounding
+from scripts.inference.predict_gated_hybrid_local_region import (
+    grounding_payload,
+    should_use_grounding_route,
+)
+from fashion_mm.models.local_region.query import parse_region_query
 from scripts.eval.compare_local_region_manual_evals import (
     compare_evals,
     parse_fixed_region_policy,
@@ -238,6 +243,56 @@ def test_gated_hybrid_routes_only_configured_regions_to_grounding():
         {"target_region": "hem"},
         grounding_regions,
     )
+
+
+def test_single_image_gated_hybrid_routes_by_parsed_query():
+    grounding_regions = {"pattern", "pocket"}
+
+    assert should_use_grounding_route(
+        parse_region_query("这件衣服上的碎花图案"),
+        grounding_regions,
+    )
+    assert should_use_grounding_route(
+        parse_region_query("右侧的口袋"),
+        grounding_regions,
+    )
+    assert not should_use_grounding_route(
+        parse_region_query("衣服上的拉链"),
+        grounding_regions,
+    )
+    assert not should_use_grounding_route(
+        parse_region_query("衣服下方的下摆"),
+        grounding_regions,
+    )
+
+
+def test_single_image_grounding_payload_matches_local_region_shape(tmp_path):
+    prediction = {
+        "status": "ok",
+        "best": {"prompt": "floral pattern", "score": 0.91, "bbox": [1, 2, 11, 12]},
+        "detections": [
+            {"prompt": "floral pattern", "score": 0.91, "bbox": [1, 2, 11, 12]},
+            {"prompt": "pattern", "score": 0.42, "bbox": [4, 5, 14, 15]},
+        ],
+    }
+
+    payload = grounding_payload(
+        image_path=tmp_path / "image.jpg",
+        query="这件衣服上的碎花图案",
+        parsed_query=parse_region_query("这件衣服上的碎花图案"),
+        prediction=prediction,
+        prompts=["pattern", "floral pattern"],
+        grounder_backend="auto",
+        grounding_model_name="IDEA-Research/grounding-dino-tiny",
+        latency_ms=12.5,
+    )
+
+    assert payload["gated_policy_route"] == "grounding"
+    assert payload["ranker_backend"] == "gated_hybrid_grounding_auto"
+    assert payload["query"]["region"] == "pattern"
+    assert payload["region"]["region"] == "floral pattern"
+    assert payload["region"]["box"] == [1.0, 2.0, 11.0, 12.0]
+    assert payload["candidate_regions"][1]["match_score"] == pytest.approx(0.42)
 
 
 def test_grounding_dino_text_prompt_joins_phrases_with_periods():
