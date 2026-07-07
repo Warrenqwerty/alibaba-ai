@@ -96,6 +96,32 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Shuffle image order before sampling.",
     )
+    parser.add_argument(
+        "--target-regions",
+        nargs="+",
+        default=None,
+        help=(
+            "Optional target_region filter after query generation, e.g. "
+            "pattern zipper pocket."
+        ),
+    )
+    parser.add_argument(
+        "--exclude-existing",
+        nargs="*",
+        default=None,
+        help=(
+            "Optional existing manual JSONL files. Records with the same "
+            "image/query_text/target_region key are skipped."
+        ),
+    )
+    parser.add_argument(
+        "--balance-target-regions",
+        action="store_true",
+        help=(
+            "When --target-regions is set, select records in round-robin region "
+            "order instead of taking the first max-records records."
+        ),
+    )
     parser.add_argument("--seed", type=int, default=2026)
     parser.add_argument(
         "--output",
@@ -202,6 +228,126 @@ def build_class_aware_manifest_records(
     return records
 
 
+def filter_records_by_target_regions(
+    records: list[dict[str, Any]],
+    target_regions: set[str] | None,
+) -> list[dict[str, Any]]:
+    """Keep only records whose parsed target_region is in target_regions."""
+    if not target_regions:
+        return records
+    return [
+        record
+        for record in records
+        if str(record.get("target_region") or "") in target_regions
+    ]
+
+
+def load_existing_record_keys(paths: list[str] | None) -> set[tuple[str, str, str]]:
+    """Load existing manual annotation keys to avoid duplicate labeling."""
+    keys: set[tuple[str, str, str]] = set()
+    for path_value in paths or []:
+        path = Path(path_value)
+        if not path.exists():
+            continue
+        with path.open("r", encoding="utf-8") as file:
+            for line in file:
+                stripped = line.strip()
+                if not stripped:
+                    continue
+                record = json.loads(stripped)
+                keys.add(manual_record_key(record))
+    return keys
+
+
+def filter_existing_records(
+    records: list[dict[str, Any]],
+    existing_keys: set[tuple[str, str, str]],
+) -> list[dict[str, Any]]:
+    """Remove records already present in existing manual annotation JSONL."""
+    if not existing_keys:
+        return records
+    return [
+        record
+        for record in records
+        if manual_record_key(record) not in existing_keys
+    ]
+
+
+def manual_record_key(record: dict[str, Any]) -> tuple[str, str, str]:
+    """Stable key for manual annotation deduplication."""
+    return (
+        str(record.get("image") or ""),
+        str(record.get("query_text") or ""),
+        str(record.get("target_region") or ""),
+    )
+
+
+def limit_records(
+    records: list[dict[str, Any]],
+    max_records: int | None,
+    *,
+    balance_target_regions: bool = False,
+    region_order: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Limit records, optionally balancing by target_region."""
+    if max_records is None or len(records) <= max_records:
+        return records
+    if not balance_target_regions:
+        return records[:max_records]
+    return balanced_region_records(
+        records,
+        max_records=max_records,
+        region_order=region_order,
+    )
+
+
+def balanced_region_records(
+    records: list[dict[str, Any]],
+    *,
+    max_records: int,
+    region_order: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Round-robin records across target regions."""
+    records_by_region: dict[str, list[dict[str, Any]]] = {}
+    for record in records:
+        region = str(record.get("target_region") or "unknown")
+        records_by_region.setdefault(region, []).append(record)
+    ordered_regions = [
+        region
+        for region in (region_order or sorted(records_by_region))
+        if region in records_by_region
+    ]
+    if not ordered_regions:
+        return []
+
+    selected: list[dict[str, Any]] = []
+    offsets = {region: 0 for region in ordered_regions}
+    while len(selected) < max_records:
+        made_progress = False
+        for region in ordered_regions:
+            offset = offsets[region]
+            region_records = records_by_region[region]
+            if offset >= len(region_records):
+                continue
+            selected.append(region_records[offset])
+            offsets[region] += 1
+            made_progress = True
+            if len(selected) >= max_records:
+                break
+        if not made_progress:
+            break
+    return selected
+
+
+def target_region_counts(records: list[dict[str, Any]]) -> dict[str, int]:
+    """Count generated records by target_region."""
+    counts: dict[str, int] = {}
+    for record in records:
+        region = str(record.get("target_region") or "unknown")
+        counts[region] = counts.get(region, 0) + 1
+    return dict(sorted(counts.items()))
+
+
 def iter_annotation_items(annotation: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
     """Return DeepFashion2 item entries in deterministic order."""
     return [
@@ -238,7 +384,7 @@ def main() -> None:
         records = build_class_aware_manifest_records(
             image_paths,
             args.anno_dir,
-            max_records=args.max_records,
+            max_records=None,
         )
         query_mode = "class_aware"
         queries = "category-dependent"
@@ -247,9 +393,19 @@ def main() -> None:
         records = build_manifest_records(
             image_paths,
             queries,
-            max_records=args.max_records,
+            max_records=None,
         )
         query_mode = "fixed"
+    target_regions = set(args.target_regions or [])
+    records = filter_records_by_target_regions(records, target_regions or None)
+    existing_keys = load_existing_record_keys(args.exclude_existing)
+    records = filter_existing_records(records, existing_keys)
+    records = limit_records(
+        records,
+        args.max_records,
+        balance_target_regions=args.balance_target_regions,
+        region_order=args.target_regions,
+    )
     if not records:
         raise ValueError("No manual annotation records generated")
     output_path = Path(args.output)
@@ -262,6 +418,9 @@ def main() -> None:
         "num_records": len(records),
         "query_mode": query_mode,
         "queries": queries,
+        "target_regions": args.target_regions,
+        "target_region_counts": target_region_counts(records),
+        "num_excluded_existing_keys": len(existing_keys),
         "annotation_instruction": (
             "Fill target_bbox as [x1, y1, x2, y2] in image pixels and set "
             "label_status to labeled. Do not use landmarks while labeling."

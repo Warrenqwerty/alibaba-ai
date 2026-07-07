@@ -294,6 +294,22 @@ PYTHONPATH=src python scripts/eval/compare_local_region_manual_evals.py \
      Hit@0.5 `0.3197` on the 122-record benchmark. This is better than the
      heuristic-only control, but it is still a small benchmark and should be
      validated on a larger manual split before changing the default online path.
+   - Next validation split: generate a targeted semantic/detail manifest that
+     skips already labeled records and balances `pattern`, `zipper`, and
+     `pocket`:
+
+```bash
+PYTHONPATH=src python scripts/data/build_local_region_manual_eval_manifest.py \
+  --image-dir /root/autodl-tmp/datasets/DeepFashion2/validation/image \
+  --anno-dir /root/autodl-tmp/datasets/DeepFashion2/validation/annos \
+  --max-images 300 \
+  --max-records 150 \
+  --shuffle \
+  --target-regions pattern zipper pocket \
+  --balance-target-regions \
+  --exclude-existing /root/autodl-tmp/outputs/local_region_manual_eval_labeled_combined.jsonl \
+  --output /root/autodl-tmp/outputs/local_region_manual_eval_manifest_semantic_150.jsonl
+```
 
 2. Keep the online policy heuristic-only until a pretrained grounding baseline
    beats the 122-record manual benchmark:

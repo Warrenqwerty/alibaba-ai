@@ -287,6 +287,33 @@ use visual grounding only for semantic appearance details such as pattern and
 zipper. Do not switch the full online path until this holds on a larger manual
 split.
 
+Build the next targeted manual benchmark for semantic/detail regions:
+
+```bash
+cd /root/projects/alibaba-ai
+git pull
+PYTHONPATH=src python scripts/data/build_local_region_manual_eval_manifest.py \
+  --image-dir /root/autodl-tmp/datasets/DeepFashion2/validation/image \
+  --anno-dir /root/autodl-tmp/datasets/DeepFashion2/validation/annos \
+  --max-images 300 \
+  --max-records 150 \
+  --shuffle \
+  --target-regions pattern zipper pocket \
+  --balance-target-regions \
+  --exclude-existing /root/autodl-tmp/outputs/local_region_manual_eval_labeled_combined.jsonl \
+  --output /root/autodl-tmp/outputs/local_region_manual_eval_manifest_semantic_150.jsonl
+```
+
+Then annotate it with the existing bbox tool:
+
+```bash
+PYTHONPATH=src python scripts/data/annotate_local_region_bboxes.py \
+  --manifest /root/autodl-tmp/outputs/local_region_manual_eval_manifest_semantic_150.jsonl \
+  --output /root/autodl-tmp/outputs/local_region_manual_eval_labeled_semantic_150.jsonl \
+  --host 0.0.0.0 \
+  --port 7860
+```
+
 ### Archived Weak-Supervision Commands
 
 Build weak query-region records for the learned `3.1.2` ranker:

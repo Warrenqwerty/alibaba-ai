@@ -9,8 +9,14 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from scripts.data.build_local_region_manual_eval_manifest import (
+    balanced_region_records,
     build_class_aware_manifest_records,
     build_manifest_records,
+    filter_existing_records,
+    filter_records_by_target_regions,
+    limit_records,
+    load_existing_record_keys,
+    manual_record_key,
     queries_for_category,
 )
 from scripts.data.merge_local_region_manual_eval_labels import (
@@ -87,6 +93,67 @@ def test_class_aware_manifest_uses_category_queries(tmp_path):
     }
     assert all(record["category_name"] == "trousers" for record in records)
     assert all(record["source_item_key"] == "item1" for record in records)
+
+
+def test_manual_manifest_filters_target_regions(tmp_path):
+    image_path = tmp_path / "000001.jpg"
+    Image.new("RGB", (80, 100)).save(image_path)
+    records = build_manifest_records(
+        [image_path],
+        ["这件衣服的领口", "衣服上的拉链", "这件衣服上的碎花图案"],
+    )
+
+    filtered = filter_records_by_target_regions(records, {"pattern", "zipper"})
+
+    assert [record["target_region"] for record in filtered] == ["zipper", "pattern"]
+
+
+def test_manual_manifest_excludes_existing_records(tmp_path):
+    image_path = tmp_path / "000001.jpg"
+    Image.new("RGB", (80, 100)).save(image_path)
+    records = build_manifest_records(
+        [image_path],
+        ["衣服上的拉链", "这件衣服上的碎花图案"],
+    )
+    existing = tmp_path / "existing.jsonl"
+    existing.write_text(
+        (
+            '{"image": "%s", "query_text": "衣服上的拉链", '
+            '"target_region": "zipper", "target_bbox": [1, 2, 3, 4], '
+            '"label_status": "labeled"}\n'
+        )
+        % image_path,
+        encoding="utf-8",
+    )
+
+    keys = load_existing_record_keys([str(existing)])
+    filtered = filter_existing_records(records, keys)
+
+    assert manual_record_key(records[0]) in keys
+    assert [record["target_region"] for record in filtered] == ["pattern"]
+
+
+def test_manual_manifest_balances_target_regions():
+    records = [
+        {"id": "p1", "target_region": "pattern"},
+        {"id": "p2", "target_region": "pattern"},
+        {"id": "z1", "target_region": "zipper"},
+        {"id": "pocket1", "target_region": "pocket"},
+        {"id": "pocket2", "target_region": "pocket"},
+    ]
+
+    selected = balanced_region_records(
+        records,
+        max_records=4,
+        region_order=["pattern", "zipper", "pocket"],
+    )
+
+    assert [record["id"] for record in selected] == ["p1", "z1", "pocket1", "p2"]
+    assert limit_records(
+        records,
+        2,
+        balance_target_regions=False,
+    ) == records[:2]
 
 
 def test_parse_manual_record_validates_bbox_shape():

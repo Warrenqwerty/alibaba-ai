@@ -463,5 +463,21 @@ The fixed semantic-region hybrid reaches average bbox IoU `0.3465`, Hit@0.3
 replacement: use GroundingDINO for appearance semantics (`pattern`, `zipper`) and
 keep heuristic geometry for neckline, hem, shoulder, cuff, pocket, and waist.
 
+Before wiring this into online inference, build a larger targeted manual split
+for semantic/detail regions:
+
+```bash
+PYTHONPATH=src python scripts/data/build_local_region_manual_eval_manifest.py \
+  --image-dir /root/autodl-tmp/datasets/DeepFashion2/validation/image \
+  --anno-dir /root/autodl-tmp/datasets/DeepFashion2/validation/annos \
+  --max-images 300 \
+  --max-records 150 \
+  --shuffle \
+  --target-regions pattern zipper pocket \
+  --balance-target-regions \
+  --exclude-existing /root/autodl-tmp/outputs/local_region_manual_eval_labeled_combined.jsonl \
+  --output /root/autodl-tmp/outputs/local_region_manual_eval_manifest_semantic_150.jsonl
+```
+
 This matches the PRD more closely than fixed-part segmentation, while keeping
 the current code measurable and easy to debug.
