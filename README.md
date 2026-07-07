@@ -330,7 +330,11 @@ PYTHONPATH=src python scripts/data/build_local_region_manual_eval_manifest.py \
    - The explicit experimental evaluator is
      `scripts/eval/evaluate_gated_hybrid_manual_labels.py`. It routes
      `pattern/pocket` to GroundingDINO and all other regions to the current
-     heuristic path without changing default online inference.
+     heuristic path without changing default online inference. On the merged
+     171-record benchmark, this executable gated path matches the fixed
+     comparison result exactly: avg IoU `0.3060`, Hit@0.3 `0.4503`, Hit@0.5
+     `0.2749`, with `41` grounding-routed records and `130` heuristic-routed
+     records.
 
 2. Keep the online policy heuristic-only until a pretrained grounding baseline
    is wired behind an explicit experimental flag. The validated gated policy is:

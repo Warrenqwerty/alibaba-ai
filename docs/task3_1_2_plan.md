@@ -511,6 +511,9 @@ This validates a gated hybrid direction:
 The experimental path is implemented as
 `scripts/eval/evaluate_gated_hybrid_manual_labels.py`. It should be used to
 validate policy behavior and latency before adding an inference-facing flag.
+It has been validated on the merged 171-record benchmark and matches the fixed
+hybrid comparison: avg bbox IoU `0.3060`, Hit@0.3 `0.4503`, Hit@0.5 `0.2749`,
+with `41` GroundingDINO-routed records and `130` heuristic-routed records.
 
 This matches the PRD more closely than fixed-part segmentation, while keeping
 the current code measurable and easy to debug.

@@ -408,6 +408,9 @@ PYTHONPATH=src HF_ENDPOINT=https://hf-mirror.com python scripts/eval/evaluate_ga
 This command executes the policy directly instead of stitching two completed
 eval JSON files together. It should be close to the fixed hybrid comparison
 result (`0.3060` average bbox IoU) if the gated path is implemented correctly.
+Observed result: avg bbox IoU `0.3060`, Hit@0.3 `0.4503`, Hit@0.5 `0.2749`,
+with `41` records routed to GroundingDINO and `130` records routed to the
+heuristic path.
 
 ### Archived Weak-Supervision Commands
 
