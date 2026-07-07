@@ -518,7 +518,29 @@ def test_merge_record_key_uses_image_query_region():
             "target_region": "neckline",
             "target_bbox": [1, 2, 3, 4],
         }
-    ) == ("/tmp/1.jpg", "这件衣服的领口", "neckline")
+    ) == "fallback:/tmp/1.jpg\t这件衣服的领口\tneckline"
+
+
+def test_merge_manual_labels_keeps_same_image_query_when_ids_differ(tmp_path):
+    first = tmp_path / "first.jsonl"
+    first.write_text(
+        "\n".join(
+            [
+                '{"id": "000001_item1__000001", "image": "/tmp/1.jpg", '
+                '"query_text": "右侧的口袋", "target_region": "pocket", '
+                '"target_bbox": [1, 2, 3, 4], "label_status": "labeled"}',
+                '{"id": "000001_item2__000002", "image": "/tmp/1.jpg", '
+                '"query_text": "右侧的口袋", "target_region": "pocket", '
+                '"target_bbox": [5, 6, 7, 8], "label_status": "labeled"}',
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    merged, summary = merge_labeled_records([first])
+
+    assert len(merged) == 2
+    assert summary["num_duplicate_keys_replaced"] == 0
 
 
 def test_select_manual_failure_records_filters_region_and_iou():

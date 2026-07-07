@@ -314,6 +314,60 @@ PYTHONPATH=src python scripts/data/annotate_local_region_bboxes.py \
   --port 7860
 ```
 
+Targeted semantic split result: `49` labeled records and `101` skipped records.
+GroundingDINO is better than heuristic on this semantic-only split overall:
+average bbox IoU `0.2133` vs `0.1296`, Hit@0.3 `0.2857` vs `0.1633`, Hit@0.5
+`0.2245` vs `0.0408`. Per-region, GroundingDINO is stronger on pattern
+(`0.5591` vs `0.3046`) and pocket (`0.1162` vs `0.0096`), while zipper is still
+slightly better with the heuristic (`0.1637` vs `0.1334`). For this split, use
+the fixed policy `pattern/pocket -> GroundingDINO`, all other regions ->
+heuristic.
+
+Merge the original and semantic manual labels. The merge script deduplicates by
+annotation `id` when present, so same-image multi-item semantic records are kept:
+
+```bash
+cd /root/projects/alibaba-ai
+git pull
+PYTHONPATH=src python scripts/data/merge_local_region_manual_eval_labels.py \
+  --inputs \
+    /root/autodl-tmp/outputs/local_region_manual_eval_labeled_combined.jsonl \
+    /root/autodl-tmp/outputs/local_region_manual_eval_labeled_semantic_150.jsonl \
+  --output /root/autodl-tmp/outputs/local_region_manual_eval_labeled_combined_plus_semantic.jsonl
+```
+
+Re-evaluate heuristic and GroundingDINO on the merged manual benchmark:
+
+```bash
+PYTHONPATH=src python scripts/eval/evaluate_local_region_manual_labels.py \
+  --annotations /root/autodl-tmp/outputs/local_region_manual_eval_labeled_combined_plus_semantic.jsonl \
+  --checkpoint /root/autodl-tmp/checkpoints/deepfashion2_6class_hard_mining/instance_segmentation/epoch_001.pt \
+  --device cuda \
+  --output /root/autodl-tmp/outputs/local_region_manual_eval_heuristic_combined_plus_semantic.json
+
+PYTHONPATH=src HF_ENDPOINT=https://hf-mirror.com python scripts/eval/evaluate_pretrained_grounding_manual_labels.py \
+  --annotations /root/autodl-tmp/outputs/local_region_manual_eval_labeled_combined_plus_semantic.jsonl \
+  --backend auto \
+  --model-name IDEA-Research/grounding-dino-tiny \
+  --prompt-mode english \
+  --device cuda \
+  --score-threshold 0.15 \
+  --output /root/autodl-tmp/outputs/local_region_manual_eval_grounding_dino_combined_plus_semantic.json
+```
+
+Compare the fixed `pattern/pocket` hybrid on the merged manual benchmark:
+
+```bash
+PYTHONPATH=src python scripts/eval/compare_local_region_manual_evals.py \
+  --eval-json \
+    /root/autodl-tmp/outputs/local_region_manual_eval_heuristic_combined_plus_semantic.json \
+    /root/autodl-tmp/outputs/local_region_manual_eval_grounding_dino_combined_plus_semantic.json \
+  --names heuristic grounding_dino_tiny \
+  --default-eval heuristic \
+  --region-policy pattern=grounding_dino_tiny pocket=grounding_dino_tiny \
+  --output /root/autodl-tmp/outputs/local_region_manual_eval_fixed_pattern_pocket_combined_plus_semantic.json
+```
+
 ### Archived Weak-Supervision Commands
 
 Build weak query-region records for the learned `3.1.2` ranker:

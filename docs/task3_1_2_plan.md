@@ -479,5 +479,19 @@ PYTHONPATH=src python scripts/data/build_local_region_manual_eval_manifest.py \
   --output /root/autodl-tmp/outputs/local_region_manual_eval_manifest_semantic_150.jsonl
 ```
 
+The targeted semantic split produced `49` labeled records. GroundingDINO beats
+heuristic on this split overall (`0.2133` vs `0.1296` average bbox IoU), with a
+clear gain on pattern (`0.5591` vs `0.3046`) and pocket (`0.1162` vs `0.0096`).
+Zipper is not stable on this split; heuristic is slightly better (`0.1637` vs
+`0.1334`). The currently supported fixed policy is therefore:
+
+- `pattern` -> GroundingDINO
+- `pocket` -> GroundingDINO
+- all other regions -> heuristic
+
+Next validation step: merge the original 122-record benchmark with the 49
+semantic labels and evaluate this fixed `pattern/pocket` policy on the combined
+manual benchmark before changing online inference.
+
 This matches the PRD more closely than fixed-part segmentation, while keeping
 the current code measurable and easy to debug.

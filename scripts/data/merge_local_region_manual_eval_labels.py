@@ -47,7 +47,7 @@ def merge_labeled_records(
     include_skipped: bool = False,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Merge manual labels, dropping unlabeled rows and deduplicating records."""
-    merged_by_key: dict[tuple[str, str, str], dict[str, Any]] = {}
+    merged_by_key: dict[str, dict[str, Any]] = {}
     input_counts: dict[str, int] = {}
     status_counts: Counter[str] = Counter()
     duplicate_count = 0
@@ -83,17 +83,22 @@ def merge_labeled_records(
         "input_label_status_counts": dict(status_counts),
         "num_merged_records": len(merged),
         "num_duplicate_keys_replaced": duplicate_count,
-        "dedupe_key": ["image", "query_text", "target_region"],
+        "dedupe_key": "id when present, otherwise image/query_text/target_region",
     }
     return merged, summary
 
 
-def record_key(record: dict[str, Any]) -> tuple[str, str, str]:
+def record_key(record: dict[str, Any]) -> str:
     """Return the merge key for one manual label record."""
-    return (
-        str(record.get("image", "")),
-        str(record.get("query_text", "")),
-        str(record.get("target_region", "")),
+    record_id = record.get("id")
+    if isinstance(record_id, str) and record_id:
+        return f"id:{record_id}"
+    return "fallback:" + "\t".join(
+        (
+            str(record.get("image", "")),
+            str(record.get("query_text", "")),
+            str(record.get("target_region", "")),
+        )
     )
 
 
