@@ -129,8 +129,8 @@ def compare_evals(
     return comparison
 
 
-def records_by_key(records: list[dict[str, Any]]) -> dict[tuple[str, str, str], dict[str, Any]]:
-    keyed: dict[tuple[str, str, str], dict[str, Any]] = {}
+def records_by_key(records: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    keyed: dict[str, dict[str, Any]] = {}
     for record in records:
         key = record_key(record)
         if key in keyed:
@@ -139,22 +139,32 @@ def records_by_key(records: list[dict[str, Any]]) -> dict[tuple[str, str, str], 
     return keyed
 
 
-def record_key(record: dict[str, Any]) -> tuple[str, str, str]:
-    return (
-        str(record.get("image", "")),
-        str(record.get("query_text", "")),
-        str(record.get("target_region", "")),
+def record_key(record: dict[str, Any]) -> str:
+    record_id = record.get("id")
+    if isinstance(record_id, str) and record_id:
+        return f"id:{record_id}"
+    return "fallback:" + "\t".join(
+        (
+            str(record.get("image", "")),
+            str(record.get("query_text", "")),
+            str(record.get("target_region", "")),
+        )
     )
+
+
+def record_region(record: dict[str, Any]) -> str:
+    return str(record.get("target_region") or "unknown")
 
 
 def compare_by_region(
     evals: list[dict[str, Any]],
-    keyed_records: dict[str, dict[tuple[str, str, str], dict[str, Any]]],
-    common_keys: list[tuple[str, str, str]],
+    keyed_records: dict[str, dict[str, dict[str, Any]]],
+    common_keys: list[str],
 ) -> dict[str, Any]:
-    keys_by_region: dict[str, list[tuple[str, str, str]]] = defaultdict(list)
+    first_eval_name = evals[0]["name"]
+    keys_by_region: dict[str, list[str]] = defaultdict(list)
     for key in common_keys:
-        keys_by_region[key[2] or "unknown"].append(key)
+        keys_by_region[record_region(keyed_records[first_eval_name][key])].append(key)
 
     per_region = {}
     for region, region_keys in sorted(keys_by_region.items()):
@@ -181,13 +191,14 @@ def compare_by_region(
 
 
 def build_region_hybrid_records(
-    keyed_records: dict[str, dict[tuple[str, str, str], dict[str, Any]]],
-    common_keys: list[tuple[str, str, str]],
+    keyed_records: dict[str, dict[str, dict[str, Any]]],
+    common_keys: list[str],
     region_policy: dict[str, str],
 ) -> list[dict[str, Any]]:
     records = []
+    first_eval_name = next(iter(keyed_records))
     for key in common_keys:
-        region = key[2] or "unknown"
+        region = record_region(keyed_records[first_eval_name][key])
         source_name = region_policy[region]
         record = dict(keyed_records[source_name][key])
         record["hybrid_source_eval"] = source_name
@@ -197,7 +208,7 @@ def build_region_hybrid_records(
 
 def validate_region_policy(
     region_policy: dict[str, str],
-    keyed_records: dict[str, dict[tuple[str, str, str], dict[str, Any]]],
+    keyed_records: dict[str, dict[str, dict[str, Any]]],
     per_region: dict[str, Any],
 ) -> None:
     eval_names = set(keyed_records)
@@ -263,7 +274,7 @@ def main() -> None:
     evals = [load_eval(path, name=name) for path, name in zip(args.eval_json, names, strict=True)]
     regions = sorted(
         {
-            record_key(record)[2] or "unknown"
+            record_region(record)
             for evaluation in evals
             for record in evaluation["records"]
         }

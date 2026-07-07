@@ -325,6 +325,57 @@ def test_compare_manual_evals_builds_region_hybrid_oracle():
     assert comparison["region_hybrid_oracle"]["avg_manual_bbox_iou"] == pytest.approx(0.7)
 
 
+def test_compare_manual_evals_uses_id_to_disambiguate_duplicate_image_queries():
+    heuristic = {
+        "name": "heuristic",
+        "path": "/tmp/heuristic.json",
+        "summary": {},
+        "records": [
+            {
+                "id": "000001_item1__000001",
+                "image": "/tmp/1.jpg",
+                "query_text": "右侧的口袋",
+                "target_region": "pocket",
+                "manual_bbox_iou": 0.1,
+            },
+            {
+                "id": "000001_item2__000002",
+                "image": "/tmp/1.jpg",
+                "query_text": "右侧的口袋",
+                "target_region": "pocket",
+                "manual_bbox_iou": 0.2,
+            },
+        ],
+    }
+    grounding_dino = {
+        "name": "grounding_dino",
+        "path": "/tmp/grounding_dino.json",
+        "summary": {},
+        "records": [
+            {
+                "id": "000001_item1__000001",
+                "image": "/tmp/1.jpg",
+                "query_text": "右侧的口袋",
+                "target_region": "pocket",
+                "manual_bbox_iou": 0.3,
+            },
+            {
+                "id": "000001_item2__000002",
+                "image": "/tmp/1.jpg",
+                "query_text": "右侧的口袋",
+                "target_region": "pocket",
+                "manual_bbox_iou": 0.4,
+            },
+        ],
+    }
+
+    comparison = compare_evals([heuristic, grounding_dino])
+
+    assert comparison["num_common_records"] == 2
+    assert comparison["per_region"]["pocket"]["best_eval"] == "grounding_dino"
+    assert comparison["per_eval"]["heuristic"]["avg_manual_bbox_iou"] == pytest.approx(0.15)
+
+
 def test_compare_manual_evals_builds_fixed_region_hybrid():
     heuristic = {
         "name": "heuristic",
