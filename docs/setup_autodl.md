@@ -368,6 +368,26 @@ PYTHONPATH=src python scripts/eval/compare_local_region_manual_evals.py \
   --output /root/autodl-tmp/outputs/local_region_manual_eval_fixed_pattern_pocket_combined_plus_semantic.json
 ```
 
+Final merged benchmark result (`122 + 49 = 171` labeled records):
+
+- heuristic-only: avg bbox IoU `0.2599`, Hit@0.3 `0.3918`, Hit@0.5 `0.2047`
+- GroundingDINO-only: avg bbox IoU `0.2199`, Hit@0.3 `0.2456`, Hit@0.5 `0.1813`
+- fixed `pattern/pocket` hybrid: avg bbox IoU `0.3060`, Hit@0.3 `0.4503`,
+  Hit@0.5 `0.2749`
+
+Per-region evidence on the merged benchmark:
+
+- `pattern`: GroundingDINO `0.6691` vs heuristic `0.3080`
+- `pocket`: GroundingDINO `0.1024` vs heuristic `0.0303`
+- `zipper`: roughly tied, so keep heuristic by default
+- structural regions (`hem`, `shoulder`, `neckline`, `cuff`, `waist`): keep
+  heuristic
+
+Next implementation step: add an explicit experimental gated hybrid path. Do not
+silently change the default `localize_region_from_instances` behavior, because
+GroundingDINO requires original image pixels and is much heavier than the
+heuristic geometry path.
+
 ### Archived Weak-Supervision Commands
 
 Build weak query-region records for the learned `3.1.2` ranker:

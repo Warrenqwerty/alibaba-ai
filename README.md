@@ -321,12 +321,18 @@ PYTHONPATH=src python scripts/data/build_local_region_manual_eval_manifest.py \
    - Final validation should merge the original 122 labels and the new 49
      semantic labels, then re-run heuristic, GroundingDINO, and the fixed
      `pattern/pocket` hybrid on the combined manual benchmark.
+   - Merged 171-record validation result: heuristic-only avg IoU `0.2599`,
+     GroundingDINO-only `0.2199`, and fixed `pattern/pocket` hybrid `0.3060`.
+     Hit@0.3 improves from `0.3918` to `0.4503`; Hit@0.5 improves from
+     `0.2047` to `0.2749`. The fixed policy is effectively equal to the
+     per-region oracle (`0.3060` avg IoU), so the current PRD-aligned direction
+     is a gated hybrid rather than a full detector replacement.
 
 2. Keep the online policy heuristic-only until a pretrained grounding baseline
-   beats the 122-record manual benchmark:
-   - current heuristic avg bbox IoU: `0.3123`
-   - Hit@0.3: `0.4836`
-   - Hit@0.5: `0.2705`
+   is wired behind an explicit experimental flag. The validated gated policy is:
+   - `pattern` -> GroundingDINO
+   - `pocket` -> GroundingDINO
+   - all other regions -> heuristic
 
 3. Use failure review to decide whether a model improves the hard cases:
    - cuff: needs real visual evidence for sleeve ends and armholes

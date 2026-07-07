@@ -493,5 +493,20 @@ Next validation step: merge the original 122-record benchmark with the 49
 semantic labels and evaluate this fixed `pattern/pocket` policy on the combined
 manual benchmark before changing online inference.
 
+Merged 171-record validation result:
+
+- heuristic-only: avg bbox IoU `0.2599`, Hit@0.3 `0.3918`, Hit@0.5 `0.2047`
+- GroundingDINO-only: avg bbox IoU `0.2199`, Hit@0.3 `0.2456`, Hit@0.5 `0.1813`
+- fixed `pattern/pocket` hybrid: avg bbox IoU `0.3060`, Hit@0.3 `0.4503`,
+  Hit@0.5 `0.2749`
+
+This validates a gated hybrid direction:
+
+- route `pattern` and `pocket` queries to GroundingDINO
+- keep heuristic geometry for neckline, hem, shoulder, cuff, waist, and zipper
+- expose this as an explicit experimental path first, not as a silent default
+  change, because GroundingDINO requires the original image and adds substantial
+  inference cost
+
 This matches the PRD more closely than fixed-part segmentation, while keeping
 the current code measurable and easy to debug.
