@@ -388,6 +388,27 @@ silently change the default `localize_region_from_instances` behavior, because
 GroundingDINO requires original image pixels and is much heavier than the
 heuristic geometry path.
 
+Run the explicit experimental gated-hybrid evaluator:
+
+```bash
+cd /root/projects/alibaba-ai
+git pull
+PYTHONPATH=src HF_ENDPOINT=https://hf-mirror.com python scripts/eval/evaluate_gated_hybrid_manual_labels.py \
+  --annotations /root/autodl-tmp/outputs/local_region_manual_eval_labeled_combined_plus_semantic.jsonl \
+  --checkpoint /root/autodl-tmp/checkpoints/deepfashion2_6class_hard_mining/instance_segmentation/epoch_001.pt \
+  --device cuda \
+  --grounding-regions pattern pocket \
+  --grounding-backend auto \
+  --grounding-model-name IDEA-Research/grounding-dino-tiny \
+  --prompt-mode english \
+  --score-threshold 0.15 \
+  --output /root/autodl-tmp/outputs/local_region_manual_eval_gated_pattern_pocket_combined_plus_semantic.json
+```
+
+This command executes the policy directly instead of stitching two completed
+eval JSON files together. It should be close to the fixed hybrid comparison
+result (`0.3060` average bbox IoU) if the gated path is implemented correctly.
+
 ### Archived Weak-Supervision Commands
 
 Build weak query-region records for the learned `3.1.2` ranker:

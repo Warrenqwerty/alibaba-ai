@@ -46,6 +46,7 @@ from scripts.eval.evaluate_pretrained_grounding_manual_labels import (
     grounding_dino_text_prompt,
     summarize_records as summarize_pretrained_grounding_records,
 )
+from scripts.eval.evaluate_gated_hybrid_manual_labels import should_route_to_grounding
 from scripts.eval.compare_local_region_manual_evals import (
     compare_evals,
     parse_fixed_region_policy,
@@ -216,6 +217,27 @@ def test_pretrained_grounding_prompt_builder_uses_region_and_side():
     assert "pocket" in pocket_prompts
     assert "这件衣服上的碎花图案" in pattern_prompts
     assert "floral pattern" in pattern_prompts
+
+
+def test_gated_hybrid_routes_only_configured_regions_to_grounding():
+    grounding_regions = {"pattern", "pocket"}
+
+    assert should_route_to_grounding(
+        {"target_region": "pattern"},
+        grounding_regions,
+    )
+    assert should_route_to_grounding(
+        {"target_region": "pocket"},
+        grounding_regions,
+    )
+    assert not should_route_to_grounding(
+        {"target_region": "zipper"},
+        grounding_regions,
+    )
+    assert not should_route_to_grounding(
+        {"target_region": "hem"},
+        grounding_regions,
+    )
 
 
 def test_grounding_dino_text_prompt_joins_phrases_with_periods():

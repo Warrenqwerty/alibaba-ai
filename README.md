@@ -327,6 +327,10 @@ PYTHONPATH=src python scripts/data/build_local_region_manual_eval_manifest.py \
      `0.2047` to `0.2749`. The fixed policy is effectively equal to the
      per-region oracle (`0.3060` avg IoU), so the current PRD-aligned direction
      is a gated hybrid rather than a full detector replacement.
+   - The explicit experimental evaluator is
+     `scripts/eval/evaluate_gated_hybrid_manual_labels.py`. It routes
+     `pattern/pocket` to GroundingDINO and all other regions to the current
+     heuristic path without changing default online inference.
 
 2. Keep the online policy heuristic-only until a pretrained grounding baseline
    is wired behind an explicit experimental flag. The validated gated policy is:

@@ -508,5 +508,9 @@ This validates a gated hybrid direction:
   change, because GroundingDINO requires the original image and adds substantial
   inference cost
 
+The experimental path is implemented as
+`scripts/eval/evaluate_gated_hybrid_manual_labels.py`. It should be used to
+validate policy behavior and latency before adding an inference-facing flag.
+
 This matches the PRD more closely than fixed-part segmentation, while keeping
 the current code measurable and easy to debug.
