@@ -356,6 +356,31 @@ PYTHONPATH=src HF_ENDPOINT=https://hf-mirror.com python scripts/inference/predic
   --vis-output /root/autodl-tmp/outputs/local_region_gated_single.jpg
 ```
 
+Run a small batch gated-hybrid demo with route counts, latency stats, records,
+and visualizations:
+
+```bash
+PYTHONPATH=src HF_ENDPOINT=https://hf-mirror.com python scripts/eval/evaluate_gated_hybrid_queries.py \
+  --image-dir /root/autodl-tmp/datasets/DeepFashion2/validation/image \
+  --checkpoint /root/autodl-tmp/checkpoints/deepfashion2_6class_hard_mining/instance_segmentation/epoch_001.pt \
+  --device cuda \
+  --max-images 20 \
+  --queries \
+    "这件衣服的领口" \
+    "衣服下方的下摆" \
+    "这件衣服的肩部" \
+    "这件衣服上的碎花图案" \
+    "右侧的口袋" \
+  --grounding-regions pattern pocket \
+  --grounding-backend auto \
+  --grounding-model-name IDEA-Research/grounding-dino-tiny \
+  --prompt-mode english \
+  --score-threshold 0.15 \
+  --output /root/autodl-tmp/outputs/local_region_gated_query_eval_20.json \
+  --vis-dir /root/autodl-tmp/outputs/local_region_gated_query_vis \
+  --vis-count 40
+```
+
 2. Keep the online policy heuristic-only until a pretrained grounding baseline
    is wired behind an explicit experimental flag. The validated gated policy is:
    - `pattern` -> GroundingDINO

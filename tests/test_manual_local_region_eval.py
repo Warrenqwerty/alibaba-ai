@@ -52,6 +52,10 @@ from scripts.inference.predict_gated_hybrid_local_region import (
     should_use_grounding_route,
 )
 from fashion_mm.models.local_region.query import parse_region_query
+from scripts.eval.evaluate_gated_hybrid_queries import (
+    parsed_queries_for_route,
+    summarize_gated_records,
+)
 from scripts.eval.compare_local_region_manual_evals import (
     compare_evals,
     parse_fixed_region_policy,
@@ -293,6 +297,42 @@ def test_single_image_grounding_payload_matches_local_region_shape(tmp_path):
     assert payload["region"]["region"] == "floral pattern"
     assert payload["region"]["box"] == [1.0, 2.0, 11.0, 12.0]
     assert payload["candidate_regions"][1]["match_score"] == pytest.approx(0.42)
+
+
+def test_batch_gated_query_summary_counts_routes():
+    summary = summarize_gated_records(
+        [
+            {
+                "status": "ok",
+                "ranker_backend": "gated_hybrid_grounding_auto",
+                "gated_policy_route": "grounding",
+                "latency_ms": 20.0,
+                "region": {"region": "floral pattern", "match_score": 0.8},
+            },
+            {
+                "status": "ok",
+                "ranker_backend": "heuristic_text_region_ranker",
+                "gated_policy_route": "heuristic",
+                "latency_ms": 10.0,
+                "region": {"region": "hem", "match_score": 3.0},
+            },
+        ]
+    )
+
+    assert summary["gated_policy_route_counts"] == {
+        "grounding": 1,
+        "heuristic": 1,
+    }
+    assert summary["avg_local_region_latency_ms"] == pytest.approx(15.0)
+    assert summary["avg_local_region_latency_by_route_ms"]["grounding"] == 20.0
+    assert summary["selected_region_counts"] == {"floral pattern": 1, "hem": 1}
+
+
+def test_batch_gated_query_parser_preserves_query_order():
+    parsed = parsed_queries_for_route(["这件衣服上的碎花图案", "衣服下方的下摆"])
+
+    assert [query for query, _ in parsed] == ["这件衣服上的碎花图案", "衣服下方的下摆"]
+    assert [parsed_query.region for _, parsed_query in parsed] == ["pattern", "hem"]
 
 
 def test_grounding_dino_text_prompt_joins_phrases_with_periods():

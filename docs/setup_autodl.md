@@ -439,6 +439,38 @@ existing segmentation plus heuristic local-region path and writes the same
 local-region JSON shape as the default command, with `gated_policy_route`
 showing which branch was used.
 
+Run a small batch gated-hybrid query demo after the two single-image routes are
+verified:
+
+```bash
+cd /root/projects/alibaba-ai
+git pull
+PYTHONPATH=src HF_ENDPOINT=https://hf-mirror.com python scripts/eval/evaluate_gated_hybrid_queries.py \
+  --image-dir /root/autodl-tmp/datasets/DeepFashion2/validation/image \
+  --checkpoint /root/autodl-tmp/checkpoints/deepfashion2_6class_hard_mining/instance_segmentation/epoch_001.pt \
+  --device cuda \
+  --max-images 20 \
+  --queries \
+    "这件衣服的领口" \
+    "衣服下方的下摆" \
+    "这件衣服的肩部" \
+    "这件衣服上的碎花图案" \
+    "右侧的口袋" \
+  --grounding-regions pattern pocket \
+  --grounding-backend auto \
+  --grounding-model-name IDEA-Research/grounding-dino-tiny \
+  --prompt-mode english \
+  --score-threshold 0.15 \
+  --output /root/autodl-tmp/outputs/local_region_gated_query_eval_20.json \
+  --vis-dir /root/autodl-tmp/outputs/local_region_gated_query_vis \
+  --vis-count 40
+```
+
+Check the printed summary and JSON for `gated_policy_route_counts`,
+`ranker_backend_counts`, and `avg_local_region_latency_by_route_ms`. Then review
+the visualization folder to decide whether the gated hybrid is good enough as a
+3.1.2 demo path.
+
 ### Archived Weak-Supervision Commands
 
 Build weak query-region records for the learned `3.1.2` ranker:
