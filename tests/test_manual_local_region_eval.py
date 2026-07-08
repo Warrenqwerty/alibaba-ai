@@ -54,6 +54,8 @@ from scripts.inference.predict_gated_hybrid_local_region import (
 )
 from fashion_mm.models.local_region.query import parse_region_query
 from scripts.eval.evaluate_gated_hybrid_queries import (
+    group_records_by_image,
+    load_manifest_query_records,
     parsed_queries_for_route,
     summarize_gated_records,
 )
@@ -350,6 +352,34 @@ def test_batch_gated_query_parser_preserves_query_order():
 
     assert [query for query, _ in parsed] == ["这件衣服上的碎花图案", "衣服下方的下摆"]
     assert [parsed_query.region for _, parsed_query in parsed] == ["pattern", "hem"]
+
+
+def test_batch_gated_query_manifest_loads_image_query_records(tmp_path):
+    manifest = tmp_path / "demo_manifest.jsonl"
+    manifest.write_text(
+        "\n".join(
+            [
+                '{"id": "a", "image": "/tmp/1.jpg", "query_text": "这件衣服上的碎花图案"}',
+                '{"image": "/tmp/2.jpg", "query": "右侧的口袋", "note": "valid pocket"}',
+                '{"image": "/tmp/1.jpg", "query_text": "衣服下方的下摆"}',
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    records = load_manifest_query_records(manifest)
+    grouped = group_records_by_image(records)
+
+    assert [record["query_text"] for record in records] == [
+        "这件衣服上的碎花图案",
+        "右侧的口袋",
+        "衣服下方的下摆",
+    ]
+    assert records[0]["id"] == "a"
+    assert records[1]["id"] == "2__000001"
+    assert records[1]["note"] == "valid pocket"
+    assert list(grouped) == ["/tmp/1.jpg", "/tmp/2.jpg"]
+    assert [record["id"] for record in grouped["/tmp/1.jpg"]] == ["a", "1__000002"]
 
 
 def test_grounding_dino_text_prompt_joins_phrases_with_periods():

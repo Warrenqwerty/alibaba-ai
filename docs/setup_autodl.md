@@ -471,6 +471,33 @@ Check the printed summary and JSON for `gated_policy_route_counts`,
 the visualization folder to decide whether the gated hybrid is good enough as a
 3.1.2 demo path.
 
+For a fair visual demo, prefer a per-record manifest instead of running every
+query on every image. This avoids impossible prompts such as asking for a
+visible pocket on images with no pocket:
+
+```json
+{"image": "/root/autodl-tmp/datasets/DeepFashion2/validation/image/000003.jpg", "query_text": "这件衣服上的碎花图案"}
+{"image": "/root/autodl-tmp/datasets/DeepFashion2/validation/image/000010.jpg", "query_text": "右侧的口袋"}
+{"image": "/root/autodl-tmp/datasets/DeepFashion2/validation/image/000012.jpg", "query_text": "衣服下方的下摆"}
+```
+
+Run the same evaluator with `--manifest`:
+
+```bash
+PYTHONPATH=src HF_ENDPOINT=https://hf-mirror.com python scripts/eval/evaluate_gated_hybrid_queries.py \
+  --manifest /root/autodl-tmp/outputs/local_region_gated_demo_manifest.jsonl \
+  --checkpoint /root/autodl-tmp/checkpoints/deepfashion2_6class_hard_mining/instance_segmentation/epoch_001.pt \
+  --device cuda \
+  --grounding-regions pattern pocket \
+  --grounding-backend auto \
+  --grounding-model-name IDEA-Research/grounding-dino-tiny \
+  --prompt-mode english \
+  --score-threshold 0.15 \
+  --output /root/autodl-tmp/outputs/local_region_gated_demo_manifest_eval.json \
+  --vis-dir /root/autodl-tmp/outputs/local_region_gated_demo_manifest_vis \
+  --vis-count 80
+```
+
 ### Archived Weak-Supervision Commands
 
 Build weak query-region records for the learned `3.1.2` ranker:

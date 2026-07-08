@@ -5,6 +5,7 @@ import json
 import sys
 import time
 from collections import Counter
+from collections import OrderedDict
 from pathlib import Path
 from statistics import mean
 from typing import Any
@@ -45,7 +46,19 @@ def parse_args() -> argparse.Namespace:
             "queries use the heuristic local-region pipeline."
         )
     )
-    parser.add_argument("--image-dir", required=True, help="Directory of RGB images.")
+    parser.add_argument(
+        "--image-dir",
+        default=None,
+        help="Directory of RGB images. Used with --queries when --manifest is omitted.",
+    )
+    parser.add_argument(
+        "--manifest",
+        default=None,
+        help=(
+            "Optional JSONL file with per-record image and query_text fields. "
+            "Use this for fair demos where each image has only valid queries."
+        ),
+    )
     parser.add_argument(
         "--queries",
         nargs="+",
@@ -146,21 +159,87 @@ def parsed_queries_for_route(
     return [(query, parse_region_query(query)) for query in queries]
 
 
-def main() -> None:
-    args = parse_args()
+def load_query_records(args: argparse.Namespace) -> list[dict[str, Any]]:
+    """Load image-query records from either a manifest or image-dir x queries."""
+    if args.manifest and args.image_dir:
+        raise ValueError("Use either --manifest or --image-dir, not both.")
+    if args.manifest:
+        return load_manifest_query_records(Path(args.manifest), max_records=args.max_images)
+    if not args.image_dir:
+        raise ValueError("Either --manifest or --image-dir is required.")
     image_paths = collect_images(Path(args.image_dir), args.max_images)
     if not image_paths:
         raise ValueError(f"No images found in {args.image_dir}")
+    return [
+        {
+            "id": f"{image_path.stem}__{query_index:03d}",
+            "image": str(image_path),
+            "query_text": query,
+        }
+        for image_path in image_paths
+        for query_index, query in enumerate(args.queries)
+    ]
+
+
+def load_manifest_query_records(
+    manifest_path: Path,
+    *,
+    max_records: int | None = None,
+) -> list[dict[str, Any]]:
+    """Load a JSONL manifest containing fair image-query demo records."""
+    records: list[dict[str, Any]] = []
+    with manifest_path.open("r", encoding="utf-8") as file:
+        for line_number, line in enumerate(file, start=1):
+            line = line.strip()
+            if not line:
+                continue
+            raw = json.loads(line)
+            image = raw.get("image")
+            query = raw.get("query_text") or raw.get("query")
+            if not image or not query:
+                raise ValueError(
+                    f"{manifest_path}:{line_number} must include image and query_text."
+                )
+            records.append(
+                {
+                    **raw,
+                    "id": raw.get("id") or f"{Path(image).stem}__{len(records):06d}",
+                    "image": str(image),
+                    "query_text": str(query),
+                }
+            )
+            if max_records is not None and len(records) >= max_records:
+                break
+    if not records:
+        raise ValueError(f"No query records found in {manifest_path}")
+    return records
+
+
+def group_records_by_image(records: list[dict[str, Any]]) -> OrderedDict[str, list[dict[str, Any]]]:
+    """Preserve manifest order while grouping records for per-image model reuse."""
+    grouped: OrderedDict[str, list[dict[str, Any]]] = OrderedDict()
+    for record in records:
+        grouped.setdefault(str(record["image"]), []).append(record)
+    return grouped
+
+
+def main() -> None:
+    args = parse_args()
+    query_records = load_query_records(args)
+    records_by_image = group_records_by_image(query_records)
 
     grounding_regions = set(args.grounding_regions)
-    parsed_queries = parsed_queries_for_route(args.queries)
+    parsed_query_cache = {
+        record["query_text"]: parse_region_query(record["query_text"])
+        for record in query_records
+    }
     has_grounding_route = any(
         should_use_grounding_route(parsed_query, grounding_regions)
-        for _, parsed_query in parsed_queries
+        for parsed_query in parsed_query_cache.values()
     )
     has_heuristic_route = any(
         not should_use_grounding_route(parsed_query, grounding_regions)
-        for _, parsed_query in parsed_queries
+        for parsed_query in parsed_query_cache.values()
     )
 
     predictor = None
@@ -192,15 +271,25 @@ def main() -> None:
     records: list[dict[str, Any]] = []
     segmentation_times: list[float] = []
     visualized = 0
-    for image_path in image_paths:
+    for image_path_text, image_records in records_by_image.items():
+        image_path = Path(image_path_text)
         segmentation = None
         pil_image = None
-        if has_heuristic_route:
+        image_has_heuristic_route = any(
+            not should_use_grounding_route(
+                parsed_query_cache[record["query_text"]],
+                grounding_regions,
+            )
+            for record in image_records
+        )
+        if image_has_heuristic_route:
             assert predictor is not None
             segmentation = predictor.predict(image_path)
             segmentation_times.append(segmentation.inference_time_ms)
 
-        for query, parsed_query in parsed_queries:
+        for query_record in image_records:
+            query = query_record["query_text"]
+            parsed_query = parsed_query_cache[query]
             if should_use_grounding_route(parsed_query, grounding_regions):
                 if grounder is None:
                     raise RuntimeError("Grounding route selected, but grounder is missing.")
@@ -215,6 +304,7 @@ def main() -> None:
                     prompt_mode=args.prompt_mode,
                     grounding_model_name=args.grounding_model_name,
                 )
+                record.update(manifest_record_context(query_record))
                 if args.vis_dir and visualized < args.vis_count:
                     output_path = visualization_path(Path(args.vis_dir), image_path, visualized, query)
                     draw_grounding_result(image_path, record, output_path)
@@ -226,6 +316,7 @@ def main() -> None:
                 raise RuntimeError("Heuristic route selected, but segmentation is missing.")
             result = localize_region_from_instances(segmentation, query, ranker=ranker)
             record = {
+                **manifest_record_context(query_record),
                 "image": str(image_path),
                 "query_text": query,
                 "segmentation_inference_time_ms": segmentation.inference_time_ms,
@@ -239,9 +330,11 @@ def main() -> None:
                 visualized += 1
 
     summary = {
-        "image_dir": str(Path(args.image_dir)),
-        "num_images": len(image_paths),
-        "queries": args.queries,
+        "image_dir": str(Path(args.image_dir)) if args.image_dir else None,
+        "manifest": str(Path(args.manifest)) if args.manifest else None,
+        "num_images": len(records_by_image),
+        "queries": unique_queries_in_order(query_records),
+        "num_query_records": len(query_records),
         "grounding_regions": sorted(grounding_regions),
         "grounding_model_name": args.grounding_model_name if has_grounding_route else None,
         "grounding_backend": args.grounding_backend if has_grounding_route else None,
@@ -267,6 +360,34 @@ def main() -> None:
             indent=2,
         )
     )
+
+
+def manifest_record_context(query_record: dict[str, Any]) -> dict[str, Any]:
+    """Carry non-control manifest metadata into each output record."""
+    reserved = {"image", "query", "query_text", "target_bbox", "label_status"}
+    context = {
+        key: value
+        for key, value in query_record.items()
+        if key not in reserved and value is not None
+    }
+    if "id" in query_record:
+        context["id"] = query_record["id"]
+    if "target_region" in query_record:
+        context["target_region"] = query_record["target_region"]
+    return context
+
+
+def unique_queries_in_order(query_records: list[dict[str, Any]]) -> list[str]:
+    """Return manifest/demo query strings in first-seen order."""
+    queries = []
+    seen = set()
+    for record in query_records:
+        query = record["query_text"]
+        if query in seen:
+            continue
+        seen.add(query)
+        queries.append(query)
+    return queries
 
 
 def evaluate_grounding_query(

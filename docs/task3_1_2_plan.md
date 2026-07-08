@@ -563,5 +563,30 @@ This produces per-query records, route counts, latency by route, and
 visualizations. Use it as the current inference demo while keeping the default
 online path unchanged.
 
+For the final visual demo, use `--manifest` with handpicked valid image-query
+pairs instead of applying the same query list to every image. This is important
+for optional local regions such as pockets, zippers, and patterns, which may not
+exist or may not be visible in every DeepFashion2 validation image.
+
+```json
+{"image": "/root/autodl-tmp/datasets/DeepFashion2/validation/image/000003.jpg", "query_text": "这件衣服上的碎花图案"}
+{"image": "/root/autodl-tmp/datasets/DeepFashion2/validation/image/000010.jpg", "query_text": "右侧的口袋"}
+```
+
+```bash
+PYTHONPATH=src HF_ENDPOINT=https://hf-mirror.com python scripts/eval/evaluate_gated_hybrid_queries.py \
+  --manifest /root/autodl-tmp/outputs/local_region_gated_demo_manifest.jsonl \
+  --checkpoint /root/autodl-tmp/checkpoints/deepfashion2_6class_hard_mining/instance_segmentation/epoch_001.pt \
+  --device cuda \
+  --grounding-regions pattern pocket \
+  --grounding-backend auto \
+  --grounding-model-name IDEA-Research/grounding-dino-tiny \
+  --prompt-mode english \
+  --score-threshold 0.15 \
+  --output /root/autodl-tmp/outputs/local_region_gated_demo_manifest_eval.json \
+  --vis-dir /root/autodl-tmp/outputs/local_region_gated_demo_manifest_vis \
+  --vis-count 80
+```
+
 This matches the PRD more closely than fixed-part segmentation, while keeping
 the current code measurable and easy to debug.
