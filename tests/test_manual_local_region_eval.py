@@ -48,6 +48,7 @@ from scripts.eval.evaluate_pretrained_grounding_manual_labels import (
 )
 from scripts.eval.evaluate_gated_hybrid_manual_labels import should_route_to_grounding
 from scripts.inference.predict_gated_hybrid_local_region import (
+    canonical_grounding_region,
     grounding_payload,
     should_use_grounding_route,
 )
@@ -294,9 +295,25 @@ def test_single_image_grounding_payload_matches_local_region_shape(tmp_path):
     assert payload["gated_policy_route"] == "grounding"
     assert payload["ranker_backend"] == "gated_hybrid_grounding_auto"
     assert payload["query"]["region"] == "pattern"
-    assert payload["region"]["region"] == "floral pattern"
+    assert payload["region"]["region"] == "pattern"
+    assert payload["region"]["raw_grounding_prompt"] == "floral pattern"
     assert payload["region"]["box"] == [1.0, 2.0, 11.0, 12.0]
     assert payload["candidate_regions"][1]["match_score"] == pytest.approx(0.42)
+
+
+def test_canonical_grounding_region_keeps_side_aware_pocket_label():
+    assert canonical_grounding_region(
+        parse_region_query("右侧的口袋"),
+        "right clothing pocket",
+    ) == "right_pocket"
+    assert canonical_grounding_region(
+        parse_region_query("左边的袖口"),
+        "cuff",
+    ) == "left_cuff"
+    assert canonical_grounding_region(
+        parse_region_query("这件衣服上的碎花图案"),
+        "floral pattern",
+    ) == "pattern"
 
 
 def test_batch_gated_query_summary_counts_routes():

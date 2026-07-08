@@ -105,8 +105,10 @@ def grounding_payload(
     best = prediction.get("best")
     region = None
     if best is not None:
+        canonical_region = canonical_grounding_region(parsed_query, best.get("prompt"))
         region = {
-            "region": best["prompt"],
+            "region": canonical_region,
+            "raw_grounding_prompt": best["prompt"],
             "box": [float(value) for value in best["bbox"]],
             "confidence": float(best["score"]),
             "source": f"pretrained_grounding_{grounder_backend}",
@@ -130,7 +132,11 @@ def grounding_payload(
         "region": region,
         "candidate_regions": [
             {
-                "region": detection["prompt"],
+                "region": canonical_grounding_region(
+                    parsed_query,
+                    detection.get("prompt"),
+                ),
+                "raw_grounding_prompt": detection["prompt"],
                 "box": [float(value) for value in detection["bbox"]],
                 "confidence": float(detection["score"]),
                 "source": f"pretrained_grounding_{grounder_backend}",
@@ -152,6 +158,29 @@ def grounding_payload(
         "grounding_model_name": grounding_model_name,
         "grounding_prompts": prompts,
     }
+
+
+def canonical_grounding_region(
+    parsed_query: ParsedRegionQuery,
+    raw_prompt: str | None,
+) -> str:
+    """Map noisy grounding text labels to stable 3.1.2 region names."""
+    if parsed_query.region == "pocket":
+        if "left" in parsed_query.spatial_hints:
+            return "left_pocket"
+        if "right" in parsed_query.spatial_hints:
+            return "right_pocket"
+        return "pocket"
+    if parsed_query.region == "cuff":
+        if "left" in parsed_query.spatial_hints:
+            return "left_cuff"
+        if "right" in parsed_query.spatial_hints:
+            return "right_cuff"
+        return "cuff"
+    if parsed_query.region:
+        return parsed_query.region
+    normalized = (raw_prompt or "").strip()
+    return normalized or "grounding_region"
 
 
 def run_grounding_route(args: argparse.Namespace, parsed_query: ParsedRegionQuery) -> dict[str, Any]:
