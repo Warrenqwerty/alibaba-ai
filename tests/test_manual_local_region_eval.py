@@ -68,6 +68,11 @@ from scripts.eval.compare_local_region_manual_evals import (
     compare_evals,
     parse_fixed_region_policy,
 )
+from scripts.eval.analyze_gated_hybrid_confidence import (
+    choose_best_threshold,
+    common_records,
+    confidence_gated_records,
+)
 
 
 def test_manual_manifest_records_start_unlabeled(tmp_path):
@@ -460,6 +465,72 @@ def test_batch_gated_query_draws_manifest_reference_bbox(tmp_path):
     image = Image.open(output).convert("RGB")
     assert image.getpixel((5, 6))[1] > 120
     assert image.getpixel((5, 6))[0] < 80
+
+
+def test_confidence_gate_falls_back_to_heuristic_for_low_score_grounding():
+    gated_records = [
+        {
+            "id": "pattern", "image": "/tmp/pattern.jpg", "query_text": "图案",
+            "target_region": "pattern", "gated_policy_route": "grounding",
+            "score": 0.8, "manual_bbox_iou": 0.9,
+        },
+        {
+            "id": "pocket", "image": "/tmp/pocket.jpg", "query_text": "口袋",
+            "target_region": "pocket", "gated_policy_route": "grounding",
+            "score": 0.2, "manual_bbox_iou": 0.0,
+        },
+        {
+            "id": "hem", "image": "/tmp/hem.jpg", "query_text": "下摆",
+            "target_region": "hem", "gated_policy_route": "heuristic",
+            "score": None, "manual_bbox_iou": 0.6,
+        },
+    ]
+    heuristic_records = [
+        {**record, "manual_bbox_iou": value}
+        for record, value in zip(gated_records, [0.1, 0.5, 0.6], strict=True)
+    ]
+    gated_by_key, heuristic_by_key, keys = common_records(gated_records, heuristic_records)
+
+    records, source_counts = confidence_gated_records(
+        keys,
+        gated_by_key=gated_by_key,
+        heuristic_by_key=heuristic_by_key,
+        grounding_regions={"pattern", "pocket"},
+        confidence_threshold=0.3,
+    )
+
+    by_id = {record["id"]: record for record in records}
+    assert by_id["pattern"]["manual_bbox_iou"] == pytest.approx(0.9)
+    assert by_id["pocket"]["manual_bbox_iou"] == pytest.approx(0.5)
+    assert by_id["hem"]["manual_bbox_iou"] == pytest.approx(0.6)
+    assert source_counts == {
+        "grounding": 1,
+        "heuristic_fallback": 1,
+        "unchanged_gated_policy": 1,
+    }
+
+
+def test_confidence_gate_selects_best_calibration_threshold():
+    results = [
+        {
+            "confidence_threshold": 0.2,
+            "semantic_summary": {
+                "avg_manual_bbox_iou": 0.4,
+                "manual_hit_at": {"0.3": 0.5, "0.5": 0.3},
+            },
+        },
+        {
+            "confidence_threshold": 0.3,
+            "semantic_summary": {
+                "avg_manual_bbox_iou": 0.45,
+                "manual_hit_at": {"0.3": 0.4, "0.5": 0.3},
+            },
+        },
+    ]
+
+    selected = choose_best_threshold(results)
+
+    assert selected["confidence_threshold"] == pytest.approx(0.3)
 
 
 def test_grounding_dino_text_prompt_joins_phrases_with_periods():

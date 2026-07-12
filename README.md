@@ -437,6 +437,22 @@ PYTHONPATH=src HF_ENDPOINT=https://hf-mirror.com python scripts/eval/evaluate_ga
    training data is needed, add a small targeted calibration set instead of
    relabeling all of DeepFashion2.
 
+Before changing the fixed `pattern/pocket` gate, analyze whether low-confidence
+GroundingDINO detections should fall back to the heuristic. This command uses
+completed JSON outputs only, splits by image into calibration and holdout sets,
+and does not rerun either model. It is exploratory: only a holdout improvement
+should justify a new online policy experiment.
+
+```bash
+PYTHONPATH=src python scripts/eval/analyze_gated_hybrid_confidence.py \
+  --gated-eval-json /root/autodl-tmp/outputs/local_region_manual_eval_gated_pattern_pocket_combined_plus_semantic.json \
+  --heuristic-eval-json /root/autodl-tmp/outputs/local_region_manual_eval_heuristic_combined_plus_semantic.json \
+  --grounding-regions pattern pocket \
+  --thresholds 0.0 0.15 0.2 0.25 0.3 0.35 0.4 0.45 0.5 \
+  --holdout-fraction 0.3 \
+  --output /root/autodl-tmp/outputs/local_region_gated_confidence_analysis.json
+```
+
 ### Archived Weak-Supervision Experiments
 
 These commands are kept for reproducibility, but they are no longer the main

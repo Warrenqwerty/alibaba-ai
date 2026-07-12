@@ -498,6 +498,25 @@ PYTHONPATH=src python scripts/data/build_gated_hybrid_demo_manifest.py \
   --output /root/autodl-tmp/outputs/local_region_gated_demo_manifest.jsonl
 ```
 
+Before revising the fixed `pattern/pocket` gate, analyze whether low-confidence
+GroundingDINO cases should fall back to heuristic geometry. This reuses the two
+completed manual-eval JSON files, splits by image for a small held-out check,
+and does not run any model:
+
+```bash
+PYTHONPATH=src python scripts/eval/analyze_gated_hybrid_confidence.py \
+  --gated-eval-json /root/autodl-tmp/outputs/local_region_manual_eval_gated_pattern_pocket_combined_plus_semantic.json \
+  --heuristic-eval-json /root/autodl-tmp/outputs/local_region_manual_eval_heuristic_combined_plus_semantic.json \
+  --grounding-regions pattern pocket \
+  --thresholds 0.0 0.15 0.2 0.25 0.3 0.35 0.4 0.45 0.5 \
+  --holdout-fraction 0.3 \
+  --output /root/autodl-tmp/outputs/local_region_gated_confidence_analysis.json
+```
+
+Treat this as an offline calibration analysis. Keep the existing policy unless
+the selected threshold improves the image-held-out semantic summary, then rerun
+the full gated manual evaluator before reporting an improvement.
+
 Run the same evaluator with `--manifest`:
 
 ```bash

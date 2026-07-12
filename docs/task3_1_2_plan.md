@@ -590,6 +590,26 @@ PYTHONPATH=src python scripts/data/build_gated_hybrid_demo_manifest.py \
   --output /root/autodl-tmp/outputs/local_region_gated_demo_manifest.jsonl
 ```
 
+The next controlled improvement is confidence fallback for semantic grounding:
+if GroundingDINO is not confident for `pattern` or `pocket`, compare its result
+with the existing heuristic result instead of assuming the detector should
+always win. Use an image-held-out calibration analysis, not the visual demo, to
+choose a candidate threshold:
+
+```bash
+PYTHONPATH=src python scripts/eval/analyze_gated_hybrid_confidence.py \
+  --gated-eval-json /root/autodl-tmp/outputs/local_region_manual_eval_gated_pattern_pocket_combined_plus_semantic.json \
+  --heuristic-eval-json /root/autodl-tmp/outputs/local_region_manual_eval_heuristic_combined_plus_semantic.json \
+  --grounding-regions pattern pocket \
+  --thresholds 0.0 0.15 0.2 0.25 0.3 0.35 0.4 0.45 0.5 \
+  --holdout-fraction 0.3 \
+  --output /root/autodl-tmp/outputs/local_region_gated_confidence_analysis.json
+```
+
+This is offline analysis only. Integrate a threshold into the experimental
+inference path only after it improves the image-held-out semantic result and a
+fresh full manual evaluation confirms the gain.
+
 ```bash
 PYTHONPATH=src HF_ENDPOINT=https://hf-mirror.com python scripts/eval/evaluate_gated_hybrid_queries.py \
   --manifest /root/autodl-tmp/outputs/local_region_gated_demo_manifest.jsonl \
