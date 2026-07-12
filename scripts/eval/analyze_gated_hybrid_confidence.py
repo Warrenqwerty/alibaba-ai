@@ -251,12 +251,20 @@ def main() -> None:
     ]
     selected = choose_best_threshold(calibration)
     selected_threshold = selected["confidence_threshold"]
-    holdout = threshold_result(
-        selected_threshold,
-        holdout_keys,
-        gated_by_key=gated_by_key,
-        heuristic_by_key=heuristic_by_key,
-        grounding_regions=grounding_regions,
+    holdout_results = [
+        threshold_result(
+            threshold,
+            holdout_keys,
+            gated_by_key=gated_by_key,
+            heuristic_by_key=heuristic_by_key,
+            grounding_regions=grounding_regions,
+        )
+        for threshold in thresholds
+    ]
+    holdout = next(
+        result
+        for result in holdout_results
+        if result["confidence_threshold"] == selected_threshold
     )
     output = {
         "gated_eval_json": str(Path(args.gated_eval_json)),
@@ -274,6 +282,7 @@ def main() -> None:
         "calibration_results": calibration,
         "selected_threshold": selected_threshold,
         "selected_calibration_result": selected,
+        "holdout_results": holdout_results,
         "selected_threshold_holdout_result": holdout,
         "interpretation": (
             "Exploratory offline threshold analysis. Change the online policy only "

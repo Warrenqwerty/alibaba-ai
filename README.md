@@ -453,6 +453,10 @@ PYTHONPATH=src python scripts/eval/analyze_gated_hybrid_confidence.py \
   --output /root/autodl-tmp/outputs/local_region_gated_confidence_analysis.json
 ```
 
+Compare `holdout_results` at threshold `0.0` (the current fixed gate) with the
+selected threshold's `semantic_summary`; do not treat calibration gain alone as
+evidence for a policy change.
+
 ### Archived Weak-Supervision Experiments
 
 These commands are kept for reproducibility, but they are no longer the main

@@ -515,7 +515,8 @@ PYTHONPATH=src python scripts/eval/analyze_gated_hybrid_confidence.py \
 
 Treat this as an offline calibration analysis. Keep the existing policy unless
 the selected threshold improves the image-held-out semantic summary, then rerun
-the full gated manual evaluator before reporting an improvement.
+the full gated manual evaluator before reporting an improvement. In the output,
+compare `holdout_results` at threshold `0.0` with the selected threshold.
 
 Run the same evaluator with `--manifest`:
 

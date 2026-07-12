@@ -608,7 +608,8 @@ PYTHONPATH=src python scripts/eval/analyze_gated_hybrid_confidence.py \
 
 This is offline analysis only. Integrate a threshold into the experimental
 inference path only after it improves the image-held-out semantic result and a
-fresh full manual evaluation confirms the gain.
+fresh full manual evaluation confirms the gain. Compare the candidate threshold
+with `holdout_results` at `0.0`, which represents the current fixed gate.
 
 ```bash
 PYTHONPATH=src HF_ENDPOINT=https://hf-mirror.com python scripts/eval/evaluate_gated_hybrid_queries.py \
