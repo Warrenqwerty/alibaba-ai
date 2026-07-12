@@ -10,7 +10,7 @@ from pathlib import Path
 from statistics import mean
 from typing import Any
 
-from PIL import Image
+from PIL import Image, ImageDraw
 
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
@@ -308,6 +308,7 @@ def main() -> None:
                 if args.vis_dir and visualized < args.vis_count:
                     output_path = visualization_path(Path(args.vis_dir), image_path, visualized, query)
                     draw_grounding_result(image_path, record, output_path)
+                    draw_reference_bbox(output_path, record.get("reference_bbox"))
                     visualized += 1
                 records.append(record)
                 continue
@@ -327,6 +328,7 @@ def main() -> None:
             if args.vis_dir and visualized < args.vis_count:
                 output_path = visualization_path(Path(args.vis_dir), image_path, visualized, query)
                 draw_local_region_result(image_path, result, output_path)
+                draw_reference_bbox(output_path, record.get("reference_bbox"))
                 visualized += 1
 
     summary = {
@@ -374,6 +376,8 @@ def manifest_record_context(query_record: dict[str, Any]) -> dict[str, Any]:
         context["id"] = query_record["id"]
     if "target_region" in query_record:
         context["target_region"] = query_record["target_region"]
+    if "target_bbox" in query_record:
+        context["reference_bbox"] = query_record["target_bbox"]
     return context
 
 
@@ -431,6 +435,26 @@ def visualization_path(
 ) -> Path:
     safe_query = _safe_stem(query)
     return vis_dir / f"{image_path.stem}_{index:03d}_{safe_query}.jpg"
+
+
+def draw_reference_bbox(
+    output_path: Path,
+    reference_bbox: Any,
+) -> None:
+    """Overlay a manual reference bbox for curated qualitative demo records."""
+    if not isinstance(reference_bbox, list | tuple) or len(reference_bbox) != 4:
+        return
+    try:
+        x1, y1, x2, y2 = (float(value) for value in reference_bbox)
+    except (TypeError, ValueError):
+        return
+    if x2 <= x1 or y2 <= y1:
+        return
+    image = Image.open(output_path).convert("RGB")
+    draw = ImageDraw.Draw(image)
+    draw.rectangle([x1, y1, x2, y2], outline=(0, 200, 90), width=3)
+    draw.text((x1, max(0, y1 - 18)), "GT", fill=(0, 170, 70))
+    image.save(output_path)
 
 
 if __name__ == "__main__":

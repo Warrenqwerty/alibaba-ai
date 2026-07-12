@@ -481,6 +481,23 @@ visible pocket on images with no pocket:
 {"image": "/root/autodl-tmp/datasets/DeepFashion2/validation/image/000012.jpg", "query_text": "衣服下方的下摆"}
 ```
 
+Build this manifest from the completed gated manual evaluation so the selection
+rule is reproducible. It selects the highest-IoU successful records for each
+requested region and writes the route and selection IoU into the JSONL. These
+are qualitative examples only; report the `171`-record manual benchmark for
+performance. The resulting visualization overlays the manual reference bbox in
+green as `GT`; the predicted local region remains orange.
+
+```bash
+PYTHONPATH=src python scripts/data/build_gated_hybrid_demo_manifest.py \
+  --eval-json /root/autodl-tmp/outputs/local_region_manual_eval_gated_pattern_pocket_combined_plus_semantic.json \
+  --target-regions pattern neckline hem shoulder \
+  --per-region 2 \
+  --min-iou 0.3 \
+  --require-full-quota \
+  --output /root/autodl-tmp/outputs/local_region_gated_demo_manifest.jsonl
+```
+
 Run the same evaluator with `--manifest`:
 
 ```bash

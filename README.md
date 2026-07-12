@@ -390,6 +390,23 @@ copied into the output record:
 {"image": "/root/autodl-tmp/datasets/DeepFashion2/validation/image/000010.jpg", "query_text": "右侧的口袋"}
 ```
 
+Build the qualitative manifest from the completed gated manual evaluation
+instead of choosing image ids by hand. The builder selects successful records
+by manual IoU within each requested region and writes its selection provenance
+and reference bbox into the JSONL. The visualization draws this manual reference
+in green as `GT`; orange remains the predicted local region. This is a visual
+sanity set, not an aggregate performance result.
+
+```bash
+PYTHONPATH=src python scripts/data/build_gated_hybrid_demo_manifest.py \
+  --eval-json /root/autodl-tmp/outputs/local_region_manual_eval_gated_pattern_pocket_combined_plus_semantic.json \
+  --target-regions pattern neckline hem shoulder \
+  --per-region 2 \
+  --min-iou 0.3 \
+  --require-full-quota \
+  --output /root/autodl-tmp/outputs/local_region_gated_demo_manifest.jsonl
+```
+
 ```bash
 PYTHONPATH=src HF_ENDPOINT=https://hf-mirror.com python scripts/eval/evaluate_gated_hybrid_queries.py \
   --manifest /root/autodl-tmp/outputs/local_region_gated_demo_manifest.jsonl \

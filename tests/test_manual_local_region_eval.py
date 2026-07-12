@@ -54,10 +54,15 @@ from scripts.inference.predict_gated_hybrid_local_region import (
 )
 from fashion_mm.models.local_region.query import parse_region_query
 from scripts.eval.evaluate_gated_hybrid_queries import (
+    draw_reference_bbox,
     group_records_by_image,
     load_manifest_query_records,
     parsed_queries_for_route,
     summarize_gated_records,
+)
+from scripts.data.build_gated_hybrid_demo_manifest import (
+    manifest_record,
+    select_demo_records,
 )
 from scripts.eval.compare_local_region_manual_evals import (
     compare_evals,
@@ -380,6 +385,81 @@ def test_batch_gated_query_manifest_loads_image_query_records(tmp_path):
     assert records[1]["note"] == "valid pocket"
     assert list(grouped) == ["/tmp/1.jpg", "/tmp/2.jpg"]
     assert [record["id"] for record in grouped["/tmp/1.jpg"]] == ["a", "1__000002"]
+
+
+def test_gated_demo_manifest_selects_successful_records_by_region_and_iou():
+    records = [
+        {
+            "id": "pattern_low",
+            "image": "/tmp/pattern_low.jpg",
+            "query_text": "这件衣服上的碎花图案",
+            "target_region": "pattern",
+            "target_bbox": [1, 2, 10, 12],
+            "status": "ok",
+            "predicted_bbox": [0, 0, 1, 1],
+            "manual_bbox_iou": 0.35,
+            "gated_policy_route": "grounding",
+        },
+        {
+            "id": "pattern_high",
+            "image": "/tmp/pattern_high.jpg",
+            "query_text": "这件衣服上的碎花图案",
+            "target_region": "pattern",
+            "target_bbox": [1, 2, 10, 12],
+            "status": "ok",
+            "predicted_bbox": [0, 0, 1, 1],
+            "manual_bbox_iou": 0.8,
+            "gated_policy_route": "grounding",
+        },
+        {
+            "id": "hem_high",
+            "image": "/tmp/hem.jpg",
+            "query_text": "衣服下方的下摆",
+            "target_region": "hem",
+            "target_bbox": [1, 2, 10, 12],
+            "status": "ok",
+            "predicted_bbox": [0, 0, 1, 1],
+            "manual_bbox_iou": 0.7,
+            "gated_policy_route": "heuristic",
+        },
+        {
+            "id": "shoulder_failed",
+            "image": "/tmp/shoulder.jpg",
+            "query_text": "这件衣服的肩部",
+            "target_region": "shoulder",
+            "target_bbox": [1, 2, 10, 12],
+            "status": "no_detection",
+            "predicted_bbox": None,
+            "manual_bbox_iou": 0.9,
+            "gated_policy_route": "heuristic",
+        },
+    ]
+
+    selected, available = select_demo_records(
+        records,
+        target_regions=["pattern", "hem", "shoulder"],
+        per_region=1,
+        min_iou=0.3,
+    )
+
+    assert [record["id"] for record in selected] == ["pattern_high", "hem_high"]
+    assert available == {"pattern": 2, "hem": 1, "shoulder": 0}
+    payload = manifest_record(selected[0], 0)
+    assert payload["target_region"] == "pattern"
+    assert payload["gated_policy_route"] == "grounding"
+    assert payload["selection_manual_bbox_iou"] == pytest.approx(0.8)
+    assert payload["reference_bbox"] == [1, 2, 10, 12]
+
+
+def test_batch_gated_query_draws_manifest_reference_bbox(tmp_path):
+    output = tmp_path / "reference.jpg"
+    Image.new("RGB", (40, 40), "white").save(output)
+
+    draw_reference_bbox(output, [5, 6, 30, 31])
+
+    image = Image.open(output).convert("RGB")
+    assert image.getpixel((5, 6))[1] > 120
+    assert image.getpixel((5, 6))[0] < 80
 
 
 def test_grounding_dino_text_prompt_joins_phrases_with_periods():
