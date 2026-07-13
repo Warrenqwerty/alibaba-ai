@@ -1,3 +1,4 @@
+import json
 import sys
 from pathlib import Path
 
@@ -46,6 +47,7 @@ from scripts.eval.evaluate_pretrained_grounding_manual_labels import (
     grounding_dino_text_prompt,
     summarize_records as summarize_pretrained_grounding_records,
 )
+from scripts.eval.evaluate_grounding_prompt_profiles import select_target_regions
 from scripts.eval.evaluate_gated_hybrid_manual_labels import should_route_to_grounding
 from scripts.inference.predict_gated_hybrid_local_region import (
     canonical_grounding_region,
@@ -72,6 +74,11 @@ from scripts.eval.analyze_gated_hybrid_confidence import (
     choose_best_threshold,
     common_records,
     confidence_gated_records,
+)
+from scripts.eval.export_gated_hybrid_policy_deltas import (
+    export_policy_deltas,
+    paired_policy_deltas,
+    write_policy_delta_html,
 )
 
 
@@ -239,6 +246,36 @@ def test_pretrained_grounding_prompt_builder_uses_region_and_side():
     assert "pocket" in pocket_prompts
     assert "这件衣服上的碎花图案" in pattern_prompts
     assert "floral pattern" in pattern_prompts
+
+
+def test_pretrained_grounding_prompt_profiles_keep_side_and_context():
+    precise = build_prompts(
+        "右侧的口袋",
+        "pocket",
+        prompt_mode="english",
+        prompt_profile="precise",
+    )
+    fashion = build_prompts(
+        "右侧的口袋",
+        "pocket",
+        prompt_mode="english",
+        prompt_profile="fashion",
+    )
+
+    assert precise == ["right pocket"]
+    assert fashion == ["right pocket on clothing"]
+
+
+def test_prompt_profile_target_region_filter_is_exact():
+    records = [
+        {"id": "pattern", "target_region": "pattern"},
+        {"id": "pocket", "target_region": "pocket"},
+        {"id": "hem", "target_region": "hem"},
+    ]
+
+    selected = select_target_regions(records, {"pattern", "pocket"})
+
+    assert [record["id"] for record in selected] == ["pattern", "pocket"]
 
 
 def test_gated_hybrid_routes_only_configured_regions_to_grounding():
@@ -908,3 +945,79 @@ def test_write_failure_review_html_uses_relative_visualization_path(tmp_path):
     assert 'src="000_cuff_iou0.000_case.jpg"' in html
     assert "左边的袖口" in html
     assert "case/1" in html
+
+
+def test_policy_delta_pairs_only_material_grounding_changes(tmp_path):
+    image_path = tmp_path / "000001.jpg"
+    Image.new("RGB", (80, 100), color="white").save(image_path)
+    baseline = [
+        {
+            "id": "pocket-1",
+            "image": str(image_path),
+            "query_text": "右侧的口袋",
+            "target_region": "pocket",
+            "target_bbox": [20, 20, 40, 40],
+            "predicted_bbox": [0, 0, 10, 10],
+            "selected_region": "right_pocket",
+            "manual_bbox_iou": 0.0,
+        },
+        {
+            "id": "hem-1",
+            "image": str(image_path),
+            "query_text": "衣服下方的下摆",
+            "target_region": "hem",
+            "target_bbox": [20, 60, 60, 90],
+            "predicted_bbox": [20, 60, 60, 90],
+            "manual_bbox_iou": 1.0,
+        },
+    ]
+    candidate = [
+        {
+            **baseline[0],
+            "predicted_bbox": [20, 20, 40, 40],
+            "selected_region": "right pocket",
+            "manual_bbox_iou": 1.0,
+            "gated_policy_route": "grounding",
+            "score": 0.42,
+            "prompts": ["right pocket", "pocket"],
+        },
+        {
+            **baseline[1],
+            "gated_policy_route": "heuristic",
+        },
+    ]
+
+    pairs = paired_policy_deltas(
+        baseline,
+        candidate,
+        regions={"pocket"},
+        candidate_routes={"grounding"},
+        min_abs_delta=0.2,
+    )
+
+    assert len(pairs) == 1
+    assert pairs[0]["change"] == "improved"
+    assert pairs[0]["iou_delta"] == pytest.approx(1.0)
+
+    baseline_json = tmp_path / "baseline.json"
+    candidate_json = tmp_path / "candidate.json"
+    baseline_json.write_text(json.dumps({"records": baseline}), encoding="utf-8")
+    candidate_json.write_text(json.dumps({"records": candidate}), encoding="utf-8")
+    output_dir = tmp_path / "review"
+    summary = export_policy_deltas(
+        baseline_json,
+        candidate_json,
+        output_dir,
+        regions={"pocket"},
+        candidate_routes={"grounding"},
+        min_abs_delta=0.2,
+    )
+    html_path = output_dir / "policy_delta_review.html"
+    write_policy_delta_html(summary, html_path)
+
+    assert summary["num_exported_cases"] == 1
+    assert (output_dir / "policy_delta_summary.json").exists()
+    assert list(output_dir.glob("*.jpg"))
+    html = html_path.read_text(encoding="utf-8")
+    assert 'src="000_improved_pocket_delta+1.000_pocket-1.jpg"' in html
+    assert "right pocket" in html

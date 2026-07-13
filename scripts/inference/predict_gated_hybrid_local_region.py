@@ -26,6 +26,7 @@ from scripts.eval.evaluate_gated_hybrid_manual_labels import (
 )
 from scripts.eval.evaluate_pretrained_grounding_manual_labels import BACKEND_NAMES
 from scripts.eval.evaluate_pretrained_grounding_manual_labels import HFZeroShotGrounder
+from scripts.eval.evaluate_pretrained_grounding_manual_labels import PROMPT_PROFILES
 from scripts.eval.evaluate_pretrained_grounding_manual_labels import build_prompts
 
 
@@ -75,6 +76,7 @@ def parse_args() -> argparse.Namespace:
         choices=("english", "chinese", "both"),
         default="english",
     )
+    parser.add_argument("--prompt-profile", choices=PROMPT_PROFILES, default="ensemble")
     parser.add_argument("--score-threshold", type=float, default=0.15)
     parser.add_argument("--output", default=None)
     parser.add_argument("--vis-output", default=None)
@@ -190,6 +192,7 @@ def run_grounding_route(args: argparse.Namespace, parsed_query: ParsedRegionQuer
         args.query,
         parsed_query.region,
         prompt_mode=args.prompt_mode,
+        prompt_profile=args.prompt_profile,
     )
     grounder = HFZeroShotGrounder(
         args.grounding_model_name,

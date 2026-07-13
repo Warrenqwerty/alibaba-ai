@@ -23,6 +23,7 @@ from scripts.eval.evaluate_local_region_manual_labels import load_manual_records
 MANUAL_IOU_THRESHOLDS = (0.3, 0.5)
 DEFAULT_MODEL_NAME = "google/owlvit-base-patch32"
 BACKEND_NAMES = ("auto", "owlvit", "owlv2")
+PROMPT_PROFILES = ("ensemble", "precise", "fashion")
 
 REGION_PROMPTS = {
     "neckline": ("neckline", "collar", "clothing collar"),
@@ -40,6 +41,24 @@ REGION_PROMPTS = {
     "pattern": ("pattern", "print", "floral pattern", "printed pattern"),
     "button": ("button", "clothing button"),
     "decoration": ("decoration", "ornament", "clothing decoration"),
+}
+
+FASHION_REGION_PROMPTS = {
+    "neckline": ("neckline of clothing",),
+    "collar": ("collar of clothing",),
+    "cuff": ("sleeve cuff of clothing",),
+    "left_cuff": ("left sleeve cuff of clothing",),
+    "right_cuff": ("right sleeve cuff of clothing",),
+    "hem": ("bottom hem of clothing",),
+    "shoulder": ("shoulder of clothing",),
+    "waist": ("waistband of clothing",),
+    "pocket": ("pocket on clothing",),
+    "left_pocket": ("left pocket on clothing",),
+    "right_pocket": ("right pocket on clothing",),
+    "zipper": ("zipper on clothing",),
+    "pattern": ("pattern on clothing", "floral pattern on clothing"),
+    "button": ("button on clothing",),
+    "decoration": ("decoration on clothing",),
 }
 
 QUERY_REGION_HINTS = (
@@ -90,6 +109,15 @@ def parse_args() -> argparse.Namespace:
         choices=("english", "chinese", "both"),
         default="english",
         help="Prompt set used for zero-shot grounding.",
+    )
+    parser.add_argument(
+        "--prompt-profile",
+        choices=PROMPT_PROFILES,
+        default="ensemble",
+        help=(
+            "English prompt template: ensemble keeps the current multiple "
+            "synonyms, precise uses one direct phrase, fashion adds clothing context."
+        ),
     )
     parser.add_argument("--device", default=None)
     parser.add_argument("--score-threshold", type=float, default=0.05)
@@ -407,22 +435,51 @@ def build_prompts(
     target_region: str | None = None,
     *,
     prompt_mode: str = "english",
+    prompt_profile: str = "ensemble",
 ) -> list[str]:
     """Build zero-shot prompts from Chinese query text and parsed region hints."""
+    if prompt_profile not in PROMPT_PROFILES:
+        raise ValueError(f"Unknown prompt profile: {prompt_profile}")
     prompts: list[str] = []
     if prompt_mode in {"chinese", "both"}:
         prompts.append(query_text)
 
     if prompt_mode in {"english", "both"}:
         region = target_region or infer_region_from_query(query_text)
-        region_prompts = REGION_PROMPTS.get(region or "", ())
+        region_prompts = english_prompts_for_region(
+            region,
+            query_text=query_text,
+            prompt_profile=prompt_profile,
+        )
         prompts.extend(region_prompts)
-        if "左" in query_text and region in {"cuff", "pocket"}:
-            prompts.insert(0, f"left {region}")
-        if "右" in query_text and region in {"cuff", "pocket"}:
-            prompts.insert(0, f"right {region}")
 
     return dedupe_preserve_order(prompts)
+
+
+def english_prompts_for_region(
+    region: str | None,
+    *,
+    query_text: str,
+    prompt_profile: str,
+) -> tuple[str, ...]:
+    """Return deterministic English prompts for a localization prompt profile."""
+    if region is None:
+        return ()
+    sided_region = region
+    if region in {"cuff", "pocket"}:
+        if "左" in query_text:
+            sided_region = f"left_{region}"
+        elif "右" in query_text:
+            sided_region = f"right_{region}"
+    if prompt_profile == "fashion":
+        return FASHION_REGION_PROMPTS.get(sided_region, FASHION_REGION_PROMPTS.get(region, ()))
+    if prompt_profile == "precise":
+        prompts = REGION_PROMPTS.get(sided_region, REGION_PROMPTS.get(region, ()))
+        return prompts[:1]
+    prompts = list(REGION_PROMPTS.get(region, ()))
+    if sided_region != region:
+        prompts.insert(0, REGION_PROMPTS[sided_region][0])
+    return tuple(prompts)
 
 
 def infer_region_from_query(query_text: str) -> str | None:
@@ -450,6 +507,7 @@ def evaluate_pretrained_grounding(
     model_name: str,
     backend: str,
     prompt_mode: str,
+    prompt_profile: str,
     device: str | None,
     score_threshold: float,
 ) -> list[dict[str, Any]]:
@@ -470,6 +528,7 @@ def evaluate_pretrained_grounding(
             manual_record["query_text"],
             manual_record.get("target_region"),
             prompt_mode=prompt_mode,
+            prompt_profile=prompt_profile,
         )
         prediction = grounder.predict(image, prompts)
         best = prediction["best"]
@@ -565,6 +624,7 @@ def main() -> None:
         model_name=args.model_name,
         backend=args.backend,
         prompt_mode=args.prompt_mode,
+        prompt_profile=args.prompt_profile,
         device=args.device,
         score_threshold=args.score_threshold,
     )
@@ -573,6 +633,7 @@ def main() -> None:
         "model_name": args.model_name,
         "backend": args.backend,
         "prompt_mode": args.prompt_mode,
+        "prompt_profile": args.prompt_profile,
         "score_threshold": args.score_threshold,
         "num_labeled_records": len(manual_records),
         **summarize_records(records),

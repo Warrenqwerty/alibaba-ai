@@ -22,6 +22,7 @@ from scripts.eval.evaluate_local_region_manual_labels import load_manual_records
 from scripts.eval.evaluate_local_region_manual_labels import summarize_records
 from scripts.eval.evaluate_pretrained_grounding_manual_labels import BACKEND_NAMES
 from scripts.eval.evaluate_pretrained_grounding_manual_labels import HFZeroShotGrounder
+from scripts.eval.evaluate_pretrained_grounding_manual_labels import PROMPT_PROFILES
 from scripts.eval.evaluate_pretrained_grounding_manual_labels import build_prompts
 
 
@@ -74,6 +75,7 @@ def parse_args() -> argparse.Namespace:
         choices=("english", "chinese", "both"),
         default="english",
     )
+    parser.add_argument("--prompt-profile", choices=PROMPT_PROFILES, default="ensemble")
     parser.add_argument("--score-threshold", type=float, default=0.15)
     parser.add_argument("--max-records", type=int, default=None)
     parser.add_argument(
@@ -95,6 +97,7 @@ def evaluate_gated_hybrid_records(
     grounding_model_name: str,
     grounding_backend: str,
     prompt_mode: str,
+    prompt_profile: str,
     score_threshold: float,
 ) -> list[dict[str, Any]]:
     """Run the gated hybrid policy and compare selected boxes to manual labels."""
@@ -133,6 +136,7 @@ def evaluate_gated_hybrid_records(
                     grounder=grounder,
                     image_cache=image_cache,
                     prompt_mode=prompt_mode,
+                    prompt_profile=prompt_profile,
                 )
             )
             continue
@@ -162,6 +166,7 @@ def evaluate_grounding_record(
     grounder: HFZeroShotGrounder,
     image_cache: dict[str, Image.Image],
     prompt_mode: str,
+    prompt_profile: str,
 ) -> dict[str, Any]:
     image_path = str(manual_record["image"])
     if image_path not in image_cache:
@@ -170,6 +175,7 @@ def evaluate_grounding_record(
         manual_record["query_text"],
         manual_record.get("target_region"),
         prompt_mode=prompt_mode,
+        prompt_profile=prompt_profile,
     )
     start = time.perf_counter()
     prediction = grounder.predict(image_cache[image_path], prompts)
@@ -262,6 +268,7 @@ def main() -> None:
         grounding_model_name=args.grounding_model_name,
         grounding_backend=args.grounding_backend,
         prompt_mode=args.prompt_mode,
+        prompt_profile=args.prompt_profile,
         score_threshold=args.score_threshold,
     )
     summary = {
@@ -271,6 +278,7 @@ def main() -> None:
         "grounding_model_name": args.grounding_model_name,
         "grounding_backend": args.grounding_backend,
         "prompt_mode": args.prompt_mode,
+        "prompt_profile": args.prompt_profile,
         "score_threshold": args.score_threshold,
         **summarize_records(records),
         "records": records,

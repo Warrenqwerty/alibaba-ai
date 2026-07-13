@@ -518,6 +518,42 @@ the selected threshold improves the image-held-out semantic summary, then rerun
 the full gated manual evaluator before reporting an improvement. In the output,
 compare `holdout_results` at threshold `0.0` with the selected threshold.
 
+The current threshold analysis does not justify score-based fallback. Test
+English prompt wording before changing the gate; this command loads the model
+once and evaluates the current synonym ensemble, a single direct phrase, and a
+clothing-context phrase on only the manually labeled semantic records:
+
+```bash
+PYTHONPATH=src HF_ENDPOINT=https://hf-mirror.com python scripts/eval/evaluate_grounding_prompt_profiles.py \
+  --annotations /root/autodl-tmp/outputs/local_region_manual_eval_labeled_combined_plus_semantic.jsonl \
+  --model-name IDEA-Research/grounding-dino-tiny \
+  --backend auto \
+  --prompt-mode english \
+  --prompt-profiles ensemble precise fashion \
+  --target-regions pattern pocket \
+  --device cuda \
+  --score-threshold 0.15 \
+  --output /root/autodl-tmp/outputs/local_region_grounding_prompt_profiles_pattern_pocket.json
+```
+
+Then produce a paired qualitative review of the current gated policy. It does
+not run a model and can use CPU:
+
+```bash
+PYTHONPATH=src python scripts/eval/export_gated_hybrid_policy_deltas.py \
+  --baseline-eval-json /root/autodl-tmp/outputs/local_region_manual_eval_heuristic_combined_plus_semantic.json \
+  --candidate-eval-json /root/autodl-tmp/outputs/local_region_manual_eval_gated_pattern_pocket_combined_plus_semantic.json \
+  --regions pattern pocket \
+  --candidate-routes grounding \
+  --min-abs-delta 0.05 \
+  --output-dir /root/autodl-tmp/outputs/local_region_gated_pattern_pocket_deltas
+```
+
+Open `policy_delta_review.html` after downloading the output directory. Green
+is the manual bbox, red heuristic-only, and blue the gated prediction. Use the
+review to identify prompt competition, small-object false positives, and
+left/right ambiguity; rerun the full manual benchmark after any change.
+
 Run the same evaluator with `--manifest`:
 
 ```bash

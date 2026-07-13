@@ -611,6 +611,47 @@ inference path only after it improves the image-held-out semantic result and a
 fresh full manual evaluation confirms the gain. Compare the candidate threshold
 with `holdout_results` at `0.0`, which represents the current fixed gate.
 
+The completed threshold analysis selected `0.0`; the small holdout fluctuation
+at higher thresholds is not enough to change the policy. Do not continue
+threshold tuning. The next controlled experiment is prompt wording, evaluated
+without training and without reloading the grounding model for each variant:
+
+```bash
+PYTHONPATH=src HF_ENDPOINT=https://hf-mirror.com python scripts/eval/evaluate_grounding_prompt_profiles.py \
+  --annotations /root/autodl-tmp/outputs/local_region_manual_eval_labeled_combined_plus_semantic.jsonl \
+  --model-name IDEA-Research/grounding-dino-tiny \
+  --backend auto \
+  --prompt-mode english \
+  --prompt-profiles ensemble precise fashion \
+  --target-regions pattern pocket \
+  --device cuda \
+  --score-threshold 0.15 \
+  --output /root/autodl-tmp/outputs/local_region_grounding_prompt_profiles_pattern_pocket.json
+```
+
+`ensemble` preserves the existing validated English synonym set. `precise`
+uses one region phrase, which may reduce prompt competition, and `fashion`
+adds clothing context for small garments parts. Select a profile only if it
+improves the semantic manual metrics and then rerun the full gated evaluator.
+
+Before any implementation change, export paired material deltas from the
+current policy for visual review:
+
+```bash
+PYTHONPATH=src python scripts/eval/export_gated_hybrid_policy_deltas.py \
+  --baseline-eval-json /root/autodl-tmp/outputs/local_region_manual_eval_heuristic_combined_plus_semantic.json \
+  --candidate-eval-json /root/autodl-tmp/outputs/local_region_manual_eval_gated_pattern_pocket_combined_plus_semantic.json \
+  --regions pattern pocket \
+  --candidate-routes grounding \
+  --min-abs-delta 0.05 \
+  --output-dir /root/autodl-tmp/outputs/local_region_gated_pattern_pocket_deltas
+```
+
+The `policy_delta_review.html` output overlays manual GT (green), heuristic
+prediction (red), and gated prediction (blue). Use it to distinguish prompt
+wording failures from false detections and left/right ambiguity. The default
+online path remains heuristic-only.
+
 ```bash
 PYTHONPATH=src HF_ENDPOINT=https://hf-mirror.com python scripts/eval/evaluate_gated_hybrid_queries.py \
   --manifest /root/autodl-tmp/outputs/local_region_gated_demo_manifest.jsonl \

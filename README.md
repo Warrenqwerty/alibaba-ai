@@ -457,6 +457,43 @@ Compare `holdout_results` at threshold `0.0` (the current fixed gate) with the
 selected threshold's `semantic_summary`; do not treat calibration gain alone as
 evidence for a policy change.
 
+The current confidence split did not establish a stable fallback gain. Before
+changing the fixed gate, run a no-training prompt ablation on the same semantic
+manual records. The model is loaded once and each profile is evaluated fairly:
+
+```bash
+PYTHONPATH=src HF_ENDPOINT=https://hf-mirror.com python scripts/eval/evaluate_grounding_prompt_profiles.py \
+  --annotations /root/autodl-tmp/outputs/local_region_manual_eval_labeled_combined_plus_semantic.jsonl \
+  --model-name IDEA-Research/grounding-dino-tiny \
+  --backend auto \
+  --prompt-mode english \
+  --prompt-profiles ensemble precise fashion \
+  --target-regions pattern pocket \
+  --device cuda \
+  --score-threshold 0.15 \
+  --output /root/autodl-tmp/outputs/local_region_grounding_prompt_profiles_pattern_pocket.json
+```
+
+`ensemble` is the validated current set of English synonyms; `precise` uses one
+direct phrase; `fashion` adds an explicit clothing context. After selecting a
+candidate only from this result, inspect its real improvements and regressions
+against heuristic-only output:
+
+```bash
+PYTHONPATH=src python scripts/eval/export_gated_hybrid_policy_deltas.py \
+  --baseline-eval-json /root/autodl-tmp/outputs/local_region_manual_eval_heuristic_combined_plus_semantic.json \
+  --candidate-eval-json /root/autodl-tmp/outputs/local_region_manual_eval_gated_pattern_pocket_combined_plus_semantic.json \
+  --regions pattern pocket \
+  --candidate-routes grounding \
+  --min-abs-delta 0.05 \
+  --output-dir /root/autodl-tmp/outputs/local_region_gated_pattern_pocket_deltas
+```
+
+The paired `policy_delta_review.html` shows manual GT in green, heuristic in
+red, and gated grounding in blue. It is offline analysis only; any prompt or
+gate revision still needs a new full 171-record manual evaluation before it can
+affect the default heuristic-only online path.
+
 ### Archived Weak-Supervision Experiments
 
 These commands are kept for reproducibility, but they are no longer the main

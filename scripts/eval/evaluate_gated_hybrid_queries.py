@@ -32,6 +32,7 @@ from scripts.eval.evaluate_local_region_queries import collect_images
 from scripts.eval.evaluate_local_region_queries import _safe_stem
 from scripts.eval.evaluate_pretrained_grounding_manual_labels import BACKEND_NAMES
 from scripts.eval.evaluate_pretrained_grounding_manual_labels import HFZeroShotGrounder
+from scripts.eval.evaluate_pretrained_grounding_manual_labels import PROMPT_PROFILES
 from scripts.eval.evaluate_pretrained_grounding_manual_labels import build_prompts
 from scripts.inference.predict_gated_hybrid_local_region import draw_grounding_result
 from scripts.inference.predict_gated_hybrid_local_region import grounding_payload
@@ -102,6 +103,7 @@ def parse_args() -> argparse.Namespace:
         choices=("english", "chinese", "both"),
         default="english",
     )
+    parser.add_argument("--prompt-profile", choices=PROMPT_PROFILES, default="ensemble")
     parser.add_argument("--score-threshold", type=float, default=0.15)
     parser.add_argument(
         "--output",
@@ -302,6 +304,7 @@ def main() -> None:
                     pil_image,
                     grounder=grounder,
                     prompt_mode=args.prompt_mode,
+                    prompt_profile=args.prompt_profile,
                     grounding_model_name=args.grounding_model_name,
                 )
                 record.update(manifest_record_context(query_record))
@@ -341,6 +344,7 @@ def main() -> None:
         "grounding_model_name": args.grounding_model_name if has_grounding_route else None,
         "grounding_backend": args.grounding_backend if has_grounding_route else None,
         "prompt_mode": args.prompt_mode,
+        "prompt_profile": args.prompt_profile,
         "score_threshold": args.score_threshold,
         "avg_segmentation_inference_time_ms": (
             mean(segmentation_times) if segmentation_times else 0.0
@@ -402,12 +406,14 @@ def evaluate_grounding_query(
     *,
     grounder: HFZeroShotGrounder,
     prompt_mode: str,
+    prompt_profile: str,
     grounding_model_name: str,
 ) -> dict[str, Any]:
     prompts = build_prompts(
         query,
         parsed_query.region,
         prompt_mode=prompt_mode,
+        prompt_profile=prompt_profile,
     )
     start = time.perf_counter()
     prediction = grounder.predict(image, prompts)
