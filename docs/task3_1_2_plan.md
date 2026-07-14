@@ -780,6 +780,34 @@ than a reportable final number. It cannot by itself establish the 60% target:
 after the real pipeline run, inspect full metrics and the predicted boxes for
 the added cuff/pocket routes before retaining either route.
 
+Observed real-pipeline result: the policy reaches average manual IoU `0.3082`,
+Hit@0.3 `0.4678`, and Hit@0.5 `0.2924`. This is the current best experimental
+score, but it is 23 Hit@0.3 successes short of 60%. The next experiment must
+use a different pretrained grounding family, not more tuning of tiny/base
+routing.
+
+Run an OWLv2-large prompt ablation on the 79 hard `cuff`, `pocket`, `zipper`,
+and `waist` records. This model family is tested separately because any
+candidate route needs a clear hard-region improvement before a full benchmark
+run:
+
+```bash
+PYTHONPATH=src HF_ENDPOINT=https://hf-mirror.com python scripts/eval/evaluate_grounding_prompt_profiles.py \
+  --annotations /root/autodl-tmp/outputs/local_region_manual_eval_labeled_combined_plus_semantic.jsonl \
+  --model-name google/owlv2-large-patch14-ensemble \
+  --backend owlv2 \
+  --prompt-mode english \
+  --prompt-profiles ensemble precise fashion \
+  --target-regions cuff pocket zipper waist \
+  --device cuda \
+  --score-threshold 0.05 \
+  --output /root/autodl-tmp/outputs/local_region_owlv2_large_hard_region_profiles.json
+```
+
+This partial benchmark selects a profile only; it cannot justify a final
+policy. Run the chosen profile across all 171 records before adding or
+replacing any route.
+
 ```bash
 PYTHONPATH=src HF_ENDPOINT=https://hf-mirror.com python scripts/eval/evaluate_gated_hybrid_queries.py \
   --manifest /root/autodl-tmp/outputs/local_region_gated_demo_manifest.jsonl \

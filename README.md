@@ -606,6 +606,33 @@ real pipeline run and visually reviewed before being treated as evidence. It
 is not expected to reach 60% Hit@0.3 by itself, because zipper and most cuff
 cases remain unresolved.
 
+Observed pipeline result: the fixed multi-expert policy reproduces the expected
+gain, reaching average manual IoU `0.3082`, Hit@0.3 `0.4678`, and Hit@0.5
+`0.2924`. It is the current best experimental result, but still needs 23 more
+Hit@0.3 successes to reach the 60% weekly target. Do not tune this route
+further before testing a different pretrained grounding family.
+
+The next diagnostic is OWLv2-large on the 79 hard cuff/pocket/zipper/waist
+records. Run all three prompt profiles with one model load, then compare their
+per-region results before launching a complete 171-record evaluation:
+
+```bash
+PYTHONPATH=src HF_ENDPOINT=https://hf-mirror.com python scripts/eval/evaluate_grounding_prompt_profiles.py \
+  --annotations /root/autodl-tmp/outputs/local_region_manual_eval_labeled_combined_plus_semantic.jsonl \
+  --model-name google/owlv2-large-patch14-ensemble \
+  --backend owlv2 \
+  --prompt-mode english \
+  --prompt-profiles ensemble precise fashion \
+  --target-regions cuff pocket zipper waist \
+  --device cuda \
+  --score-threshold 0.05 \
+  --output /root/autodl-tmp/outputs/local_region_owlv2_large_hard_region_profiles.json
+```
+
+This is a diagnostic comparison only. A profile must improve a hard region
+over the current multi-expert policy before it is evaluated on all 171 records
+and considered for routing.
+
 ### Archived Weak-Supervision Experiments
 
 These commands are kept for reproducibility, but they are no longer the main

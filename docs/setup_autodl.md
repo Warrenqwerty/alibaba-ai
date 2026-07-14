@@ -678,6 +678,32 @@ once, records its name per grounding prediction, and routes every other target
 region through the heuristic. This is an exploratory same-benchmark policy,
 not the default online path or an independent final result.
 
+Observed real-pipeline result: multi-expert routing reaches average manual IoU
+`0.3082`, Hit@0.3 `0.4678`, and Hit@0.5 `0.2924`. This confirms the pocket and
+cuff gain, but it remains 23 Hit@0.3 successes below the weekly 60% target.
+Do not keep tuning the same tiny/base routing combination.
+
+Use a different visual-text detector family next. Run OWLv2-large as a prompt
+profile ablation on only the 79 weak cuff/pocket/zipper/waist records first;
+the model is loaded once and reused for all profiles:
+
+```bash
+PYTHONPATH=src HF_ENDPOINT=https://hf-mirror.com python scripts/eval/evaluate_grounding_prompt_profiles.py \
+  --annotations /root/autodl-tmp/outputs/local_region_manual_eval_labeled_combined_plus_semantic.jsonl \
+  --model-name google/owlv2-large-patch14-ensemble \
+  --backend owlv2 \
+  --prompt-mode english \
+  --prompt-profiles ensemble precise fashion \
+  --target-regions cuff pocket zipper waist \
+  --device cuda \
+  --score-threshold 0.05 \
+  --output /root/autodl-tmp/outputs/local_region_owlv2_large_hard_region_profiles.json
+```
+
+This result is not comparable to the overall benchmark because it contains
+only hard regions. Use it only to select a promising OWLv2 prompt profile;
+then run the selected profile on all 171 records before changing a route.
+
 Run the same evaluator with `--manifest`:
 
 ```bash
