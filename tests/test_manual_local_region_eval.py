@@ -39,6 +39,7 @@ from scripts.eval.evaluate_local_region_manual_labels import (
     summarize_records,
 )
 from scripts.eval.export_local_region_manual_failures import (
+    export_failure_cases,
     safe_stem,
     select_failure_records,
     write_failure_review_html,
@@ -1085,6 +1086,52 @@ def test_write_failure_review_html_uses_relative_visualization_path(tmp_path):
     assert 'src="000_cuff_iou0.000_case.jpg"' in html
     assert "左边的袖口" in html
     assert "case/1" in html
+
+
+def test_failure_export_preserves_grounding_provenance(tmp_path):
+    image_path = tmp_path / "pocket.jpg"
+    Image.new("RGB", (80, 100), color="white").save(image_path)
+    eval_path = tmp_path / "eval.json"
+    eval_path.write_text(
+        json.dumps(
+            {
+                "records": [
+                    {
+                        "id": "pocket-1",
+                        "image": str(image_path),
+                        "query_text": "右侧的口袋",
+                        "target_region": "pocket",
+                        "selected_region": "right pocket",
+                        "target_bbox": [10, 10, 25, 25],
+                        "predicted_bbox": [40, 40, 55, 55],
+                        "manual_bbox_iou": 0.0,
+                        "gated_policy_route": "grounding",
+                        "ranker_backend": "gated_hybrid_grounding_auto",
+                        "grounding_model_name": "IDEA-Research/grounding-dino-base",
+                        "prompt_profile": "ensemble",
+                        "grounding_score_threshold": 0.15,
+                        "score": 0.42,
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    output_dir = tmp_path / "failures"
+    summary = export_failure_cases(eval_path, output_dir, iou_threshold=0.3)
+    output = output_dir / "failure_review.html"
+    write_failure_review_html(summary, output)
+
+    case = summary["cases"][0]
+    assert case["grounding_model_name"] == "IDEA-Research/grounding-dino-base"
+    assert case["prompt_profile"] == "ensemble"
+    assert case["grounding_score_threshold"] == 0.15
+    assert case["score"] == 0.42
+
+    html = output.read_text(encoding="utf-8")
+    assert "IDEA-Research/grounding-dino-base" in html
+    assert "detection score: 0.420" in html
 
 
 def test_policy_delta_pairs_only_material_grounding_changes(tmp_path):

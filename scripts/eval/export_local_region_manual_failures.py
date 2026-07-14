@@ -103,6 +103,7 @@ def draw_failure_record(record: dict[str, Any], output_path: str | Path) -> None
 
     title = (
         f"{record.get('target_region')} | selected={record.get('selected_region')} | "
+        f"route={record.get('gated_policy_route') or record.get('ranker_backend') or 'unknown'} | "
         f"IoU={float(record.get('manual_bbox_iou') or 0.0):.3f}"
     )
     draw.rectangle([0, 0, min(image.width, 760), 24], fill=(255, 255, 255))
@@ -159,6 +160,12 @@ def export_failure_cases(
                 "manual_bbox_iou": iou,
                 "target_bbox": record.get("target_bbox"),
                 "predicted_bbox": record.get("predicted_bbox"),
+                "gated_policy_route": record.get("gated_policy_route"),
+                "ranker_backend": record.get("ranker_backend"),
+                "grounding_model_name": record.get("grounding_model_name"),
+                "prompt_profile": record.get("prompt_profile"),
+                "grounding_score_threshold": record.get("grounding_score_threshold"),
+                "score": record.get("score"),
                 "visualization": str(output_path),
             }
         )
@@ -272,6 +279,10 @@ def render_case_card(case: dict[str, Any], html_dir: Path) -> str:
           <div class="query">{escape(case.get('query_text') or '')}</div>
           <div class="kv">target: <code>{escape(case.get('target_region') or '')}</code></div>
           <div class="kv">selected: <code>{escape(case.get('selected_region') or '')}</code></div>
+          <div class="kv">route: <code>{escape(case.get('gated_policy_route') or case.get('ranker_backend') or 'unknown')}</code></div>
+          <div class="kv">model: <code>{escape(case.get('grounding_model_name') or 'heuristic')}</code></div>
+          <div class="kv">prompt: <code>{escape(case.get('prompt_profile') or '-')}</code>; threshold: {format_optional_number(case.get('grounding_score_threshold'))}</div>
+          <div class="kv">detection score: {format_optional_number(case.get('score'))}</div>
           <div class="kv">IoU: {float(case.get('manual_bbox_iou') or 0.0):.3f}</div>
           <div class="kv">id: <code>{escape(case.get('id') or '')}</code></div>
         </div>
@@ -281,6 +292,16 @@ def render_case_card(case: dict[str, Any], html_dir: Path) -> str:
 
 def escape(value: Any) -> str:
     return html.escape(str(value), quote=True)
+
+
+def format_optional_number(value: Any) -> str:
+    """Format an optional numeric provenance value for the HTML review."""
+    if value is None:
+        return "-"
+    try:
+        return f"{float(value):.3f}"
+    except (TypeError, ValueError):
+        return escape(value)
 
 
 def safe_stem(value: Any, max_chars: int = 48) -> str:
