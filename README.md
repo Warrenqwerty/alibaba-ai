@@ -517,6 +517,21 @@ This gate is experimental; retain it only if the complete manual benchmark
 improves, and keep the default online path unchanged because it adds mask
 inference for semantic queries.
 
+On the 171-record benchmark, the garment constraint reduced Hit@0.3 from
+`0.4503` to `0.4386`, so it is not adopted. Measure the theoretical per-record
+best-of-two upper bound before investing in a router:
+
+```bash
+PYTHONPATH=src python scripts/eval/analyze_local_region_routing_oracle.py \
+  --baseline-eval-json /root/autodl-tmp/outputs/local_region_manual_eval_heuristic_combined_plus_semantic.json \
+  --candidate-eval-json /root/autodl-tmp/outputs/local_region_manual_eval_gated_pattern_pocket_combined_plus_semantic.json \
+  --output /root/autodl-tmp/outputs/local_region_routing_oracle_heuristic_vs_gated.json
+```
+
+The result is an analysis-only ceiling: if its Hit@0.3 stays below 60%, routing
+these two experts cannot meet the weekly target and one of the experts needs a
+new capability.
+
 ### Archived Weak-Supervision Experiments
 
 These commands are kept for reproducibility, but they are no longer the main

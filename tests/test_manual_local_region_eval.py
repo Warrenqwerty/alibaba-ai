@@ -83,6 +83,7 @@ from scripts.eval.export_gated_hybrid_policy_deltas import (
     paired_policy_deltas,
     write_policy_delta_html,
 )
+from scripts.eval.analyze_local_region_routing_oracle import build_routing_oracle
 
 
 def test_manual_manifest_records_start_unlabeled(tmp_path):
@@ -1044,3 +1045,24 @@ def test_policy_delta_pairs_only_material_grounding_changes(tmp_path):
     html = html_path.read_text(encoding="utf-8")
     assert 'src="000_improved_pocket_delta+1.000_pocket-1.jpg"' in html
     assert "right pocket" in html
+
+
+def test_routing_oracle_reports_per_record_upper_bound():
+    baseline = [
+        {"id": "pattern-1", "target_region": "pattern", "manual_bbox_iou": 0.1},
+        {"id": "pocket-1", "target_region": "pocket", "manual_bbox_iou": 0.6},
+        {"id": "hem-1", "target_region": "hem", "manual_bbox_iou": 0.4},
+    ]
+    candidate = [
+        {"id": "pattern-1", "target_region": "pattern", "manual_bbox_iou": 0.8},
+        {"id": "pocket-1", "target_region": "pocket", "manual_bbox_iou": 0.2},
+        {"id": "hem-1", "target_region": "hem", "manual_bbox_iou": 0.4},
+    ]
+
+    result = build_routing_oracle(baseline, candidate)
+
+    oracle = result["per_record_oracle"]
+    assert oracle["summary"]["avg_manual_bbox_iou"] == pytest.approx(0.6)
+    assert oracle["summary"]["manual_hit_at"]["0.3"] == pytest.approx(1.0)
+    assert oracle["source_counts"] == {"baseline": 2, "candidate": 1}
+    assert oracle["by_region"]["pattern"]["source_counts"] == {"candidate": 1}

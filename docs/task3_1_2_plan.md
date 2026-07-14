@@ -681,6 +681,28 @@ examples. The constraint is experimental and adds segmentation latency to the
 semantic route; do not enable it in the default online path unless the manual
 gain is clear.
 
+Observed result: the garment-mask constraint reduced full-benchmark Hit@0.3
+from `0.4503` to `0.4386` and reduced pocket Hit@0.3 from `0.1250` to
+`0.0417`. Six grounding cases fell back to heuristic, but the selected garment
+mask is not reliable enough for this filter. Do not adopt this constraint.
+
+Before adding another router, measure the best possible per-record choice
+between the original heuristic and original gated outputs. This is an oracle
+upper bound, not a reportable model metric: it tells whether a learned router
+could plausibly reach the weekly Hit@0.3 target using these two experts.
+
+```bash
+PYTHONPATH=src python scripts/eval/analyze_local_region_routing_oracle.py \
+  --baseline-eval-json /root/autodl-tmp/outputs/local_region_manual_eval_heuristic_combined_plus_semantic.json \
+  --candidate-eval-json /root/autodl-tmp/outputs/local_region_manual_eval_gated_pattern_pocket_combined_plus_semantic.json \
+  --output /root/autodl-tmp/outputs/local_region_routing_oracle_heuristic_vs_gated.json
+```
+
+If this oracle is below `0.60` Hit@0.3, routing alone cannot meet the target;
+the next iteration must improve an expert, especially cuff/waist/pocket. If it
+reaches or exceeds `0.60`, inspect the per-region `source_counts` and design a
+small, independently validated router rather than using the oracle directly.
+
 ```bash
 PYTHONPATH=src HF_ENDPOINT=https://hf-mirror.com python scripts/eval/evaluate_gated_hybrid_queries.py \
   --manifest /root/autodl-tmp/outputs/local_region_gated_demo_manifest.jsonl \

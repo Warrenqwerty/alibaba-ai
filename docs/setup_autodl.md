@@ -585,6 +585,22 @@ if it improves the full manual result; it adds segmentation work to semantic
 queries and is therefore unsuitable for the latency-sensitive default path
 until validated.
 
+Observed result: the garment constraint reached `0.4386` Hit@0.3, below the
+unconstrained gated policy (`0.4503`), so do not use it further. Measure the
+per-record routing ceiling before introducing another router:
+
+```bash
+PYTHONPATH=src python scripts/eval/analyze_local_region_routing_oracle.py \
+  --baseline-eval-json /root/autodl-tmp/outputs/local_region_manual_eval_heuristic_combined_plus_semantic.json \
+  --candidate-eval-json /root/autodl-tmp/outputs/local_region_manual_eval_gated_pattern_pocket_combined_plus_semantic.json \
+  --output /root/autodl-tmp/outputs/local_region_routing_oracle_heuristic_vs_gated.json
+```
+
+This is a theoretical best-of-two upper bound. It must not be reported as a
+model result or directly implemented. If it is below the 60% Hit@0.3 target,
+router tuning cannot meet the target and the next effort must improve cuff,
+waist, or pocket localization itself.
+
 Run the same evaluator with `--manifest`:
 
 ```bash
