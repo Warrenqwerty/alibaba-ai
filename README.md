@@ -559,6 +559,26 @@ heuristic-only online default unless a Chinese-CLIP configuration improves the
 full manual benchmark and produces credible gains on cuff, waist, pocket, or
 zipper after visual review.
 
+Observed result: the best Chinese-CLIP settings (`0.1` and `0.2`) reached only
+Hit@0.3 `0.3860`, below heuristic-only (`0.3918`) and far below the gated
+GroundingDINO policy (`0.4503`). The visual score did not localize cuff, pocket,
+or zipper reliably; the prior mainly restored rule-derived candidate names.
+Do not integrate Chinese-CLIP crop reranking into the online policy. The next
+pretrained comparison is GroundingDINO-base, evaluated offline before deciding
+which hard regions, if any, it should replace:
+
+```bash
+PYTHONPATH=src HF_ENDPOINT=https://hf-mirror.com python scripts/eval/evaluate_pretrained_grounding_manual_labels.py \
+  --annotations /root/autodl-tmp/outputs/local_region_manual_eval_labeled_combined_plus_semantic.jsonl \
+  --model-name IDEA-Research/grounding-dino-base \
+  --backend auto \
+  --prompt-mode english \
+  --prompt-profile ensemble \
+  --device cuda \
+  --score-threshold 0.15 \
+  --output /root/autodl-tmp/outputs/local_region_manual_eval_grounding_dino_base.json
+```
+
 ### Archived Weak-Supervision Experiments
 
 These commands are kept for reproducibility, but they are no longer the main

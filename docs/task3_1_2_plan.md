@@ -730,6 +730,29 @@ the parser, but it is not an online policy. Compare every `runs` result with
 the heuristic and gated 171-record metrics. Only a clear full-benchmark gain,
 including review of cuff/waist/pocket/zipper cases, can justify integration.
 
+Observed result: Chinese-CLIP reached at most Hit@0.3 `0.3860` (`0.1` and
+`0.2` priors), below heuristic-only `0.3918`. It does not reliably localize
+cuff, pocket, or zipper; the region prior mostly forces the same rule-derived
+candidates rather than adding useful visual grounding. Keep it as a failed
+offline baseline and do not integrate it.
+
+The next expert comparison is the larger pretrained `IDEA-Research/grounding-dino-base`.
+Evaluate the raw detector across all 171 manual records first, with the same
+validated English ensemble prompts. Only after examining its per-region gains
+should a separate, fixed gated policy be evaluated:
+
+```bash
+PYTHONPATH=src HF_ENDPOINT=https://hf-mirror.com python scripts/eval/evaluate_pretrained_grounding_manual_labels.py \
+  --annotations /root/autodl-tmp/outputs/local_region_manual_eval_labeled_combined_plus_semantic.jsonl \
+  --model-name IDEA-Research/grounding-dino-base \
+  --backend auto \
+  --prompt-mode english \
+  --prompt-profile ensemble \
+  --device cuda \
+  --score-threshold 0.15 \
+  --output /root/autodl-tmp/outputs/local_region_manual_eval_grounding_dino_base.json
+```
+
 ```bash
 PYTHONPATH=src HF_ENDPOINT=https://hf-mirror.com python scripts/eval/evaluate_gated_hybrid_queries.py \
   --manifest /root/autodl-tmp/outputs/local_region_gated_demo_manifest.jsonl \

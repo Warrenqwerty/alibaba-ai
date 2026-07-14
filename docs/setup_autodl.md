@@ -627,6 +627,29 @@ The output contains one `runs` entry per prior weight. Compare each full
 GroundingDINO (`0.4503`) before any online integration. The current
 heuristic-only default remains unchanged.
 
+Observed result: the best Chinese-CLIP prior settings (`0.1`, `0.2`) reached
+Hit@0.3 `0.3860`, below heuristic-only (`0.3918`). Cuff, pocket, and zipper
+remain unreliable, so the visual score is not a useful new expert; the prior
+mostly restores the rule-derived candidate region. Do not wire this reranker
+into the online path.
+
+The next controlled pretrained comparison is the larger GroundingDINO-base.
+Run it as an offline full manual evaluation first; do not add new gated regions
+until its per-region results improve on both the current heuristic and tiny
+GroundingDINO outputs:
+
+```bash
+PYTHONPATH=src HF_ENDPOINT=https://hf-mirror.com python scripts/eval/evaluate_pretrained_grounding_manual_labels.py \
+  --annotations /root/autodl-tmp/outputs/local_region_manual_eval_labeled_combined_plus_semantic.jsonl \
+  --model-name IDEA-Research/grounding-dino-base \
+  --backend auto \
+  --prompt-mode english \
+  --prompt-profile ensemble \
+  --device cuda \
+  --score-threshold 0.15 \
+  --output /root/autodl-tmp/outputs/local_region_manual_eval_grounding_dino_base.json
+```
+
 Run the same evaluator with `--manifest`:
 
 ```bash
