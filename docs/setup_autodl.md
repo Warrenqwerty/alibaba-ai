@@ -601,6 +601,32 @@ model result or directly implemented. If it is below the 60% Hit@0.3 target,
 router tuning cannot meet the target and the next effort must improve cuff,
 waist, or pocket localization itself.
 
+The completed 171-record oracle is Hit@0.3 `0.4561`: it selects heuristic for
+148 records and the gated GroundingDINO result for 23. This rules out further
+routing or threshold tuning as a path to the 60% target. Evaluate a new
+visual-text expert directly on the manual benchmark instead.
+
+Chinese-CLIP crop reranking is the next frozen pretrained baseline. Unlike the
+historical weak-candidate experiment below, this command uses only manual
+evaluation labels for scoring and never consumes landmark pseudo labels for the
+decision metric. It encodes the original Chinese query and crop candidates
+inside the frozen 3.1.1 selected garment instance:
+
+```bash
+PYTHONPATH=src HF_ENDPOINT=https://hf-mirror.com python scripts/eval/evaluate_chinese_clip_manual_local_regions.py \
+  --annotations /root/autodl-tmp/outputs/local_region_manual_eval_labeled_combined_plus_semantic.jsonl \
+  --checkpoint /root/autodl-tmp/checkpoints/deepfashion2_6class_hard_mining/instance_segmentation/epoch_001.pt \
+  --model-name OFA-Sys/chinese-clip-vit-base-patch16 \
+  --device cuda \
+  --region-prior-weights 0.0,0.05,0.1,0.2 \
+  --output /root/autodl-tmp/outputs/local_region_manual_eval_chinese_clip_candidates.json
+```
+
+The output contains one `runs` entry per prior weight. Compare each full
+171-record result against heuristic (`Hit@0.3 0.3918`) and gated
+GroundingDINO (`0.4503`) before any online integration. The current
+heuristic-only default remains unchanged.
+
 Run the same evaluator with `--manifest`:
 
 ```bash

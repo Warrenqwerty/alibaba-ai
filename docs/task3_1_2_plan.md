@@ -703,6 +703,33 @@ the next iteration must improve an expert, especially cuff/waist/pocket. If it
 reaches or exceeds `0.60`, inspect the per-region `source_counts` and design a
 small, independently validated router rather than using the oracle directly.
 
+The completed oracle reached only Hit@0.3 `0.4561` on 171 manually labeled
+records (heuristic selected for 148 records, gated GroundingDINO for 23).
+This is an upper bound, so routing the current two experts cannot reach the
+weekly 60% target. Stop routing and threshold tuning; the next experiment must
+test a genuinely new visual-text expert.
+
+Run frozen Chinese-CLIP crop reranking directly against the same manual
+benchmark. It uses the Chinese query as text input and ranks open-vocabulary
+crop candidates generated inside the frozen 3.1.1 selected garment instance.
+It does not train, use landmarks, or use pseudo labels as its evaluation
+target:
+
+```bash
+PYTHONPATH=src HF_ENDPOINT=https://hf-mirror.com python scripts/eval/evaluate_chinese_clip_manual_local_regions.py \
+  --annotations /root/autodl-tmp/outputs/local_region_manual_eval_labeled_combined_plus_semantic.jsonl \
+  --checkpoint /root/autodl-tmp/checkpoints/deepfashion2_6class_hard_mining/instance_segmentation/epoch_001.pt \
+  --model-name OFA-Sys/chinese-clip-vit-base-patch16 \
+  --device cuda \
+  --region-prior-weights 0.0,0.05,0.1,0.2 \
+  --output /root/autodl-tmp/outputs/local_region_manual_eval_chinese_clip_candidates.json
+```
+
+The small prior-weight sweep tests whether visual similarity adds value beyond
+the parser, but it is not an online policy. Compare every `runs` result with
+the heuristic and gated 171-record metrics. Only a clear full-benchmark gain,
+including review of cuff/waist/pocket/zipper cases, can justify integration.
+
 ```bash
 PYTHONPATH=src HF_ENDPOINT=https://hf-mirror.com python scripts/eval/evaluate_gated_hybrid_queries.py \
   --manifest /root/autodl-tmp/outputs/local_region_gated_demo_manifest.jsonl \

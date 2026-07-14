@@ -532,6 +532,33 @@ The result is an analysis-only ceiling: if its Hit@0.3 stays below 60%, routing
 these two experts cannot meet the weekly target and one of the experts needs a
 new capability.
 
+Observed routing-oracle result on the 171 manually labeled records: best-of-two
+reaches only Hit@0.3 `0.4561` (heuristic selected for 148 records, gated
+GroundingDINO for 23). Therefore, do not spend another iteration on routing or
+threshold tuning. Evaluate a new visual-text expert directly on the same manual
+benchmark instead.
+
+The next offline PRD-aligned baseline is frozen Chinese-CLIP crop reranking.
+It uses the original Chinese query and candidate crops generated inside the
+frozen 3.1.1 garment instance; it does not use landmarks, pseudo labels, or
+training. The small region-prior sweep is diagnostic only, not an online
+policy change:
+
+```bash
+PYTHONPATH=src HF_ENDPOINT=https://hf-mirror.com python scripts/eval/evaluate_chinese_clip_manual_local_regions.py \
+  --annotations /root/autodl-tmp/outputs/local_region_manual_eval_labeled_combined_plus_semantic.jsonl \
+  --checkpoint /root/autodl-tmp/checkpoints/deepfashion2_6class_hard_mining/instance_segmentation/epoch_001.pt \
+  --model-name OFA-Sys/chinese-clip-vit-base-patch16 \
+  --device cuda \
+  --region-prior-weights 0.0,0.05,0.1,0.2 \
+  --output /root/autodl-tmp/outputs/local_region_manual_eval_chinese_clip_candidates.json
+```
+
+Compare each run with the heuristic and gated 171-record results. Keep the
+heuristic-only online default unless a Chinese-CLIP configuration improves the
+full manual benchmark and produces credible gains on cuff, waist, pocket, or
+zipper after visual review.
+
 ### Archived Weak-Supervision Experiments
 
 These commands are kept for reproducibility, but they are no longer the main

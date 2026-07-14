@@ -84,6 +84,10 @@ from scripts.eval.export_gated_hybrid_policy_deltas import (
     write_policy_delta_html,
 )
 from scripts.eval.analyze_local_region_routing_oracle import build_routing_oracle
+from scripts.eval.evaluate_chinese_clip_manual_local_regions import (
+    empty_prediction_record,
+    finalize_run as finalize_chinese_clip_manual_run,
+)
 
 
 def test_manual_manifest_records_start_unlabeled(tmp_path):
@@ -1066,3 +1070,23 @@ def test_routing_oracle_reports_per_record_upper_bound():
     assert oracle["summary"]["manual_hit_at"]["0.3"] == pytest.approx(1.0)
     assert oracle["source_counts"] == {"baseline": 2, "candidate": 1}
     assert oracle["by_region"]["pattern"]["source_counts"] == {"candidate": 1}
+
+
+def test_chinese_clip_manual_summary_handles_empty_prediction():
+    record = empty_prediction_record(
+        {
+            "id": "pocket-1",
+            "image": "/tmp/image.jpg",
+            "query_text": "右侧的口袋",
+            "target_region": "pocket",
+            "target_bbox": [1, 2, 3, 4],
+        },
+        "pocket",
+        "no_garment_instance",
+    )
+
+    summary = finalize_chinese_clip_manual_run([record])
+
+    assert record["manual_bbox_iou"] == 0.0
+    assert summary["status_counts"] == {"no_garment_instance": 1}
+    assert summary["manual_hit_at"]["0.3"] == 0.0
