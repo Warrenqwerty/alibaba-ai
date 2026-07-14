@@ -49,6 +49,8 @@ from scripts.eval.evaluate_pretrained_grounding_manual_labels import (
     summarize_records as summarize_pretrained_grounding_records,
 )
 from scripts.eval.evaluate_grounding_prompt_profiles import select_target_regions
+from scripts.eval.evaluate_gated_hybrid_manual_labels import parse_grounding_routes
+from scripts.eval.evaluate_gated_hybrid_manual_labels import resolve_grounding_routes
 from scripts.eval.evaluate_gated_hybrid_manual_labels import should_route_to_grounding
 from scripts.inference.predict_gated_hybrid_local_region import (
     canonical_grounding_region,
@@ -325,6 +327,33 @@ def test_gated_hybrid_routes_only_configured_regions_to_grounding():
         {"target_region": "hem"},
         grounding_regions,
     )
+
+
+def test_explicit_grounding_routes_override_single_model_defaults():
+    routes = parse_grounding_routes(
+        [
+            "pattern=IDEA-Research/grounding-dino-tiny",
+            "pocket=IDEA-Research/grounding-dino-base",
+            "cuff=IDEA-Research/grounding-dino-base",
+        ]
+    )
+
+    resolved = resolve_grounding_routes(
+        grounding_regions={"pattern", "pocket"},
+        grounding_model_name="IDEA-Research/grounding-dino-tiny",
+        grounding_routes=routes,
+    )
+
+    assert resolved == {
+        "pattern": "IDEA-Research/grounding-dino-tiny",
+        "pocket": "IDEA-Research/grounding-dino-base",
+        "cuff": "IDEA-Research/grounding-dino-base",
+    }
+
+
+def test_explicit_grounding_routes_validate_syntax():
+    with pytest.raises(ValueError, match="REGION=MODEL_NAME"):
+        parse_grounding_routes(["pocket"])
 
 
 def test_single_image_gated_hybrid_routes_by_parsed_query():

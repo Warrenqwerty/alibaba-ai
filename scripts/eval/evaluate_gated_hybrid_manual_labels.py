@@ -6,6 +6,7 @@ import sys
 import time
 from pathlib import Path
 from typing import Any
+from typing import Mapping
 
 from PIL import Image
 
@@ -69,6 +70,18 @@ def parse_args() -> argparse.Namespace:
         help="HuggingFace model name or local model directory.",
     )
     parser.add_argument(
+        "--grounding-routes",
+        nargs="*",
+        default=None,
+        metavar="REGION=MODEL_NAME",
+        help=(
+            "Optional fixed per-region model routes, e.g. "
+            "pattern=IDEA-Research/grounding-dino-tiny "
+            "pocket=IDEA-Research/grounding-dino-base. When supplied, this "
+            "replaces --grounding-regions/--grounding-model-name."
+        ),
+    )
+    parser.add_argument(
         "--grounding-backend",
         choices=BACKEND_NAMES,
         default="auto",
@@ -112,6 +125,7 @@ def evaluate_gated_hybrid_records(
     ranker_checkpoint: str | None,
     grounding_regions: set[str],
     grounding_model_name: str,
+    grounding_routes: Mapping[str, str] | None = None,
     grounding_backend: str,
     prompt_mode: str,
     prompt_profile: str,
@@ -131,24 +145,29 @@ def evaluate_gated_hybrid_records(
         if ranker_checkpoint
         else None
     )
-    grounder = (
-        HFZeroShotGrounder(
-            grounding_model_name,
+    resolved_grounding_routes = resolve_grounding_routes(
+        grounding_regions=grounding_regions,
+        grounding_model_name=grounding_model_name,
+        grounding_routes=grounding_routes,
+    )
+    grounders = {
+        model_name: HFZeroShotGrounder(
+            model_name,
             backend=grounding_backend,
             device=device,
             score_threshold=score_threshold,
         )
-        if any(should_route_to_grounding(record, grounding_regions) for record in manual_records)
-        else None
-    )
+        for model_name in sorted(set(resolved_grounding_routes.values()))
+    }
 
     records: list[dict[str, Any]] = []
     image_cache: dict[str, Image.Image] = {}
     segmentation_cache: dict[str, Any] = {}
     for manual_record in manual_records:
-        if should_route_to_grounding(manual_record, grounding_regions):
-            if grounder is None:
-                raise RuntimeError("Grounding route selected, but grounder was not initialized.")
+        target_region = str(manual_record.get("target_region") or "")
+        grounding_model = resolved_grounding_routes.get(target_region)
+        if grounding_model is not None:
+            grounder = grounders[grounding_model]
             segmentation = None
             if constrain_grounding_to_garment:
                 image_path = str(manual_record["image"])
@@ -201,6 +220,40 @@ def should_route_to_grounding(
 ) -> bool:
     """Return whether a manual record should use pretrained grounding."""
     return str(manual_record.get("target_region") or "") in grounding_regions
+
+
+def parse_grounding_routes(values: list[str] | None) -> dict[str, str] | None:
+    """Parse explicit REGION=MODEL_NAME routes from command-line arguments."""
+    if values is None:
+        return None
+    routes: dict[str, str] = {}
+    for value in values:
+        region, separator, model_name = value.partition("=")
+        region = region.strip()
+        model_name = model_name.strip()
+        if not separator or not region or not model_name:
+            raise ValueError(
+                "Each --grounding-routes value must use REGION=MODEL_NAME; "
+                f"got {value!r}."
+            )
+        if region in routes and routes[region] != model_name:
+            raise ValueError(f"Conflicting models configured for region {region!r}.")
+        routes[region] = model_name
+    if not routes:
+        raise ValueError("--grounding-routes requires at least one REGION=MODEL_NAME value.")
+    return routes
+
+
+def resolve_grounding_routes(
+    *,
+    grounding_regions: set[str],
+    grounding_model_name: str,
+    grounding_routes: Mapping[str, str] | None,
+) -> dict[str, str]:
+    """Return fixed target-region to pretrained-model routing for one run."""
+    if grounding_routes is not None:
+        return dict(grounding_routes)
+    return {region: grounding_model_name for region in grounding_regions}
 
 
 def evaluate_grounding_record(
@@ -262,6 +315,7 @@ def evaluate_grounding_record(
         "target_bbox": list(manual_record["target_bbox"]),
         "status": prediction["status"],
         "ranker_backend": f"gated_hybrid_grounding_{grounder.backend}",
+        "grounding_model_name": grounder.model_name,
         "selected_region": best["prompt"] if best is not None else None,
         "predicted_bbox": list(predicted_box) if predicted_box else None,
         "manual_bbox_iou": manual_iou,
@@ -331,6 +385,12 @@ def main() -> None:
         raise ValueError("No labeled manual records found for gated hybrid eval.")
 
     grounding_regions = set(args.grounding_regions)
+    grounding_routes = parse_grounding_routes(args.grounding_routes)
+    resolved_grounding_routes = resolve_grounding_routes(
+        grounding_regions=grounding_regions,
+        grounding_model_name=args.grounding_model_name,
+        grounding_routes=grounding_routes,
+    )
     records = evaluate_gated_hybrid_records(
         manual_records,
         model_config=args.model_config,
@@ -339,6 +399,7 @@ def main() -> None:
         ranker_checkpoint=args.ranker_checkpoint,
         grounding_regions=grounding_regions,
         grounding_model_name=args.grounding_model_name,
+        grounding_routes=grounding_routes,
         grounding_backend=args.grounding_backend,
         prompt_mode=args.prompt_mode,
         prompt_profile=args.prompt_profile,
@@ -349,8 +410,11 @@ def main() -> None:
     summary = {
         "annotations": str(Path(args.annotations)),
         "num_labeled_records": len(manual_records),
-        "grounding_regions": sorted(grounding_regions),
-        "grounding_model_name": args.grounding_model_name,
+        "grounding_regions": sorted(resolved_grounding_routes),
+        "grounding_model_name": (
+            args.grounding_model_name if grounding_routes is None else None
+        ),
+        "grounding_routes": resolved_grounding_routes,
         "grounding_backend": args.grounding_backend,
         "prompt_mode": args.prompt_mode,
         "prompt_profile": args.prompt_profile,

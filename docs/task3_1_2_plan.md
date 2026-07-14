@@ -753,6 +753,33 @@ PYTHONPATH=src HF_ENDPOINT=https://hf-mirror.com python scripts/eval/evaluate_pr
   --output /root/autodl-tmp/outputs/local_region_manual_eval_grounding_dino_base.json
 ```
 
+Observed base result: it improves pocket Hit@0.3 from `0.1250` to `0.2083` and
+cuff from `0.0870` to `0.1304`, but pattern remains lower than tiny and the
+structural regions remain lower than heuristic. This suggests a small
+multi-expert policy rather than a full replacement. The evaluator now supports
+explicit `REGION=MODEL_NAME` routes and loads each distinct grounder once:
+
+```bash
+PYTHONPATH=src HF_ENDPOINT=https://hf-mirror.com python scripts/eval/evaluate_gated_hybrid_manual_labels.py \
+  --annotations /root/autodl-tmp/outputs/local_region_manual_eval_labeled_combined_plus_semantic.jsonl \
+  --checkpoint /root/autodl-tmp/checkpoints/deepfashion2_6class_hard_mining/instance_segmentation/epoch_001.pt \
+  --device cuda \
+  --grounding-routes \
+    pattern=IDEA-Research/grounding-dino-tiny \
+    pocket=IDEA-Research/grounding-dino-base \
+    cuff=IDEA-Research/grounding-dino-base \
+  --grounding-backend auto \
+  --prompt-mode english \
+  --prompt-profile ensemble \
+  --score-threshold 0.15 \
+  --output /root/autodl-tmp/outputs/local_region_manual_eval_multi_expert_pattern_tiny_pocket_cuff_base.json
+```
+
+This policy is selected from the same benchmark, so it is exploratory rather
+than a reportable final number. It cannot by itself establish the 60% target:
+after the real pipeline run, inspect full metrics and the predicted boxes for
+the added cuff/pocket routes before retaining either route.
+
 ```bash
 PYTHONPATH=src HF_ENDPOINT=https://hf-mirror.com python scripts/eval/evaluate_gated_hybrid_queries.py \
   --manifest /root/autodl-tmp/outputs/local_region_gated_demo_manifest.jsonl \

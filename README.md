@@ -579,6 +579,33 @@ PYTHONPATH=src HF_ENDPOINT=https://hf-mirror.com python scripts/eval/evaluate_pr
   --output /root/autodl-tmp/outputs/local_region_manual_eval_grounding_dino_base.json
 ```
 
+Observed GroundingDINO-base result: it improves pocket Hit@0.3 to `0.2083`
+(tiny/heuristic: `0.1250`) and cuff to `0.1304` (heuristic: `0.0870`), but it
+is worse than tiny on pattern and worse than heuristic on structural regions.
+The next reproducible policy test therefore uses tiny only for pattern, base
+only for pocket/cuff, and heuristic for every other region:
+
+```bash
+PYTHONPATH=src HF_ENDPOINT=https://hf-mirror.com python scripts/eval/evaluate_gated_hybrid_manual_labels.py \
+  --annotations /root/autodl-tmp/outputs/local_region_manual_eval_labeled_combined_plus_semantic.jsonl \
+  --checkpoint /root/autodl-tmp/checkpoints/deepfashion2_6class_hard_mining/instance_segmentation/epoch_001.pt \
+  --device cuda \
+  --grounding-routes \
+    pattern=IDEA-Research/grounding-dino-tiny \
+    pocket=IDEA-Research/grounding-dino-base \
+    cuff=IDEA-Research/grounding-dino-base \
+  --grounding-backend auto \
+  --prompt-mode english \
+  --prompt-profile ensemble \
+  --score-threshold 0.15 \
+  --output /root/autodl-tmp/outputs/local_region_manual_eval_multi_expert_pattern_tiny_pocket_cuff_base.json
+```
+
+This is still a same-benchmark exploratory policy: it must be evaluated as a
+real pipeline run and visually reviewed before being treated as evidence. It
+is not expected to reach 60% Hit@0.3 by itself, because zipper and most cuff
+cases remain unresolved.
+
 ### Archived Weak-Supervision Experiments
 
 These commands are kept for reproducibility, but they are no longer the main

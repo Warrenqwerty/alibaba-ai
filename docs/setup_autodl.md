@@ -650,6 +650,34 @@ PYTHONPATH=src HF_ENDPOINT=https://hf-mirror.com python scripts/eval/evaluate_pr
   --output /root/autodl-tmp/outputs/local_region_manual_eval_grounding_dino_base.json
 ```
 
+Observed base result: pocket Hit@0.3 improves to `0.2083` from `0.1250`, and
+cuff improves to `0.1304` from `0.0870`. Pattern is still stronger with tiny;
+hem, shoulder, and neckline remain better with the heuristic. Use the new
+explicit multi-expert route capability to verify this fixed, limited policy as
+a real pipeline run:
+
+```bash
+PYTHONPATH=src HF_ENDPOINT=https://hf-mirror.com python scripts/eval/evaluate_gated_hybrid_manual_labels.py \
+  --annotations /root/autodl-tmp/outputs/local_region_manual_eval_labeled_combined_plus_semantic.jsonl \
+  --checkpoint /root/autodl-tmp/checkpoints/deepfashion2_6class_hard_mining/instance_segmentation/epoch_001.pt \
+  --device cuda \
+  --grounding-routes \
+    pattern=IDEA-Research/grounding-dino-tiny \
+    pocket=IDEA-Research/grounding-dino-base \
+    cuff=IDEA-Research/grounding-dino-base \
+  --grounding-backend auto \
+  --prompt-mode english \
+  --prompt-profile ensemble \
+  --score-threshold 0.15 \
+  --output /root/autodl-tmp/outputs/local_region_manual_eval_multi_expert_pattern_tiny_pocket_cuff_base.json
+```
+
+`--grounding-routes` is authoritative: it replaces the single-model
+`--grounding-regions` configuration. The evaluator loads each unique model
+once, records its name per grounding prediction, and routes every other target
+region through the heuristic. This is an exploratory same-benchmark policy,
+not the default online path or an independent final result.
+
 Run the same evaluator with `--manifest`:
 
 ```bash
