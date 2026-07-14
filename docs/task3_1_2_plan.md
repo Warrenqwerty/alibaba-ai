@@ -808,6 +808,36 @@ This partial benchmark selects a profile only; it cannot justify a final
 policy. Run the chosen profile across all 171 records before adding or
 replacing any route.
 
+Observed OWLv2 result: `precise` improves cuff Hit@0.3 from `0.1304` to
+`0.2174`; `ensemble` improves waist from `0.3333` to `0.5000`. Pocket is only
+equal to GroundingDINO-base and zipper remains worse than heuristic. Test the
+following four-expert policy on every manual record, retaining zipper on the
+heuristic route. Per-region prompt and threshold overrides reproduce each
+selected configuration without changing the existing GroundingDINO routes:
+
+```bash
+PYTHONPATH=src HF_ENDPOINT=https://hf-mirror.com python scripts/eval/evaluate_gated_hybrid_manual_labels.py \
+  --annotations /root/autodl-tmp/outputs/local_region_manual_eval_labeled_combined_plus_semantic.jsonl \
+  --checkpoint /root/autodl-tmp/checkpoints/deepfashion2_6class_hard_mining/instance_segmentation/epoch_001.pt \
+  --device cuda \
+  --grounding-routes \
+    pattern=IDEA-Research/grounding-dino-tiny \
+    pocket=IDEA-Research/grounding-dino-base \
+    cuff=google/owlv2-large-patch14-ensemble \
+    waist=google/owlv2-large-patch14-ensemble \
+  --grounding-route-profiles cuff=precise waist=ensemble \
+  --grounding-route-thresholds cuff=0.05 waist=0.05 \
+  --grounding-backend auto \
+  --prompt-mode english \
+  --prompt-profile ensemble \
+  --score-threshold 0.15 \
+  --output /root/autodl-tmp/outputs/local_region_manual_eval_four_expert_hybrid.json
+```
+
+This loads the two GroundingDINO models and OWLv2 once each. The estimated
+same-benchmark gain is about four additional Hit@0.3 successes over the
+three-expert pipeline, still short of 60%; report only the actual full result.
+
 ```bash
 PYTHONPATH=src HF_ENDPOINT=https://hf-mirror.com python scripts/eval/evaluate_gated_hybrid_queries.py \
   --manifest /root/autodl-tmp/outputs/local_region_gated_demo_manifest.jsonl \

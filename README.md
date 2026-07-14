@@ -633,6 +633,37 @@ This is a diagnostic comparison only. A profile must improve a hard region
 over the current multi-expert policy before it is evaluated on all 171 records
 and considered for routing.
 
+Observed OWLv2 diagnostic result: `precise` improves cuff Hit@0.3 to `0.2174`
+(current base route: `0.1304`), and `ensemble` improves waist to `0.5000`
+(heuristic: `0.3333`). Pocket only ties base at `0.2083`; zipper remains lower
+than heuristic. Verify the following fixed four-expert policy on all 171
+records. Per-region prompt and threshold overrides preserve each model's
+validated setting:
+
+```bash
+PYTHONPATH=src HF_ENDPOINT=https://hf-mirror.com python scripts/eval/evaluate_gated_hybrid_manual_labels.py \
+  --annotations /root/autodl-tmp/outputs/local_region_manual_eval_labeled_combined_plus_semantic.jsonl \
+  --checkpoint /root/autodl-tmp/checkpoints/deepfashion2_6class_hard_mining/instance_segmentation/epoch_001.pt \
+  --device cuda \
+  --grounding-routes \
+    pattern=IDEA-Research/grounding-dino-tiny \
+    pocket=IDEA-Research/grounding-dino-base \
+    cuff=google/owlv2-large-patch14-ensemble \
+    waist=google/owlv2-large-patch14-ensemble \
+  --grounding-route-profiles cuff=precise waist=ensemble \
+  --grounding-route-thresholds cuff=0.05 waist=0.05 \
+  --grounding-backend auto \
+  --prompt-mode english \
+  --prompt-profile ensemble \
+  --score-threshold 0.15 \
+  --output /root/autodl-tmp/outputs/local_region_manual_eval_four_expert_hybrid.json
+```
+
+The pipeline loads each `(model, threshold)` pair once. Zipper deliberately
+stays on heuristic. The expected same-benchmark gain is roughly four Hit@0.3
+successes over the three-expert run; only the real 171-record output can
+confirm it.
+
 ### Archived Weak-Supervision Experiments
 
 These commands are kept for reproducibility, but they are no longer the main

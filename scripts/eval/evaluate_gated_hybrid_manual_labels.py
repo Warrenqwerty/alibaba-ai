@@ -82,6 +82,28 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--grounding-route-profiles",
+        nargs="*",
+        default=None,
+        metavar="REGION=PROFILE",
+        help=(
+            "Optional per-region prompt-profile overrides for explicit routes, "
+            "e.g. cuff=precise waist=ensemble. Unspecified regions use "
+            "--prompt-profile."
+        ),
+    )
+    parser.add_argument(
+        "--grounding-route-thresholds",
+        nargs="*",
+        default=None,
+        metavar="REGION=SCORE",
+        help=(
+            "Optional per-region detection-score thresholds for explicit routes, "
+            "e.g. cuff=0.05 waist=0.05. Unspecified regions use "
+            "--score-threshold."
+        ),
+    )
+    parser.add_argument(
         "--grounding-backend",
         choices=BACKEND_NAMES,
         default="auto",
@@ -126,6 +148,8 @@ def evaluate_gated_hybrid_records(
     grounding_regions: set[str],
     grounding_model_name: str,
     grounding_routes: Mapping[str, str] | None = None,
+    grounding_route_profiles: Mapping[str, str] | None = None,
+    grounding_route_thresholds: Mapping[str, float] | None = None,
     grounding_backend: str,
     prompt_mode: str,
     prompt_profile: str,
@@ -150,14 +174,25 @@ def evaluate_gated_hybrid_records(
         grounding_model_name=grounding_model_name,
         grounding_routes=grounding_routes,
     )
+    route_configs = {
+        (
+            model_name,
+            resolve_score_threshold(
+                region,
+                default_threshold=score_threshold,
+                route_thresholds=grounding_route_thresholds,
+            ),
+        )
+        for region, model_name in resolved_grounding_routes.items()
+    }
     grounders = {
-        model_name: HFZeroShotGrounder(
+        (model_name, threshold): HFZeroShotGrounder(
             model_name,
             backend=grounding_backend,
             device=device,
-            score_threshold=score_threshold,
+            score_threshold=threshold,
         )
-        for model_name in sorted(set(resolved_grounding_routes.values()))
+        for model_name, threshold in sorted(route_configs)
     }
 
     records: list[dict[str, Any]] = []
@@ -167,7 +202,17 @@ def evaluate_gated_hybrid_records(
         target_region = str(manual_record.get("target_region") or "")
         grounding_model = resolved_grounding_routes.get(target_region)
         if grounding_model is not None:
-            grounder = grounders[grounding_model]
+            route_score_threshold = resolve_score_threshold(
+                target_region,
+                default_threshold=score_threshold,
+                route_thresholds=grounding_route_thresholds,
+            )
+            grounder = grounders[(grounding_model, route_score_threshold)]
+            route_prompt_profile = resolve_prompt_profile(
+                target_region,
+                default_profile=prompt_profile,
+                route_profiles=grounding_route_profiles,
+            )
             segmentation = None
             if constrain_grounding_to_garment:
                 image_path = str(manual_record["image"])
@@ -179,7 +224,7 @@ def evaluate_gated_hybrid_records(
                 grounder=grounder,
                 image_cache=image_cache,
                 prompt_mode=prompt_mode,
-                prompt_profile=prompt_profile,
+                prompt_profile=route_prompt_profile,
                 segmentation=segmentation,
                 grounding_min_mask_coverage=grounding_min_mask_coverage,
             )
@@ -256,6 +301,91 @@ def resolve_grounding_routes(
     return {region: grounding_model_name for region in grounding_regions}
 
 
+def parse_grounding_route_profiles(values: list[str] | None) -> dict[str, str] | None:
+    """Parse explicit REGION=PROMPT_PROFILE overrides for grounded routes."""
+    if values is None:
+        return None
+    profiles: dict[str, str] = {}
+    for value in values:
+        region, separator, profile = value.partition("=")
+        region = region.strip()
+        profile = profile.strip()
+        if not separator or not region or not profile:
+            raise ValueError(
+                "Each --grounding-route-profiles value must use REGION=PROFILE; "
+                f"got {value!r}."
+            )
+        if profile not in PROMPT_PROFILES:
+            raise ValueError(
+                f"Unsupported prompt profile {profile!r}; "
+                f"choose one of {', '.join(PROMPT_PROFILES)}."
+            )
+        if region in profiles and profiles[region] != profile:
+            raise ValueError(f"Conflicting prompt profiles configured for region {region!r}.")
+        profiles[region] = profile
+    if not profiles:
+        raise ValueError("--grounding-route-profiles requires at least one REGION=PROFILE value.")
+    return profiles
+
+
+def resolve_prompt_profile(
+    region: str,
+    *,
+    default_profile: str,
+    route_profiles: Mapping[str, str] | None,
+) -> str:
+    """Return a validated per-region override or the command-level default."""
+    if route_profiles is None:
+        return default_profile
+    return route_profiles.get(region, default_profile)
+
+
+def parse_grounding_route_thresholds(
+    values: list[str] | None,
+) -> dict[str, float] | None:
+    """Parse explicit REGION=SCORE threshold overrides for grounded routes."""
+    if values is None:
+        return None
+    thresholds: dict[str, float] = {}
+    for value in values:
+        region, separator, raw_threshold = value.partition("=")
+        region = region.strip()
+        raw_threshold = raw_threshold.strip()
+        if not separator or not region or not raw_threshold:
+            raise ValueError(
+                "Each --grounding-route-thresholds value must use REGION=SCORE; "
+                f"got {value!r}."
+            )
+        try:
+            threshold = float(raw_threshold)
+        except ValueError as error:
+            raise ValueError(
+                f"Invalid score threshold {raw_threshold!r} for region {region!r}."
+            ) from error
+        if not 0.0 <= threshold <= 1.0:
+            raise ValueError(
+                f"Score threshold for region {region!r} must be between 0 and 1."
+            )
+        if region in thresholds and thresholds[region] != threshold:
+            raise ValueError(f"Conflicting score thresholds configured for region {region!r}.")
+        thresholds[region] = threshold
+    if not thresholds:
+        raise ValueError("--grounding-route-thresholds requires at least one REGION=SCORE value.")
+    return thresholds
+
+
+def resolve_score_threshold(
+    region: str,
+    *,
+    default_threshold: float,
+    route_thresholds: Mapping[str, float] | None,
+) -> float:
+    """Return a per-region score threshold override or the command default."""
+    if route_thresholds is None:
+        return default_threshold
+    return route_thresholds.get(region, default_threshold)
+
+
 def evaluate_grounding_record(
     manual_record: dict[str, Any],
     *,
@@ -322,6 +452,8 @@ def evaluate_grounding_record(
         "gated_policy_route": "grounding",
         "local_region_latency_ms": latency_ms,
         "score": best["score"] if best is not None else None,
+        "grounding_score_threshold": grounder.score_threshold,
+        "prompt_profile": prompt_profile,
         "prompts": prompts,
         "detections": prediction["detections"][:5],
         "grounding_filter_status": filter_status,
@@ -386,10 +518,18 @@ def main() -> None:
 
     grounding_regions = set(args.grounding_regions)
     grounding_routes = parse_grounding_routes(args.grounding_routes)
+    grounding_route_profiles = parse_grounding_route_profiles(
+        args.grounding_route_profiles
+    )
+    grounding_route_thresholds = parse_grounding_route_thresholds(
+        args.grounding_route_thresholds
+    )
     resolved_grounding_routes = resolve_grounding_routes(
         grounding_regions=grounding_regions,
         grounding_model_name=args.grounding_model_name,
         grounding_routes=grounding_routes,
+        grounding_route_profiles=grounding_route_profiles,
+        grounding_route_thresholds=grounding_route_thresholds,
     )
     records = evaluate_gated_hybrid_records(
         manual_records,
@@ -415,6 +555,8 @@ def main() -> None:
             args.grounding_model_name if grounding_routes is None else None
         ),
         "grounding_routes": resolved_grounding_routes,
+        "grounding_route_profiles": grounding_route_profiles or {},
+        "grounding_route_thresholds": grounding_route_thresholds or {},
         "grounding_backend": args.grounding_backend,
         "prompt_mode": args.prompt_mode,
         "prompt_profile": args.prompt_profile,

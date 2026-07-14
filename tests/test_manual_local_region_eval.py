@@ -50,7 +50,11 @@ from scripts.eval.evaluate_pretrained_grounding_manual_labels import (
 )
 from scripts.eval.evaluate_grounding_prompt_profiles import select_target_regions
 from scripts.eval.evaluate_gated_hybrid_manual_labels import parse_grounding_routes
+from scripts.eval.evaluate_gated_hybrid_manual_labels import parse_grounding_route_profiles
+from scripts.eval.evaluate_gated_hybrid_manual_labels import parse_grounding_route_thresholds
 from scripts.eval.evaluate_gated_hybrid_manual_labels import resolve_grounding_routes
+from scripts.eval.evaluate_gated_hybrid_manual_labels import resolve_prompt_profile
+from scripts.eval.evaluate_gated_hybrid_manual_labels import resolve_score_threshold
 from scripts.eval.evaluate_gated_hybrid_manual_labels import should_route_to_grounding
 from scripts.inference.predict_gated_hybrid_local_region import (
     canonical_grounding_region,
@@ -354,6 +358,40 @@ def test_explicit_grounding_routes_override_single_model_defaults():
 def test_explicit_grounding_routes_validate_syntax():
     with pytest.raises(ValueError, match="REGION=MODEL_NAME"):
         parse_grounding_routes(["pocket"])
+
+
+def test_explicit_grounding_route_profiles_override_default_profile():
+    profiles = parse_grounding_route_profiles(["cuff=precise", "waist=ensemble"])
+
+    assert resolve_prompt_profile(
+        "cuff",
+        default_profile="ensemble",
+        route_profiles=profiles,
+    ) == "precise"
+    assert resolve_prompt_profile(
+        "pocket",
+        default_profile="ensemble",
+        route_profiles=profiles,
+    ) == "ensemble"
+    with pytest.raises(ValueError, match="Unsupported prompt profile"):
+        parse_grounding_route_profiles(["cuff=unknown"])
+
+
+def test_explicit_grounding_route_thresholds_override_default_threshold():
+    thresholds = parse_grounding_route_thresholds(["cuff=0.05", "waist=0.05"])
+
+    assert resolve_score_threshold(
+        "cuff",
+        default_threshold=0.15,
+        route_thresholds=thresholds,
+    ) == pytest.approx(0.05)
+    assert resolve_score_threshold(
+        "pocket",
+        default_threshold=0.15,
+        route_thresholds=thresholds,
+    ) == pytest.approx(0.15)
+    with pytest.raises(ValueError, match="between 0 and 1"):
+        parse_grounding_route_thresholds(["cuff=1.1"])
 
 
 def test_single_image_gated_hybrid_routes_by_parsed_query():
