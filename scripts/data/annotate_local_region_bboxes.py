@@ -186,6 +186,10 @@ APP_HTML = r"""<!doctype html>
         <div class="label">Image</div>
         <div id="path" class="path"></div>
       </div>
+      <div id="audit-panel" hidden>
+        <div class="label">Audit instruction</div>
+        <div id="audit-instruction" class="status"></div>
+      </div>
       <div>
         <div class="label">Notes</div>
         <textarea id="notes" placeholder="Optional notes"></textarea>
@@ -296,13 +300,21 @@ APP_HTML = r"""<!doctype html>
       document.getElementById("path").textContent = data.record.image || "";
       document.getElementById("notes").value = data.record.notes || "";
       document.getElementById("bbox").textContent = bboxText(state.bbox);
+      const auditPanel = document.getElementById("audit-panel");
+      const auditInstruction = data.record.audit_instruction || "";
+      auditPanel.hidden = !auditInstruction;
+      document.getElementById("audit-instruction").textContent = auditInstruction;
       document.getElementById("progress").textContent =
         `${data.index + 1} / ${data.count} | labeled ${data.labeled_count} | skipped ${data.skipped_count}`;
       document.getElementById("prev").disabled = data.index <= 0;
       document.getElementById("next").disabled = data.index >= data.count - 1;
       img.onload = () => {
         redraw();
-        setStatus(data.record.label_status === "labeled" ? "Loaded existing bbox." : "Drag a box on the image.");
+        if (auditInstruction) {
+          setStatus("Review the existing bbox, adjust it, or skip this record.");
+        } else {
+          setStatus(data.record.label_status === "labeled" ? "Loaded existing bbox." : "Drag a box on the image.");
+        }
       };
       img.src = `/api/image?index=${data.index}&t=${Date.now()}`;
     }

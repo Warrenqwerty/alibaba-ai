@@ -27,6 +27,14 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Keep skipped records in the output. Unlabeled records are always dropped.",
     )
+    parser.add_argument(
+        "--skip-removes-existing",
+        action="store_true",
+        help=(
+            "When a later review file marks a duplicate record as skip, remove the "
+            "earlier labeled record from the merged benchmark."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -45,12 +53,14 @@ def merge_labeled_records(
     input_paths: list[str | Path],
     *,
     include_skipped: bool = False,
+    skip_removes_existing: bool = False,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Merge manual labels, dropping unlabeled rows and deduplicating records."""
     merged_by_key: dict[str, dict[str, Any]] = {}
     input_counts: dict[str, int] = {}
     status_counts: Counter[str] = Counter()
     duplicate_count = 0
+    skipped_existing_record_count = 0
 
     for input_path in input_paths:
         path = Path(input_path)
@@ -59,12 +69,18 @@ def merge_labeled_records(
         for record in records:
             status = str(record.get("label_status", "unlabeled"))
             status_counts[status] += 1
+            key = record_key(record)
+            if status == "skip" and skip_removes_existing:
+                if key in merged_by_key:
+                    duplicate_count += 1
+                    skipped_existing_record_count += 1
+                    del merged_by_key[key]
+                continue
             if status == "skip" and include_skipped:
                 pass
             elif status != "labeled" or not record.get("target_bbox"):
                 continue
 
-            key = record_key(record)
             duplicate_count += int(key in merged_by_key)
             merged_by_key[key] = {**record, "merge_source": str(path)}
 
@@ -83,6 +99,7 @@ def merge_labeled_records(
         "input_label_status_counts": dict(status_counts),
         "num_merged_records": len(merged),
         "num_duplicate_keys_replaced": duplicate_count,
+        "num_existing_records_removed_by_skip": skipped_existing_record_count,
         "dedupe_key": "id when present, otherwise image/query_text/target_region",
     }
     return merged, summary
@@ -115,6 +132,7 @@ def main() -> None:
     merged, summary = merge_labeled_records(
         args.inputs,
         include_skipped=args.include_skipped,
+        skip_removes_existing=args.skip_removes_existing,
     )
     write_jsonl(merged, args.output)
     summary["output"] = str(Path(args.output))

@@ -206,6 +206,25 @@ PYTHONPATH=src python scripts/eval/export_local_region_manual_failures.py \
 The export directory contains per-case images, `failure_summary.json`, and
 `failure_review.html` for a grouped browser review page.
 
+Before using a manual benchmark to select another model, audit its hard cases.
+The audit manifest keeps the prior bbox visible, but resets its status so each
+case must be explicitly confirmed, adjusted, or skipped. Use garment/wearer
+left/right for side queries; skip a record if the named garment or its queried
+part is absent, occluded, or ambiguous among multiple garments.
+
+```bash
+PYTHONPATH=src python scripts/data/build_local_region_manual_label_audit_manifest.py \
+  --annotations /root/autodl-tmp/outputs/local_region_manual_eval_labeled_combined_plus_semantic.jsonl \
+  --eval-json /root/autodl-tmp/outputs/local_region_manual_eval_four_expert_hybrid_fallback.json \
+  --regions cuff pocket zipper waist \
+  --iou-threshold 0.3 \
+  --output /root/autodl-tmp/outputs/local_region_manual_eval_hard_region_audit.jsonl
+```
+
+Review the generated file with the existing annotator. Then merge it after the
+original labels with `--skip-removes-existing`, so reviewed skips remove invalid
+old labels instead of silently retaining them.
+
 Failure review on the 34 exported cases showed three concrete policy issues:
 side-specific cuff/pocket queries should follow garment/wearer left-right
 convention instead of raw image left-right, cuff candidates should cover the

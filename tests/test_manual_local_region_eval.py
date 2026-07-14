@@ -26,6 +26,10 @@ from scripts.data.merge_local_region_manual_eval_labels import (
     merge_labeled_records,
     record_key,
 )
+from scripts.data.build_local_region_manual_label_audit_manifest import (
+    AUDIT_INSTRUCTION,
+    build_audit_records,
+)
 from scripts.data.annotate_local_region_bboxes import (
     default_output_path,
     load_annotation_records,
@@ -141,6 +145,16 @@ def test_class_aware_manifest_uses_category_queries(tmp_path):
     }
     assert all(record["category_name"] == "trousers" for record in records)
     assert all(record["source_item_key"] == "item1" for record in records)
+
+
+def test_class_aware_queries_include_the_referred_garment():
+    trouser_queries = queries_for_category(8)
+    outerwear_queries = queries_for_category(4)
+
+    assert "这条裤子右侧的口袋" in trouser_queries
+    assert "这条裤子上的拉链" in trouser_queries
+    assert "这件外套左侧的袖口" in outerwear_queries
+    assert parse_region_query("这件外套右侧的口袋").region == "pocket"
 
 
 def test_manual_manifest_filters_target_regions(tmp_path):
@@ -1034,6 +1048,72 @@ def test_merge_manual_labels_keeps_same_image_query_when_ids_differ(tmp_path):
 
     assert len(merged) == 2
     assert summary["num_duplicate_keys_replaced"] == 0
+
+
+def test_merge_manual_labels_can_remove_existing_record_from_audit_skip(tmp_path):
+    initial = tmp_path / "initial.jsonl"
+    audit = tmp_path / "audit.jsonl"
+    initial.write_text(
+        '{"id": "zipper-1", "image": "/tmp/1.jpg", "query_text": "裤子上的拉链", '
+        '"target_region": "zipper", "target_bbox": [1, 2, 3, 4], "label_status": "labeled"}\n',
+        encoding="utf-8",
+    )
+    audit.write_text(
+        '{"id": "zipper-1", "image": "/tmp/1.jpg", "query_text": "裤子上的拉链", '
+        '"target_region": "zipper", "target_bbox": null, "label_status": "skip"}\n',
+        encoding="utf-8",
+    )
+
+    merged, summary = merge_labeled_records(
+        [initial, audit],
+        skip_removes_existing=True,
+    )
+
+    assert merged == []
+    assert summary["num_existing_records_removed_by_skip"] == 1
+
+
+def test_audit_manifest_preserves_old_box_and_resets_review_status():
+    annotations = [
+        {
+            "id": "pocket-1",
+            "image": "/tmp/1.jpg",
+            "query_text": "这条裤子右侧的口袋",
+            "target_region": "pocket",
+            "target_bbox": [10, 20, 30, 40],
+            "label_status": "labeled",
+        }
+    ]
+    eval_records = [
+        {
+            "id": "pocket-1",
+            "image": "/tmp/1.jpg",
+            "query_text": "这条裤子右侧的口袋",
+            "target_region": "pocket",
+            "manual_bbox_iou": 0.05,
+        },
+        {
+            "id": "hem-1",
+            "image": "/tmp/2.jpg",
+            "query_text": "这条裤子的裤脚",
+            "target_region": "hem",
+            "manual_bbox_iou": 0.0,
+        },
+    ]
+
+    records, summary = build_audit_records(
+        annotations,
+        eval_records,
+        iou_threshold=0.3,
+        regions={"pocket"},
+    )
+
+    assert len(records) == 1
+    assert records[0]["target_bbox"] == [10, 20, 30, 40]
+    assert records[0]["audit_original_target_bbox"] == [10, 20, 30, 40]
+    assert records[0]["label_status"] == "unlabeled"
+    assert records[0]["audit_instruction"] == AUDIT_INSTRUCTION
+    assert summary["num_missing_annotation_keys"] == 0
 
 
 def test_select_manual_failure_records_filters_region_and_iou():

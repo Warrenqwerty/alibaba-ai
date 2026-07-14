@@ -855,3 +855,48 @@ PYTHONPATH=src HF_ENDPOINT=https://hf-mirror.com python scripts/eval/evaluate_ga
 
 This matches the PRD more closely than fixed-part segmentation, while keeping
 the current code measurable and easy to debug.
+
+## Benchmark Quality Audit
+
+The four-expert policy reaches Hit@0.3 `0.4912` on 171 manual records, still
+below the weekly 60% target. Failure review shows that this remaining gap is
+not only model error: some hard records contain multiple garment instances,
+ambiguous generic queries, or inconsistent bbox definitions (for example,
+waistband versus a broad waist region). Do not select another model against
+these unchecked labels.
+
+Audit low-IoU records before the next model experiment. The audit manifest
+retains the old box for review but marks every record unfinished. Apply the
+following protocol without looking at model predictions or landmarks:
+
+1. The query must identify one visible garment instance.
+2. The named target must be visible and distinguishable; otherwise choose Skip.
+3. Use garment/wearer left/right, not raw image left/right.
+4. Draw the tight visual extent of the named part. Use a narrow waistband only
+   for a waistband query; use the same waist-region convention across records.
+
+```bash
+PYTHONPATH=src python scripts/data/build_local_region_manual_label_audit_manifest.py \
+  --annotations /root/autodl-tmp/outputs/local_region_manual_eval_labeled_combined_plus_semantic.jsonl \
+  --eval-json /root/autodl-tmp/outputs/local_region_manual_eval_four_expert_hybrid_fallback.json \
+  --regions cuff pocket zipper waist \
+  --iou-threshold 0.3 \
+  --output /root/autodl-tmp/outputs/local_region_manual_eval_hard_region_audit.jsonl
+
+PYTHONPATH=src python scripts/data/annotate_local_region_bboxes.py \
+  --manifest /root/autodl-tmp/outputs/local_region_manual_eval_hard_region_audit.jsonl \
+  --output /root/autodl-tmp/outputs/local_region_manual_eval_hard_region_audit_reviewed.jsonl \
+  --host 0.0.0.0 \
+  --port 7860
+
+PYTHONPATH=src python scripts/data/merge_local_region_manual_eval_labels.py \
+  --inputs \
+    /root/autodl-tmp/outputs/local_region_manual_eval_labeled_combined_plus_semantic.jsonl \
+    /root/autodl-tmp/outputs/local_region_manual_eval_hard_region_audit_reviewed.jsonl \
+  --skip-removes-existing \
+  --output /root/autodl-tmp/outputs/local_region_manual_eval_labeled_audited.jsonl
+```
+
+Future class-aware manifests now include the referenced garment in cuff, pocket,
+and zipper queries, such as `这条裤子右侧的口袋`, rather than using an
+unqualified `右侧的口袋`.
