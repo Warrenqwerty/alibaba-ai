@@ -554,6 +554,37 @@ is the manual bbox, red heuristic-only, and blue the gated prediction. Use the
 review to identify prompt competition, small-object false positives, and
 left/right ambiguity; rerun the full manual benchmark after any change.
 
+The paired review showed that a small number of GroundingDINO regressions are
+background objects (for example, a bag) or background patterns. Test the
+experimental garment-mask constraint next. It uses the frozen 3.1.1 mask only
+to reject grounding boxes that do not sufficiently overlap the selected garment;
+when all grounding detections are rejected, it falls back to the existing
+heuristic result. This is a manual-evaluation experiment, not the default
+online policy:
+
+```bash
+PYTHONPATH=src HF_ENDPOINT=https://hf-mirror.com python scripts/eval/evaluate_gated_hybrid_manual_labels.py \
+  --annotations /root/autodl-tmp/outputs/local_region_manual_eval_labeled_combined_plus_semantic.jsonl \
+  --checkpoint /root/autodl-tmp/checkpoints/deepfashion2_6class_hard_mining/instance_segmentation/epoch_001.pt \
+  --device cuda \
+  --grounding-regions pattern pocket \
+  --grounding-backend auto \
+  --grounding-model-name IDEA-Research/grounding-dino-tiny \
+  --prompt-mode english \
+  --prompt-profile ensemble \
+  --score-threshold 0.15 \
+  --constrain-grounding-to-garment \
+  --grounding-min-mask-coverage 0.2 \
+  --output /root/autodl-tmp/outputs/local_region_manual_eval_gated_pattern_pocket_garment_constrained.json
+```
+
+Compare its full-benchmark `manual_hit_at["0.3"]` with the current gated value
+`0.4503`. Also inspect `ranker_backend_counts`: `heuristic_fallback` records
+mean a grounding box was rejected by the garment mask. Keep the constraint only
+if it improves the full manual result; it adds segmentation work to semantic
+queries and is therefore unsuitable for the latency-sensitive default path
+until validated.
+
 Run the same evaluator with `--manifest`:
 
 ```bash

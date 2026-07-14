@@ -652,6 +652,35 @@ prediction (red), and gated prediction (blue). Use it to distinguish prompt
 wording failures from false detections and left/right ambiguity. The default
 online path remains heuristic-only.
 
+Paired visual review found a concrete, testable failure mode: several gated
+regressions select a bag or a background pattern outside the relevant garment.
+The next experiment constrains GroundingDINO detections to the frozen 3.1.1
+selected garment mask. A detection must have at least `0.2` of its box area in
+the mask; otherwise the evaluator uses the existing heuristic result. This
+does not solve every within-garment ambiguity such as a whole trouser leg, so
+the full manual benchmark remains the decision criterion.
+
+```bash
+PYTHONPATH=src HF_ENDPOINT=https://hf-mirror.com python scripts/eval/evaluate_gated_hybrid_manual_labels.py \
+  --annotations /root/autodl-tmp/outputs/local_region_manual_eval_labeled_combined_plus_semantic.jsonl \
+  --checkpoint /root/autodl-tmp/checkpoints/deepfashion2_6class_hard_mining/instance_segmentation/epoch_001.pt \
+  --device cuda \
+  --grounding-regions pattern pocket \
+  --grounding-backend auto \
+  --grounding-model-name IDEA-Research/grounding-dino-tiny \
+  --prompt-mode english \
+  --prompt-profile ensemble \
+  --score-threshold 0.15 \
+  --constrain-grounding-to-garment \
+  --grounding-min-mask-coverage 0.2 \
+  --output /root/autodl-tmp/outputs/local_region_manual_eval_gated_pattern_pocket_garment_constrained.json
+```
+
+Report the complete 171-record `manual_hit_at["0.3"]`, not only selected
+examples. The constraint is experimental and adds segmentation latency to the
+semantic route; do not enable it in the default online path unless the manual
+gain is clear.
+
 ```bash
 PYTHONPATH=src HF_ENDPOINT=https://hf-mirror.com python scripts/eval/evaluate_gated_hybrid_queries.py \
   --manifest /root/autodl-tmp/outputs/local_region_gated_demo_manifest.jsonl \

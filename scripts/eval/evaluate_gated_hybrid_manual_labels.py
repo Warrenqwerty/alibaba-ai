@@ -16,7 +16,10 @@ if str(ROOT) not in sys.path:
 from fashion_mm.models.instance_segmentation import FashionInstanceSegmentationPredictor
 from fashion_mm.models.local_region import LearnedRegionRanker
 from fashion_mm.models.local_region import box_iou
+from fashion_mm.models.local_region import filter_grounding_detections_to_garment
 from fashion_mm.models.local_region import localize_region_from_instances
+from fashion_mm.models.local_region import parse_region_query
+from fashion_mm.models.local_region import select_garment_instance
 from fashion_mm.utils.config import load_config
 from scripts.eval.evaluate_local_region_manual_labels import load_manual_records
 from scripts.eval.evaluate_local_region_manual_labels import summarize_records
@@ -77,6 +80,20 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--prompt-profile", choices=PROMPT_PROFILES, default="ensemble")
     parser.add_argument("--score-threshold", type=float, default=0.15)
+    parser.add_argument(
+        "--constrain-grounding-to-garment",
+        action="store_true",
+        help=(
+            "Experimental: keep only GroundingDINO detections overlapping the "
+            "3.1.1 selected garment mask; use heuristic fallback if none remain."
+        ),
+    )
+    parser.add_argument(
+        "--grounding-min-mask-coverage",
+        type=float,
+        default=0.2,
+        help="Minimum detection-box area covered by the selected garment mask.",
+    )
     parser.add_argument("--max-records", type=int, default=None)
     parser.add_argument(
         "--output",
@@ -99,6 +116,8 @@ def evaluate_gated_hybrid_records(
     prompt_mode: str,
     prompt_profile: str,
     score_threshold: float,
+    constrain_grounding_to_garment: bool = False,
+    grounding_min_mask_coverage: float = 0.2,
 ) -> list[dict[str, Any]]:
     """Run the gated hybrid policy and compare selected boxes to manual labels."""
     config = load_config(model_config)
@@ -130,15 +149,39 @@ def evaluate_gated_hybrid_records(
         if should_route_to_grounding(manual_record, grounding_regions):
             if grounder is None:
                 raise RuntimeError("Grounding route selected, but grounder was not initialized.")
-            records.append(
-                evaluate_grounding_record(
-                    manual_record,
-                    grounder=grounder,
-                    image_cache=image_cache,
-                    prompt_mode=prompt_mode,
-                    prompt_profile=prompt_profile,
-                )
+            segmentation = None
+            if constrain_grounding_to_garment:
+                image_path = str(manual_record["image"])
+                if image_path not in segmentation_cache:
+                    segmentation_cache[image_path] = predictor.predict(image_path)
+                segmentation = segmentation_cache[image_path]
+            grounding_record = evaluate_grounding_record(
+                manual_record,
+                grounder=grounder,
+                image_cache=image_cache,
+                prompt_mode=prompt_mode,
+                prompt_profile=prompt_profile,
+                segmentation=segmentation,
+                grounding_min_mask_coverage=grounding_min_mask_coverage,
             )
+            if (
+                constrain_grounding_to_garment
+                and grounding_record["status"] == "no_detection_in_selected_garment"
+            ):
+                fallback = evaluate_heuristic_record(
+                    manual_record,
+                    predictor=predictor,
+                    ranker=ranker,
+                    segmentation_cache=segmentation_cache,
+                )
+                fallback["gated_policy_route"] = "heuristic_fallback"
+                fallback["ranker_backend"] = f"gated_hybrid_fallback_{fallback['ranker_backend']}"
+                fallback["grounding_filter_status"] = grounding_record["status"]
+                fallback["grounding_detections"] = grounding_record["detections"]
+                fallback["grounding_selected_instance"] = grounding_record["selected_instance"]
+                records.append(fallback)
+            else:
+                records.append(grounding_record)
             continue
 
         records.append(
@@ -167,6 +210,8 @@ def evaluate_grounding_record(
     image_cache: dict[str, Image.Image],
     prompt_mode: str,
     prompt_profile: str,
+    segmentation: Any | None = None,
+    grounding_min_mask_coverage: float = 0.2,
 ) -> dict[str, Any]:
     image_path = str(manual_record["image"])
     if image_path not in image_cache:
@@ -180,6 +225,28 @@ def evaluate_grounding_record(
     start = time.perf_counter()
     prediction = grounder.predict(image_cache[image_path], prompts)
     latency_ms = (time.perf_counter() - start) * 1000.0
+    selected_instance = None
+    filter_status = "not_requested"
+    if segmentation is not None:
+        selected_instance = select_garment_instance(
+            segmentation,
+            parse_region_query(manual_record["query_text"]),
+        )
+        if selected_instance is None:
+            filter_status = "no_selected_garment"
+        else:
+            filtered = filter_grounding_detections_to_garment(
+                prediction["detections"],
+                selected_instance.mask,
+                min_mask_coverage=grounding_min_mask_coverage,
+            )
+            prediction = {
+                **prediction,
+                "status": "ok" if filtered else "no_detection_in_selected_garment",
+                "detections": filtered,
+                "best": filtered[0] if filtered else None,
+            }
+            filter_status = "accepted" if filtered else "no_detection_in_selected_garment"
     best = prediction["best"]
     predicted_box = tuple(best["bbox"]) if best is not None else None
     manual_iou = (
@@ -203,6 +270,12 @@ def evaluate_grounding_record(
         "score": best["score"] if best is not None else None,
         "prompts": prompts,
         "detections": prediction["detections"][:5],
+        "grounding_filter_status": filter_status,
+        "selected_instance": (
+            selected_instance.to_dict(include_mask=False)
+            if selected_instance is not None
+            else None
+        ),
     }
 
 
@@ -270,6 +343,8 @@ def main() -> None:
         prompt_mode=args.prompt_mode,
         prompt_profile=args.prompt_profile,
         score_threshold=args.score_threshold,
+        constrain_grounding_to_garment=args.constrain_grounding_to_garment,
+        grounding_min_mask_coverage=args.grounding_min_mask_coverage,
     )
     summary = {
         "annotations": str(Path(args.annotations)),
@@ -280,6 +355,8 @@ def main() -> None:
         "prompt_mode": args.prompt_mode,
         "prompt_profile": args.prompt_profile,
         "score_threshold": args.score_threshold,
+        "constrain_grounding_to_garment": args.constrain_grounding_to_garment,
+        "grounding_min_mask_coverage": args.grounding_min_mask_coverage,
         **summarize_records(records),
         "records": records,
     }

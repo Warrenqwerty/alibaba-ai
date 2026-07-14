@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 from PIL import Image
+import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -55,6 +56,8 @@ from scripts.inference.predict_gated_hybrid_local_region import (
     should_use_grounding_route,
 )
 from fashion_mm.models.local_region.query import parse_region_query
+from fashion_mm.models.local_region import filter_grounding_detections_to_garment
+from fashion_mm.models.local_region import grounding_box_mask_coverage
 from scripts.eval.evaluate_gated_hybrid_queries import (
     draw_reference_bbox,
     group_records_by_image,
@@ -276,6 +279,26 @@ def test_prompt_profile_target_region_filter_is_exact():
     selected = select_target_regions(records, {"pattern", "pocket"})
 
     assert [record["id"] for record in selected] == ["pattern", "pocket"]
+
+
+def test_grounding_garment_filter_rejects_background_detection():
+    garment_mask = np.zeros((10, 10), dtype=bool)
+    garment_mask[2:8, 2:8] = True
+    detections = [
+        {"prompt": "pocket", "score": 0.9, "bbox": [0, 0, 2, 2]},
+        {"prompt": "pocket", "score": 0.8, "bbox": [3, 3, 6, 6]},
+    ]
+
+    filtered = filter_grounding_detections_to_garment(
+        detections,
+        garment_mask,
+        min_mask_coverage=0.5,
+    )
+
+    assert grounding_box_mask_coverage(detections[0]["bbox"], garment_mask) == 0.0
+    assert len(filtered) == 1
+    assert filtered[0]["score"] == 0.8
+    assert filtered[0]["garment_mask_coverage"] == pytest.approx(1.0)
 
 
 def test_gated_hybrid_routes_only_configured_regions_to_grounding():

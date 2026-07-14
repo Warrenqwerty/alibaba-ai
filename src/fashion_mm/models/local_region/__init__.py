@@ -1,5 +1,7 @@
 from fashion_mm.models.local_region.landmark_regions import LANDMARK_REGION_GROUPS
 from fashion_mm.models.local_region.landmark_regions import propose_region_from_landmarks
+from fashion_mm.models.local_region.grounding import filter_grounding_detections_to_garment
+from fashion_mm.models.local_region.grounding import grounding_box_mask_coverage
 from fashion_mm.models.local_region.learned_ranker import box_iou
 from fashion_mm.models.local_region.learned_ranker import BoxCandidate
 from fashion_mm.models.local_region.learned_ranker import build_candidate_record_feature
@@ -28,6 +30,8 @@ __all__ = [
     "BoxCandidate",
     "CandidateListwiseScorer",
     "HashingTextRegionScorer",
+    "filter_grounding_detections_to_garment",
+    "grounding_box_mask_coverage",
     "ParsedRegionQuery",
     "RankedRegionCandidate",
     "HeuristicRegionRanker",

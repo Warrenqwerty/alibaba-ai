@@ -494,6 +494,29 @@ red, and gated grounding in blue. It is offline analysis only; any prompt or
 gate revision still needs a new full 171-record manual evaluation before it can
 affect the default heuristic-only online path.
 
+The paired review also exposes occasional background-object detections. An
+explicit manual-evaluation experiment can reject GroundingDINO boxes that do
+not overlap the frozen 3.1.1 selected garment mask, then fall back to heuristic
+when no valid grounding detection remains:
+
+```bash
+PYTHONPATH=src HF_ENDPOINT=https://hf-mirror.com python scripts/eval/evaluate_gated_hybrid_manual_labels.py \
+  --annotations /root/autodl-tmp/outputs/local_region_manual_eval_labeled_combined_plus_semantic.jsonl \
+  --checkpoint /root/autodl-tmp/checkpoints/deepfashion2_6class_hard_mining/instance_segmentation/epoch_001.pt \
+  --device cuda \
+  --grounding-regions pattern pocket \
+  --grounding-backend auto \
+  --grounding-model-name IDEA-Research/grounding-dino-tiny \
+  --prompt-profile ensemble \
+  --constrain-grounding-to-garment \
+  --grounding-min-mask-coverage 0.2 \
+  --output /root/autodl-tmp/outputs/local_region_manual_eval_gated_pattern_pocket_garment_constrained.json
+```
+
+This gate is experimental; retain it only if the complete manual benchmark
+improves, and keep the default online path unchanged because it adds mask
+inference for semantic queries.
+
 ### Archived Weak-Supervision Experiments
 
 These commands are kept for reproducibility, but they are no longer the main
