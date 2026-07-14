@@ -510,12 +510,16 @@ def evaluate_heuristic_record(
     }
 
 
-def main() -> None:
-    args = parse_args()
-    manual_records = load_manual_records(args.annotations, max_records=args.max_records)
-    if not manual_records:
-        raise ValueError("No labeled manual records found for gated hybrid eval.")
-
+def resolve_cli_grounding_policy(
+    args: argparse.Namespace,
+) -> tuple[
+    set[str],
+    dict[str, str] | None,
+    dict[str, str] | None,
+    dict[str, float] | None,
+    dict[str, str],
+]:
+    """Parse and resolve all CLI route options before model initialization."""
     grounding_regions = set(args.grounding_regions)
     grounding_routes = parse_grounding_routes(args.grounding_routes)
     grounding_route_profiles = parse_grounding_route_profiles(
@@ -528,9 +532,29 @@ def main() -> None:
         grounding_regions=grounding_regions,
         grounding_model_name=args.grounding_model_name,
         grounding_routes=grounding_routes,
-        grounding_route_profiles=grounding_route_profiles,
-        grounding_route_thresholds=grounding_route_thresholds,
     )
+    return (
+        grounding_regions,
+        grounding_routes,
+        grounding_route_profiles,
+        grounding_route_thresholds,
+        resolved_grounding_routes,
+    )
+
+
+def main() -> None:
+    args = parse_args()
+    manual_records = load_manual_records(args.annotations, max_records=args.max_records)
+    if not manual_records:
+        raise ValueError("No labeled manual records found for gated hybrid eval.")
+
+    (
+        grounding_regions,
+        grounding_routes,
+        grounding_route_profiles,
+        grounding_route_thresholds,
+        resolved_grounding_routes,
+    ) = resolve_cli_grounding_policy(args)
     records = evaluate_gated_hybrid_records(
         manual_records,
         model_config=args.model_config,
@@ -540,6 +564,8 @@ def main() -> None:
         grounding_regions=grounding_regions,
         grounding_model_name=args.grounding_model_name,
         grounding_routes=grounding_routes,
+        grounding_route_profiles=grounding_route_profiles,
+        grounding_route_thresholds=grounding_route_thresholds,
         grounding_backend=args.grounding_backend,
         prompt_mode=args.prompt_mode,
         prompt_profile=args.prompt_profile,

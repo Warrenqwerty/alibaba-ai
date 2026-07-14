@@ -1,5 +1,6 @@
 import json
 import sys
+from argparse import Namespace
 from pathlib import Path
 
 import pytest
@@ -53,6 +54,7 @@ from scripts.eval.evaluate_gated_hybrid_manual_labels import parse_grounding_rou
 from scripts.eval.evaluate_gated_hybrid_manual_labels import parse_grounding_route_profiles
 from scripts.eval.evaluate_gated_hybrid_manual_labels import parse_grounding_route_thresholds
 from scripts.eval.evaluate_gated_hybrid_manual_labels import resolve_grounding_routes
+from scripts.eval.evaluate_gated_hybrid_manual_labels import resolve_cli_grounding_policy
 from scripts.eval.evaluate_gated_hybrid_manual_labels import resolve_prompt_profile
 from scripts.eval.evaluate_gated_hybrid_manual_labels import resolve_score_threshold
 from scripts.eval.evaluate_gated_hybrid_manual_labels import should_route_to_grounding
@@ -392,6 +394,30 @@ def test_explicit_grounding_route_thresholds_override_default_threshold():
     ) == pytest.approx(0.15)
     with pytest.raises(ValueError, match="between 0 and 1"):
         parse_grounding_route_thresholds(["cuff=1.1"])
+
+
+def test_cli_grounding_policy_forwards_route_profiles_and_thresholds():
+    args = Namespace(
+        grounding_regions=["pattern", "pocket"],
+        grounding_model_name="IDEA-Research/grounding-dino-tiny",
+        grounding_routes=[
+            "pattern=IDEA-Research/grounding-dino-tiny",
+            "cuff=google/owlv2-large-patch14-ensemble",
+        ],
+        grounding_route_profiles=["cuff=precise"],
+        grounding_route_thresholds=["cuff=0.05"],
+    )
+
+    regions, routes, profiles, thresholds, resolved = resolve_cli_grounding_policy(args)
+
+    assert regions == {"pattern", "pocket"}
+    assert routes == {
+        "pattern": "IDEA-Research/grounding-dino-tiny",
+        "cuff": "google/owlv2-large-patch14-ensemble",
+    }
+    assert profiles == {"cuff": "precise"}
+    assert thresholds == {"cuff": pytest.approx(0.05)}
+    assert resolved == routes
 
 
 def test_single_image_gated_hybrid_routes_by_parsed_query():
