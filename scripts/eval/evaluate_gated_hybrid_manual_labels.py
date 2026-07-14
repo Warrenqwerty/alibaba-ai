@@ -129,6 +129,14 @@ def parse_args() -> argparse.Namespace:
         default=0.2,
         help="Minimum detection-box area covered by the selected garment mask.",
     )
+    parser.add_argument(
+        "--fallback-on-no-detection",
+        action="store_true",
+        help=(
+            "Use the heuristic route when a selected grounding model returns "
+            "no detection. Disabled by default to preserve historical results."
+        ),
+    )
     parser.add_argument("--max-records", type=int, default=None)
     parser.add_argument(
         "--output",
@@ -156,6 +164,7 @@ def evaluate_gated_hybrid_records(
     score_threshold: float,
     constrain_grounding_to_garment: bool = False,
     grounding_min_mask_coverage: float = 0.2,
+    fallback_on_no_detection: bool = False,
 ) -> list[dict[str, Any]]:
     """Run the gated hybrid policy and compare selected boxes to manual labels."""
     config = load_config(model_config)
@@ -228,21 +237,23 @@ def evaluate_gated_hybrid_records(
                 segmentation=segmentation,
                 grounding_min_mask_coverage=grounding_min_mask_coverage,
             )
-            if (
-                constrain_grounding_to_garment
-                and grounding_record["status"] == "no_detection_in_selected_garment"
-            ):
+            fallback_reason = grounding_fallback_reason(
+                grounding_record,
+                constrain_grounding_to_garment=constrain_grounding_to_garment,
+                fallback_on_no_detection=fallback_on_no_detection,
+            )
+            if fallback_reason is not None:
                 fallback = evaluate_heuristic_record(
                     manual_record,
                     predictor=predictor,
                     ranker=ranker,
                     segmentation_cache=segmentation_cache,
                 )
-                fallback["gated_policy_route"] = "heuristic_fallback"
+                fallback["gated_policy_route"] = f"heuristic_fallback_{fallback_reason}"
                 fallback["ranker_backend"] = f"gated_hybrid_fallback_{fallback['ranker_backend']}"
                 fallback["grounding_filter_status"] = grounding_record["status"]
                 fallback["grounding_detections"] = grounding_record["detections"]
-                fallback["grounding_selected_instance"] = grounding_record["selected_instance"]
+                fallback["grounding_selected_instance"] = grounding_record.get("selected_instance")
                 records.append(fallback)
             else:
                 records.append(grounding_record)
@@ -265,6 +276,24 @@ def should_route_to_grounding(
 ) -> bool:
     """Return whether a manual record should use pretrained grounding."""
     return str(manual_record.get("target_region") or "") in grounding_regions
+
+
+def grounding_fallback_reason(
+    grounding_record: Mapping[str, Any],
+    *,
+    constrain_grounding_to_garment: bool,
+    fallback_on_no_detection: bool,
+) -> str | None:
+    """Return the explicit reason to replace a failed grounding result."""
+    status = grounding_record.get("status")
+    if (
+        constrain_grounding_to_garment
+        and status == "no_detection_in_selected_garment"
+    ):
+        return "garment_filter"
+    if fallback_on_no_detection and status == "no_detection":
+        return "no_detection"
+    return None
 
 
 def parse_grounding_routes(values: list[str] | None) -> dict[str, str] | None:
@@ -572,6 +601,7 @@ def main() -> None:
         score_threshold=args.score_threshold,
         constrain_grounding_to_garment=args.constrain_grounding_to_garment,
         grounding_min_mask_coverage=args.grounding_min_mask_coverage,
+        fallback_on_no_detection=args.fallback_on_no_detection,
     )
     summary = {
         "annotations": str(Path(args.annotations)),
@@ -589,6 +619,7 @@ def main() -> None:
         "score_threshold": args.score_threshold,
         "constrain_grounding_to_garment": args.constrain_grounding_to_garment,
         "grounding_min_mask_coverage": args.grounding_min_mask_coverage,
+        "fallback_on_no_detection": args.fallback_on_no_detection,
         **summarize_records(records),
         "records": records,
     }

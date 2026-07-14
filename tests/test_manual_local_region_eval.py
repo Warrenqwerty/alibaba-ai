@@ -57,6 +57,7 @@ from scripts.eval.evaluate_gated_hybrid_manual_labels import resolve_grounding_r
 from scripts.eval.evaluate_gated_hybrid_manual_labels import resolve_cli_grounding_policy
 from scripts.eval.evaluate_gated_hybrid_manual_labels import resolve_prompt_profile
 from scripts.eval.evaluate_gated_hybrid_manual_labels import resolve_score_threshold
+from scripts.eval.evaluate_gated_hybrid_manual_labels import grounding_fallback_reason
 from scripts.eval.evaluate_gated_hybrid_manual_labels import should_route_to_grounding
 from scripts.inference.predict_gated_hybrid_local_region import (
     canonical_grounding_region,
@@ -418,6 +419,24 @@ def test_cli_grounding_policy_forwards_route_profiles_and_thresholds():
     assert profiles == {"cuff": "precise"}
     assert thresholds == {"cuff": pytest.approx(0.05)}
     assert resolved == routes
+
+
+def test_grounding_no_detection_fallback_is_explicit_and_opt_in():
+    assert grounding_fallback_reason(
+        {"status": "no_detection"},
+        constrain_grounding_to_garment=False,
+        fallback_on_no_detection=False,
+    ) is None
+    assert grounding_fallback_reason(
+        {"status": "no_detection"},
+        constrain_grounding_to_garment=False,
+        fallback_on_no_detection=True,
+    ) == "no_detection"
+    assert grounding_fallback_reason(
+        {"status": "no_detection_in_selected_garment"},
+        constrain_grounding_to_garment=True,
+        fallback_on_no_detection=False,
+    ) == "garment_filter"
 
 
 def test_single_image_gated_hybrid_routes_by_parsed_query():
