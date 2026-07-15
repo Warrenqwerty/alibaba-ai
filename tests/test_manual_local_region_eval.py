@@ -98,6 +98,10 @@ from scripts.eval.export_gated_hybrid_policy_deltas import (
     write_policy_delta_html,
 )
 from scripts.eval.analyze_local_region_routing_oracle import build_routing_oracle
+from scripts.eval.analyze_grounding_wearer_side_selection import (
+    desired_image_side,
+    select_wearer_side_detection,
+)
 from scripts.eval.evaluate_chinese_clip_manual_local_regions import (
     empty_prediction_record,
     finalize_run as finalize_chinese_clip_manual_run,
@@ -296,6 +300,42 @@ def test_pretrained_grounding_prompt_profiles_keep_side_and_context():
 
     assert precise == ["right pocket"]
     assert fashion == ["right pocket on clothing"]
+
+
+def test_wearer_side_detection_selection_uses_opposite_image_side():
+    detections = [
+        {"bbox": [60, 10, 90, 30], "score": 0.9, "prompt": "right sleeve cuff"},
+        {"bbox": [10, 10, 35, 30], "score": 0.8, "prompt": "sleeve cuff"},
+    ]
+
+    selected, status = select_wearer_side_detection(
+        detections,
+        query_text="这件上衣右侧的袖口",
+        image_width=100,
+        min_score_ratio=0.5,
+    )
+
+    assert status == "side_candidate"
+    assert selected == detections[1]
+    assert desired_image_side("right") == "left"
+    assert desired_image_side("left") == "right"
+
+
+def test_wearer_side_detection_selection_rejects_weak_side_candidate():
+    detections = [
+        {"bbox": [60, 10, 90, 30], "score": 0.9, "prompt": "right sleeve cuff"},
+        {"bbox": [10, 10, 35, 30], "score": 0.2, "prompt": "sleeve cuff"},
+    ]
+
+    selected, status = select_wearer_side_detection(
+        detections,
+        query_text="这件上衣右侧的袖口",
+        image_width=100,
+        min_score_ratio=0.5,
+    )
+
+    assert status == "no_credible_side_candidate"
+    assert selected == detections[0]
 
 
 def test_prompt_profile_target_region_filter_is_exact():
