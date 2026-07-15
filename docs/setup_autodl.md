@@ -990,3 +990,22 @@ grounding-routed record without selecting it. Report the expanded
 `candidate_oracle_summary.manual_hit_at`, each region's `recoverable_failures`,
 `oracle_source_counts`, and `oracle_rank_counts` before choosing the next model
 experiment.
+
+Add GroundingDINO-base zipper detections without changing the selected policy
+by repeating the side-aware evaluation command above with:
+
+```bash
+  --diagnostic-grounding-routes zipper=IDEA-Research/grounding-dino-base \
+  --output /root/autodl-tmp/outputs/local_region_manual_eval_zipper_candidates_audited.json
+```
+
+Keep `--record-heuristic-candidates-for-grounding` enabled. The selected
+Hit@0.3 must remain 87/161. Then run:
+
+```bash
+PYTHONPATH=src python scripts/eval/analyze_grounding_candidate_oracle.py \
+  --eval-json /root/autodl-tmp/outputs/local_region_manual_eval_zipper_candidates_audited.json \
+  --regions cuff pocket pattern waist zipper \
+  --hit-threshold 0.3 \
+  --output /root/autodl-tmp/outputs/local_region_zipper_candidate_oracle_audited.json
+```

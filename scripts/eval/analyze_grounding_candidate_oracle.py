@@ -32,16 +32,27 @@ def parse_args() -> argparse.Namespace:
 def grounding_detections(record: dict[str, Any]) -> list[dict[str, Any]]:
     detections = record.get("detections")
     if isinstance(detections, list):
-        return detections
+        return [{**detection, "candidate_source": "grounding"} for detection in detections]
     fallback = record.get("grounding_detections")
-    return fallback if isinstance(fallback, list) else []
+    if isinstance(fallback, list):
+        return [
+            {**detection, "candidate_source": "grounding"}
+            for detection in fallback
+        ]
+    diagnostic = record.get("diagnostic_grounding_candidate")
+    if isinstance(diagnostic, dict) and isinstance(diagnostic.get("detections"), list):
+        return [
+            {**detection, "candidate_source": "diagnostic_grounding"}
+            for detection in diagnostic["detections"]
+        ]
+    return []
 
 
 def manual_candidates(record: dict[str, Any]) -> list[dict[str, Any]]:
     candidates = [
         {
             **detection,
-            "candidate_source": "grounding",
+            "candidate_source": detection.get("candidate_source", "grounding"),
             "candidate_rank": rank,
         }
         for rank, detection in enumerate(grounding_detections(record), start=1)

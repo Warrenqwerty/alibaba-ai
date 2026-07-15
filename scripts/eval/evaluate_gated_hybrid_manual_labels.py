@@ -162,6 +162,16 @@ def parse_args() -> argparse.Namespace:
             "grounding-routed records without changing the selected result."
         ),
     )
+    parser.add_argument(
+        "--diagnostic-grounding-routes",
+        nargs="*",
+        default=None,
+        metavar="REGION=MODEL_NAME",
+        help=(
+            "Diagnostic-only grounding routes for heuristic-selected regions. "
+            "Their Top-K detections are saved but never selected online."
+        ),
+    )
     parser.add_argument("--max-records", type=int, default=None)
     parser.add_argument(
         "--output",
@@ -193,6 +203,7 @@ def evaluate_gated_hybrid_records(
     wearer_side_regions: set[str] | None = None,
     wearer_side_min_score_ratio: float = 0.5,
     record_heuristic_candidates_for_grounding: bool = False,
+    diagnostic_grounding_routes: Mapping[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     """Run the gated hybrid policy and compare selected boxes to manual labels."""
     config = load_config(model_config)
@@ -211,6 +222,15 @@ def evaluate_gated_hybrid_records(
         grounding_model_name=grounding_model_name,
         grounding_routes=grounding_routes,
     )
+    diagnostic_grounding_routes = dict(diagnostic_grounding_routes or {})
+    overlapping_regions = set(resolved_grounding_routes) & set(
+        diagnostic_grounding_routes
+    )
+    if overlapping_regions:
+        raise ValueError(
+            "Diagnostic grounding routes must use heuristic-selected regions; "
+            f"overlap: {', '.join(sorted(overlapping_regions))}."
+        )
     route_configs = {
         (
             model_name,
@@ -222,6 +242,10 @@ def evaluate_gated_hybrid_records(
         )
         for region, model_name in resolved_grounding_routes.items()
     }
+    route_configs.update(
+        (model_name, score_threshold)
+        for model_name in diagnostic_grounding_routes.values()
+    )
     grounders = {
         (model_name, threshold): HFZeroShotGrounder(
             model_name,
@@ -308,14 +332,36 @@ def evaluate_gated_hybrid_records(
                 records.append(grounding_record)
             continue
 
-        records.append(
-            evaluate_heuristic_record(
-                manual_record,
-                predictor=predictor,
-                ranker=ranker,
-                segmentation_cache=segmentation_cache,
-            )
+        heuristic_record = evaluate_heuristic_record(
+            manual_record,
+            predictor=predictor,
+            ranker=ranker,
+            segmentation_cache=segmentation_cache,
         )
+        diagnostic_model = diagnostic_grounding_routes.get(target_region)
+        if diagnostic_model is not None:
+            diagnostic_record = evaluate_grounding_record(
+                manual_record,
+                grounder=grounders[(diagnostic_model, score_threshold)],
+                image_cache=image_cache,
+                prompt_mode=prompt_mode,
+                prompt_profile=prompt_profile,
+            )
+            heuristic_record["diagnostic_grounding_candidate"] = {
+                key: diagnostic_record.get(key)
+                for key in (
+                    "status",
+                    "grounding_model_name",
+                    "selected_region",
+                    "predicted_bbox",
+                    "manual_bbox_iou",
+                    "score",
+                    "prompt_profile",
+                    "prompts",
+                    "detections",
+                )
+            }
+        records.append(heuristic_record)
     return records
 
 
@@ -646,6 +692,9 @@ def main() -> None:
         grounding_route_thresholds,
         resolved_grounding_routes,
     ) = resolve_cli_grounding_policy(args)
+    diagnostic_grounding_routes = parse_grounding_routes(
+        args.diagnostic_grounding_routes
+    )
     records = evaluate_gated_hybrid_records(
         manual_records,
         model_config=args.model_config,
@@ -669,6 +718,7 @@ def main() -> None:
         record_heuristic_candidates_for_grounding=(
             args.record_heuristic_candidates_for_grounding
         ),
+        diagnostic_grounding_routes=diagnostic_grounding_routes,
     )
     summary = {
         "annotations": str(Path(args.annotations)),
@@ -692,6 +742,7 @@ def main() -> None:
         "record_heuristic_candidates_for_grounding": (
             args.record_heuristic_candidates_for_grounding
         ),
+        "diagnostic_grounding_routes": diagnostic_grounding_routes or {},
         **summarize_records(records),
         "records": records,
     }

@@ -932,3 +932,13 @@ over grounding and heuristic candidates. This flag records diagnostics only
 and does not change the selected online result. If the expanded oracle does
 not create a meaningful margin above 97 hits, generate new candidates for
 pocket/cuff/zipper instead of fitting a selector to this benchmark.
+
+The completed grounding-plus-heuristic oracle still reaches 98/161 Hit@0.3.
+Eight heuristic candidates improve per-record IoU, but none adds a new Hit@0.3
+success. Candidate selection therefore remains too close to the target. The
+next candidate-generation experiment keeps zipper on the heuristic online
+route and adds GroundingDINO-base as a diagnostic-only zipper route. This model
+is already loaded for pocket, so the experiment adds only 17 zipper inference
+calls. Recompute the oracle over `cuff pocket pattern waist zipper`; only move
+to selector development if the expanded ceiling has a meaningful margin above
+97 hits.

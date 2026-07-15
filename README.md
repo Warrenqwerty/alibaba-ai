@@ -730,6 +730,24 @@ The 60% target is 97/161 hits. The side-aware cuff result is expected to reach
 Use `recoverable_failures` to decide whether the next step is candidate
 selection or new candidate generation.
 
+The expanded grounding-plus-heuristic oracle remains at 98/161 Hit@0.3;
+heuristic candidates improve IoU and Hit@0.5 but add no new Hit@0.3 success.
+Generate diagnostic zipper candidates with the already loaded
+GroundingDINO-base model while preserving heuristic as the selected zipper
+route:
+
+```bash
+PYTHONPATH=src HF_ENDPOINT=https://hf-mirror.com python scripts/eval/evaluate_gated_hybrid_manual_labels.py \
+  ...same audited four-expert arguments... \
+  --diagnostic-grounding-routes zipper=IDEA-Research/grounding-dino-base \
+  --record-heuristic-candidates-for-grounding \
+  --output /root/autodl-tmp/outputs/local_region_manual_eval_zipper_candidates_audited.json
+```
+
+The diagnostic route saves Top-K boxes but cannot change the 87/161 selected
+policy result. Include `zipper` in the candidate-oracle regions for the next
+ceiling measurement.
+
 ### Archived Weak-Supervision Experiments
 
 These commands are kept for reproducibility, but they are no longer the main

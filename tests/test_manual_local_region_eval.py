@@ -403,6 +403,27 @@ def test_grounding_candidate_oracle_can_include_heuristic_candidate():
     assert candidate["candidate_rank"] is None
 
 
+def test_grounding_candidate_oracle_can_include_diagnostic_grounding():
+    candidate, iou = best_manual_candidate(
+        {
+            "target_bbox": [0, 0, 10, 10],
+            "diagnostic_grounding_candidate": {
+                "detections": [
+                    {
+                        "bbox": [0, 0, 10, 10],
+                        "score": 0.4,
+                        "prompt": "clothing zipper",
+                    }
+                ]
+            },
+        }
+    )
+
+    assert iou == pytest.approx(1.0)
+    assert candidate["candidate_source"] == "diagnostic_grounding"
+    assert candidate["candidate_rank"] == 1
+
+
 def test_manual_grounding_record_applies_validated_wearer_side_selection(tmp_path):
     image_path = tmp_path / "cuff.jpg"
     Image.new("RGB", (100, 80)).save(image_path)
