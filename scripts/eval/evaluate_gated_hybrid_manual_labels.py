@@ -20,7 +20,9 @@ from fashion_mm.models.local_region import box_iou
 from fashion_mm.models.local_region import filter_grounding_detections_to_garment
 from fashion_mm.models.local_region import localize_region_from_instances
 from fashion_mm.models.local_region import parse_region_query
+from fashion_mm.models.local_region import query_wearer_side
 from fashion_mm.models.local_region import select_garment_instance
+from fashion_mm.models.local_region import select_wearer_side_detection
 from fashion_mm.utils.config import load_config
 from scripts.eval.evaluate_local_region_manual_labels import load_manual_records
 from scripts.eval.evaluate_local_region_manual_labels import summarize_records
@@ -137,6 +139,21 @@ def parse_args() -> argparse.Namespace:
             "no detection. Disabled by default to preserve historical results."
         ),
     )
+    parser.add_argument(
+        "--wearer-side-regions",
+        nargs="*",
+        default=[],
+        help=(
+            "Grounding routes that select a credible Top-K box on the query's "
+            "garment/wearer side. Enable only for independently validated regions."
+        ),
+    )
+    parser.add_argument(
+        "--wearer-side-min-score-ratio",
+        type=float,
+        default=0.5,
+        help="Minimum side-candidate score divided by the top detection score.",
+    )
     parser.add_argument("--max-records", type=int, default=None)
     parser.add_argument(
         "--output",
@@ -165,6 +182,8 @@ def evaluate_gated_hybrid_records(
     constrain_grounding_to_garment: bool = False,
     grounding_min_mask_coverage: float = 0.2,
     fallback_on_no_detection: bool = False,
+    wearer_side_regions: set[str] | None = None,
+    wearer_side_min_score_ratio: float = 0.5,
 ) -> list[dict[str, Any]]:
     """Run the gated hybrid policy and compare selected boxes to manual labels."""
     config = load_config(model_config)
@@ -236,6 +255,10 @@ def evaluate_gated_hybrid_records(
                 prompt_profile=route_prompt_profile,
                 segmentation=segmentation,
                 grounding_min_mask_coverage=grounding_min_mask_coverage,
+                apply_wearer_side_selection=(
+                    target_region in (wearer_side_regions or set())
+                ),
+                wearer_side_min_score_ratio=wearer_side_min_score_ratio,
             )
             fallback_reason = grounding_fallback_reason(
                 grounding_record,
@@ -424,6 +447,8 @@ def evaluate_grounding_record(
     prompt_profile: str,
     segmentation: Any | None = None,
     grounding_min_mask_coverage: float = 0.2,
+    apply_wearer_side_selection: bool = False,
+    wearer_side_min_score_ratio: float = 0.5,
 ) -> dict[str, Any]:
     image_path = str(manual_record["image"])
     if image_path not in image_cache:
@@ -459,6 +484,15 @@ def evaluate_grounding_record(
                 "best": filtered[0] if filtered else None,
             }
             filter_status = "accepted" if filtered else "no_detection_in_selected_garment"
+    wearer_side_selection_status = "not_requested"
+    if apply_wearer_side_selection:
+        selected, wearer_side_selection_status = select_wearer_side_detection(
+            prediction["detections"],
+            query_text=manual_record["query_text"],
+            image_width=image_cache[image_path].width,
+            min_score_ratio=wearer_side_min_score_ratio,
+        )
+        prediction = {**prediction, "best": selected}
     best = prediction["best"]
     predicted_box = tuple(best["bbox"]) if best is not None else None
     manual_iou = (
@@ -486,6 +520,8 @@ def evaluate_grounding_record(
         "prompts": prompts,
         "detections": prediction["detections"][:5],
         "grounding_filter_status": filter_status,
+        "wearer_side_selection_status": wearer_side_selection_status,
+        "wearer_side": query_wearer_side(manual_record["query_text"]),
         "selected_instance": (
             selected_instance.to_dict(include_mask=False)
             if selected_instance is not None
@@ -602,6 +638,8 @@ def main() -> None:
         constrain_grounding_to_garment=args.constrain_grounding_to_garment,
         grounding_min_mask_coverage=args.grounding_min_mask_coverage,
         fallback_on_no_detection=args.fallback_on_no_detection,
+        wearer_side_regions=set(args.wearer_side_regions),
+        wearer_side_min_score_ratio=args.wearer_side_min_score_ratio,
     )
     summary = {
         "annotations": str(Path(args.annotations)),
@@ -620,6 +658,8 @@ def main() -> None:
         "constrain_grounding_to_garment": args.constrain_grounding_to_garment,
         "grounding_min_mask_coverage": args.grounding_min_mask_coverage,
         "fallback_on_no_detection": args.fallback_on_no_detection,
+        "wearer_side_regions": sorted(set(args.wearer_side_regions)),
+        "wearer_side_min_score_ratio": args.wearer_side_min_score_ratio,
         **summarize_records(records),
         "records": records,
     }

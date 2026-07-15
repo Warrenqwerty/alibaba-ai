@@ -14,6 +14,9 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from fashion_mm.models.local_region import box_iou
+from fashion_mm.models.local_region import desired_image_side
+from fashion_mm.models.local_region import query_wearer_side
+from fashion_mm.models.local_region import select_wearer_side_detection
 from scripts.eval.evaluate_local_region_manual_labels import summarize_records
 
 
@@ -40,60 +43,6 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     return parser.parse_args()
-
-
-def query_wearer_side(query_text: str) -> str | None:
-    """Return the garment/wearer side named by a Chinese query."""
-    if "左" in query_text:
-        return "left"
-    if "右" in query_text:
-        return "right"
-    return None
-
-
-def desired_image_side(wearer_side: str) -> str:
-    """Map garment/wearer side to image side for frontal or front-flat views."""
-    if wearer_side == "left":
-        return "right"
-    if wearer_side == "right":
-        return "left"
-    raise ValueError(f"Unsupported wearer side: {wearer_side}")
-
-
-def detection_image_side(detection: dict[str, Any], image_width: int) -> str:
-    x1, _, x2, _ = [float(value) for value in detection["bbox"]]
-    return "left" if (x1 + x2) * 0.5 < image_width * 0.5 else "right"
-
-
-def select_wearer_side_detection(
-    detections: list[dict[str, Any]],
-    *,
-    query_text: str,
-    image_width: int,
-    min_score_ratio: float,
-) -> tuple[dict[str, Any] | None, str]:
-    """Select the best credible detection on the query's garment/wearer side."""
-    if not detections:
-        return None, "no_detection"
-    baseline = max(detections, key=lambda detection: float(detection["score"]))
-    wearer_side = query_wearer_side(query_text)
-    if wearer_side is None:
-        return baseline, "query_has_no_side"
-    if not 0.0 <= min_score_ratio <= 1.0:
-        raise ValueError("min_score_ratio must be between 0 and 1")
-
-    target_image_side = desired_image_side(wearer_side)
-    minimum_score = float(baseline["score"]) * min_score_ratio
-    compatible = [
-        detection
-        for detection in detections
-        if float(detection["score"]) >= minimum_score
-        and detection_image_side(detection, image_width) == target_image_side
-    ]
-    if not compatible:
-        return baseline, "no_credible_side_candidate"
-    selected = max(compatible, key=lambda detection: float(detection["score"]))
-    return selected, "side_candidate"
 
 
 def grounding_detections(record: dict[str, Any]) -> list[dict[str, Any]]:

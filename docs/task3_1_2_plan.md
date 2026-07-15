@@ -900,3 +900,30 @@ PYTHONPATH=src python scripts/data/merge_local_region_manual_eval_labels.py \
 Future class-aware manifests now include the referenced garment in cuff, pocket,
 and zipper queries, such as `这条裤子右侧的口袋`, rather than using an
 unqualified `右侧的口袋`.
+
+## Audited Benchmark and Wearer-Side Selection
+
+The completed audit removed 10 absent or ambiguous records, leaving 161 valid
+manual labels. On this fixed set, heuristic-only reaches average IoU `0.2696`,
+Hit@0.3 `0.4099` (66/161), and Hit@0.5 `0.2174`. The four-expert policy reaches
+average IoU `0.3360`, Hit@0.3 `0.5217` (84/161), and Hit@0.5 `0.3230`.
+
+An offline Top-5 side-selection analysis used the annotation convention that
+left/right means the garment or wearer's side. For frontal and flat-lay views,
+wearer-right maps to image-left and wearer-left maps to image-right. Across 40
+cuff/pocket records, 17 selections changed: 11 improved, 5 regressed, and 1
+kept the same IoU. Cuff Hit@0.3 improved from 5/18 to 8/18 and Hit@0.5 from
+2/18 to 5/18. Pocket Hit@0.3 stayed at 5/22 and Hit@0.5 fell from 3/22 to 2/22.
+Therefore the fixed policy enables wearer-side selection for `cuff` only.
+
+Run the full audited benchmark with `--wearer-side-regions cuff` and
+`--wearer-side-min-score-ratio 0.5`. Do not add `pocket` without a new manual
+benchmark gain. If reproduced, the expected Hit@0.3 is 87/161 (`0.5404`), 10
+hits short of the 97/161 weekly target.
+
+Then run `scripts/eval/analyze_grounding_candidate_oracle.py` over `cuff`,
+`pocket`, `pattern`, and `waist`. The script compares the current selection
+with every saved Top-5 grounding detection. `recoverable_failures` is the
+maximum number of current misses that a better selector could recover. If the
+full oracle remains below 97 hits, stop selector tuning and generate new
+candidates for pocket/cuff/zipper instead.

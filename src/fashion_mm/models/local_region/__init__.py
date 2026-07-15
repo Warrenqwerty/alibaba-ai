@@ -2,6 +2,9 @@ from fashion_mm.models.local_region.landmark_regions import LANDMARK_REGION_GROU
 from fashion_mm.models.local_region.landmark_regions import propose_region_from_landmarks
 from fashion_mm.models.local_region.grounding import filter_grounding_detections_to_garment
 from fashion_mm.models.local_region.grounding import grounding_box_mask_coverage
+from fashion_mm.models.local_region.grounding import desired_image_side
+from fashion_mm.models.local_region.grounding import query_wearer_side
+from fashion_mm.models.local_region.grounding import select_wearer_side_detection
 from fashion_mm.models.local_region.learned_ranker import box_iou
 from fashion_mm.models.local_region.learned_ranker import BoxCandidate
 from fashion_mm.models.local_region.learned_ranker import build_candidate_record_feature
@@ -32,6 +35,9 @@ __all__ = [
     "HashingTextRegionScorer",
     "filter_grounding_detections_to_garment",
     "grounding_box_mask_coverage",
+    "desired_image_side",
+    "query_wearer_side",
+    "select_wearer_side_detection",
     "ParsedRegionQuery",
     "RankedRegionCandidate",
     "HeuristicRegionRanker",

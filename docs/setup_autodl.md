@@ -940,3 +940,49 @@ default and should remain an experimental branch until they improve the manual
 benchmark.
 
 AutoDL dataset and checkpoint paths are configured in `configs/paths.autodl.yaml`.
+
+## Audited Side-Aware Cuff Evaluation
+
+The audited benchmark has 161 valid records. Re-run the fixed four-expert
+policy with wearer-side selection enabled only for cuff:
+
+```bash
+cd /root/projects/alibaba-ai
+git pull
+
+PYTHONPATH=src HF_ENDPOINT=https://hf-mirror.com python scripts/eval/evaluate_gated_hybrid_manual_labels.py \
+  --annotations /root/autodl-tmp/outputs/local_region_manual_eval_labeled_audited.jsonl \
+  --checkpoint /root/autodl-tmp/checkpoints/deepfashion2_6class_hard_mining/instance_segmentation/epoch_001.pt \
+  --device cuda \
+  --grounding-routes \
+    pattern=IDEA-Research/grounding-dino-tiny \
+    pocket=IDEA-Research/grounding-dino-base \
+    cuff=google/owlv2-large-patch14-ensemble \
+    waist=google/owlv2-large-patch14-ensemble \
+  --grounding-route-profiles cuff=precise waist=ensemble \
+  --grounding-route-thresholds cuff=0.05 waist=0.05 \
+  --grounding-backend auto \
+  --prompt-mode english \
+  --prompt-profile ensemble \
+  --score-threshold 0.15 \
+  --fallback-on-no-detection \
+  --wearer-side-regions cuff \
+  --wearer-side-min-score-ratio 0.5 \
+  --output /root/autodl-tmp/outputs/local_region_manual_eval_four_expert_side_cuff_audited.json
+```
+
+Expected from the fixed offline analysis: Hit@0.3 improves from 84/161 to
+87/161. Confirm the actual JSON before reporting it. Then run the CPU-only
+candidate ceiling analysis:
+
+```bash
+PYTHONPATH=src python scripts/eval/analyze_grounding_candidate_oracle.py \
+  --eval-json /root/autodl-tmp/outputs/local_region_manual_eval_four_expert_side_cuff_audited.json \
+  --regions cuff pocket pattern waist \
+  --hit-threshold 0.3 \
+  --output /root/autodl-tmp/outputs/local_region_grounding_candidate_oracle_audited.json
+```
+
+The weekly target is 97/161. Report `candidate_oracle_summary.manual_hit_at`,
+each region's `recoverable_failures`, and `oracle_rank_counts` before choosing
+the next model experiment.

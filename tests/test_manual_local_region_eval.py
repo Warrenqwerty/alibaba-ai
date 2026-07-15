@@ -64,6 +64,7 @@ from scripts.eval.evaluate_gated_hybrid_manual_labels import resolve_prompt_prof
 from scripts.eval.evaluate_gated_hybrid_manual_labels import resolve_score_threshold
 from scripts.eval.evaluate_gated_hybrid_manual_labels import grounding_fallback_reason
 from scripts.eval.evaluate_gated_hybrid_manual_labels import should_route_to_grounding
+from scripts.eval.evaluate_gated_hybrid_manual_labels import evaluate_grounding_record
 from scripts.inference.predict_gated_hybrid_local_region import (
     canonical_grounding_region,
     grounding_payload,
@@ -102,6 +103,7 @@ from scripts.eval.analyze_grounding_wearer_side_selection import (
     desired_image_side,
     select_wearer_side_detection,
 )
+from scripts.eval.analyze_grounding_candidate_oracle import build_candidate_oracle
 from scripts.eval.evaluate_chinese_clip_manual_local_regions import (
     empty_prediction_record,
     finalize_run as finalize_chinese_clip_manual_run,
@@ -336,6 +338,93 @@ def test_wearer_side_detection_selection_rejects_weak_side_candidate():
 
     assert status == "no_credible_side_candidate"
     assert selected == detections[0]
+
+
+def test_grounding_candidate_oracle_reports_recoverable_failures():
+    records = [
+        {
+            "id": "cuff-1",
+            "target_region": "cuff",
+            "target_bbox": [0, 0, 10, 10],
+            "predicted_bbox": [20, 20, 30, 30],
+            "manual_bbox_iou": 0.0,
+            "detections": [
+                {"bbox": [20, 20, 30, 30], "score": 0.9, "prompt": "cuff"},
+                {"bbox": [0, 0, 10, 10], "score": 0.7, "prompt": "sleeve cuff"},
+            ],
+        },
+        {
+            "id": "pocket-1",
+            "target_region": "pocket",
+            "target_bbox": [0, 0, 10, 10],
+            "predicted_bbox": [0, 0, 10, 10],
+            "manual_bbox_iou": 1.0,
+            "grounding_detections": [
+                {"bbox": [20, 20, 30, 30], "score": 0.9, "prompt": "pocket"},
+            ],
+        },
+    ]
+
+    oracle_records, diagnostics = build_candidate_oracle(
+        records,
+        regions={"cuff", "pocket"},
+        hit_threshold=0.3,
+    )
+
+    assert oracle_records[0]["manual_bbox_iou"] == pytest.approx(1.0)
+    assert oracle_records[0]["candidate_oracle_rank"] == 2
+    assert oracle_records[1]["manual_bbox_iou"] == pytest.approx(1.0)
+    assert diagnostics["by_region"]["cuff"]["recoverable_failures"] == 1
+    assert diagnostics["by_region"]["pocket"]["oracle_hits"] == 1
+    assert diagnostics["oracle_source_counts"] == {
+        "grounding_candidate": 1,
+        "current_selection": 1,
+    }
+
+
+def test_manual_grounding_record_applies_validated_wearer_side_selection(tmp_path):
+    image_path = tmp_path / "cuff.jpg"
+    Image.new("RGB", (100, 80)).save(image_path)
+
+    class FakeGrounder:
+        backend = "owlv2"
+        model_name = "fake-owlv2"
+        score_threshold = 0.05
+
+        def predict(self, image, prompts):
+            detections = [
+                {
+                    "bbox": [60, 10, 90, 30],
+                    "score": 0.9,
+                    "prompt": "right sleeve cuff",
+                },
+                {
+                    "bbox": [10, 10, 35, 30],
+                    "score": 0.8,
+                    "prompt": "sleeve cuff",
+                },
+            ]
+            return {"status": "ok", "best": detections[0], "detections": detections}
+
+    record = evaluate_grounding_record(
+        {
+            "id": "cuff-1",
+            "image": str(image_path),
+            "query_text": "这件上衣右侧的袖口",
+            "target_region": "cuff",
+            "target_bbox": [10, 10, 35, 30],
+        },
+        grounder=FakeGrounder(),
+        image_cache={},
+        prompt_mode="english",
+        prompt_profile="precise",
+        apply_wearer_side_selection=True,
+        wearer_side_min_score_ratio=0.5,
+    )
+
+    assert record["predicted_bbox"] == [10.0, 10.0, 35.0, 30.0]
+    assert record["manual_bbox_iou"] == pytest.approx(1.0)
+    assert record["wearer_side_selection_status"] == "side_candidate"
 
 
 def test_prompt_profile_target_region_filter_is_exact():

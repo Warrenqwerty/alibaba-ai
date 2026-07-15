@@ -683,6 +683,52 @@ stays on heuristic. The expected same-benchmark gain is roughly four Hit@0.3
 successes over the three-expert run; only the real 171-record output can
 confirm it.
 
+After the hard-region label audit, the decision benchmark contains 161 valid
+records. Heuristic-only reaches Hit@0.3 `0.4099` (66/161), while the four-expert
+policy reaches `0.5217` (84/161). Offline Top-5 analysis found that enforcing
+garment/wearer-side consistency improves cuff from 5/18 to 8/18 Hit@0.3. The
+same rule does not improve pocket Hit@0.3 and reduces pocket Hit@0.5, so it is
+enabled only for cuff:
+
+```bash
+PYTHONPATH=src HF_ENDPOINT=https://hf-mirror.com python scripts/eval/evaluate_gated_hybrid_manual_labels.py \
+  --annotations /root/autodl-tmp/outputs/local_region_manual_eval_labeled_audited.jsonl \
+  --checkpoint /root/autodl-tmp/checkpoints/deepfashion2_6class_hard_mining/instance_segmentation/epoch_001.pt \
+  --device cuda \
+  --grounding-routes \
+    pattern=IDEA-Research/grounding-dino-tiny \
+    pocket=IDEA-Research/grounding-dino-base \
+    cuff=google/owlv2-large-patch14-ensemble \
+    waist=google/owlv2-large-patch14-ensemble \
+  --grounding-route-profiles cuff=precise waist=ensemble \
+  --grounding-route-thresholds cuff=0.05 waist=0.05 \
+  --grounding-backend auto \
+  --prompt-mode english \
+  --prompt-profile ensemble \
+  --score-threshold 0.15 \
+  --fallback-on-no-detection \
+  --wearer-side-regions cuff \
+  --wearer-side-min-score-ratio 0.5 \
+  --output /root/autodl-tmp/outputs/local_region_manual_eval_four_expert_side_cuff_audited.json
+```
+
+Before tuning another selector, measure whether any saved Top-5 grounding box
+can recover the remaining failures. This oracle is diagnostic only and never
+uses manual boxes in online inference:
+
+```bash
+PYTHONPATH=src python scripts/eval/analyze_grounding_candidate_oracle.py \
+  --eval-json /root/autodl-tmp/outputs/local_region_manual_eval_four_expert_side_cuff_audited.json \
+  --regions cuff pocket pattern waist \
+  --hit-threshold 0.3 \
+  --output /root/autodl-tmp/outputs/local_region_grounding_candidate_oracle_audited.json
+```
+
+The 60% target is 97/161 hits. The side-aware cuff result is expected to reach
+87/161 if the online rerun reproduces the offline analysis, leaving 10 hits.
+Use `recoverable_failures` to decide whether the next step is candidate
+selection or new candidate generation.
+
 ### Archived Weak-Supervision Experiments
 
 These commands are kept for reproducibility, but they are no longer the main
