@@ -754,6 +754,25 @@ another model, cross the two already loaded GroundingDINO experts: use base as
 the diagnostic model for pattern/cuff/waist and tiny for pocket, while retaining
 base for zipper. Selected online routes remain unchanged.
 
+The completed cross-model oracle reaches 107/161 Hit@0.3 (`0.6646`), providing
+a ten-hit margin above the 97/161 target. Candidate-selector development must
+not train and report on the same manual records. Run the image-grouped 5-fold
+selector evaluation; every reported prediction is produced by a model trained
+without any label from that image:
+
+```bash
+PYTHONPATH=src python scripts/eval/cross_validate_grounding_candidate_selector.py \
+  --eval-json /root/autodl-tmp/outputs/local_region_manual_eval_cross_model_candidates_audited.json \
+  --regions cuff pocket pattern waist zipper \
+  --num-folds 5 \
+  --num-epochs 120 \
+  --device cpu \
+  --output /root/autodl-tmp/outputs/local_region_candidate_selector_5fold_audited.json
+```
+
+Use `out_of_fold_summary.manual_hit_at["0.3"]` as the decision metric, not an
+in-sample score or the oracle ceiling.
+
 ### Archived Weak-Supervision Experiments
 
 These commands are kept for reproducibility, but they are no longer the main

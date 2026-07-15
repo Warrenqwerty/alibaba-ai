@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 from PIL import Image
 import numpy as np
+import torch
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -109,6 +110,13 @@ from scripts.eval.analyze_grounding_candidate_oracle import best_manual_candidat
 from scripts.eval.evaluate_chinese_clip_manual_local_regions import (
     empty_prediction_record,
     finalize_run as finalize_chinese_clip_manual_run,
+)
+from scripts.eval.cross_validate_grounding_candidate_selector import (
+    candidate_examples,
+    image_grouped_folds,
+    select_candidate_record,
+    selector_candidates,
+    train_selector,
 )
 
 
@@ -458,6 +466,123 @@ def test_diagnostic_grounding_payload_keeps_candidate_provenance():
     assert payload["grounding_model_name"] == "model-b"
     assert payload["detections"][0]["bbox"] == [1, 2, 3, 4]
     assert "gated_policy_route" not in payload
+
+
+def test_selector_candidates_union_sources_and_deduplicate_boxes():
+    candidates = selector_candidates(
+        {
+            "predicted_bbox": [0, 0, 10, 10],
+            "selected_region": "cuff",
+            "score": 0.9,
+            "detections": [
+                {"bbox": [0, 0, 10, 10], "score": 0.9, "prompt": "cuff"},
+                {"bbox": [10, 0, 20, 10], "score": 0.6, "prompt": "sleeve cuff"},
+            ],
+            "diagnostic_grounding_candidate": {
+                "detections": [
+                    {"bbox": [20, 0, 30, 10], "score": 0.5, "prompt": "cuff"},
+                ]
+            },
+            "heuristic_candidate": {
+                "predicted_bbox": [30, 0, 40, 10],
+                "selected_region": "left_cuff",
+            },
+        }
+    )
+
+    assert len(candidates) == 4
+    assert [candidate["candidate_source"] for candidate in candidates] == [
+        "current",
+        "grounding",
+        "diagnostic_grounding",
+        "heuristic",
+    ]
+
+
+def test_candidate_examples_build_fixed_features_and_manual_ious():
+    features, ious, candidates = candidate_examples(
+        {
+            "image": "/tmp/example.jpg",
+            "query_text": "这件上衣右侧的袖口",
+            "target_region": "cuff",
+            "target_bbox": [0, 0, 10, 10],
+            "predicted_bbox": [20, 0, 30, 10],
+            "selected_region": "right_cuff",
+            "score": 0.8,
+            "gated_policy_route": "grounding",
+            "grounding_model_name": "google/owlv2-large-patch14-ensemble",
+            "detections": [
+                {"bbox": [0, 0, 10, 10], "score": 0.7, "prompt": "sleeve cuff"},
+            ],
+        },
+        (100, 80),
+    )
+
+    assert features.ndim == 2
+    assert features.shape[0] == len(candidates) == 2
+    assert ious.tolist() == pytest.approx([0.0, 1.0])
+
+
+def test_image_grouped_folds_do_not_split_one_image():
+    records = [
+        {"image": "a.jpg"},
+        {"image": "a.jpg"},
+        {"image": "b.jpg"},
+        {"image": "c.jpg"},
+        {"image": "d.jpg"},
+    ]
+
+    folds = image_grouped_folds(records, num_folds=2, seed=42)
+
+    fold_for_index = {
+        index: fold_index
+        for fold_index, indices in enumerate(folds)
+        for index in indices
+    }
+    assert fold_for_index[0] == fold_for_index[1]
+    assert sorted(index for fold in folds for index in fold) == list(range(5))
+
+
+def test_manual_candidate_selector_trains_and_selects_on_cpu():
+    records = [
+        {
+            "id": f"record-{index}",
+            "image": f"image-{index}.jpg",
+            "query_text": "衣服上的拉链",
+            "target_region": "zipper",
+            "target_bbox": [0, 0, 10, 10],
+            "predicted_bbox": [20, 0, 30, 10],
+            "selected_region": "zipper",
+            "diagnostic_grounding_candidate": {
+                "grounding_model_name": "IDEA-Research/grounding-dino-base",
+                "detections": [
+                    {"bbox": [0, 0, 10, 10], "score": 0.6, "prompt": "zipper"},
+                ],
+            },
+        }
+        for index in range(4)
+    ]
+    examples = [candidate_examples(record, (100, 80)) for record in records]
+
+    model = train_selector(
+        examples,
+        [0, 1, 2],
+        hidden_dim=16,
+        num_epochs=2,
+        learning_rate=0.003,
+        weight_decay=0.01,
+        seed=42,
+        device=torch.device("cpu"),
+    )
+    selected = select_candidate_record(
+        records[3],
+        examples[3],
+        model,
+        torch.device("cpu"),
+    )
+
+    assert selected["selector_source"] in {"current", "diagnostic_grounding"}
+    assert len(selected["predicted_bbox"]) == 4
 
 
 def test_manual_grounding_record_applies_validated_wearer_side_selection(tmp_path):

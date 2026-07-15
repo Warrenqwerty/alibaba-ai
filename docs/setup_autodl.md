@@ -1026,3 +1026,23 @@ experiment by replacing the single diagnostic route with:
 No additional model is loaded: tiny and base are already used by the selected
 pattern and pocket routes. Re-run the candidate oracle on the new output with
 `--regions cuff pocket pattern waist zipper`.
+
+The cross-model oracle reaches 107/161 Hit@0.3. Evaluate a selector without
+manual-label leakage on CPU:
+
+```bash
+PYTHONPATH=src python scripts/eval/cross_validate_grounding_candidate_selector.py \
+  --eval-json /root/autodl-tmp/outputs/local_region_manual_eval_cross_model_candidates_audited.json \
+  --regions cuff pocket pattern waist zipper \
+  --num-folds 5 \
+  --num-epochs 120 \
+  --hidden-dim 48 \
+  --learning-rate 0.003 \
+  --weight-decay 0.01 \
+  --seed 42 \
+  --device cpu \
+  --output /root/autodl-tmp/outputs/local_region_candidate_selector_5fold_audited.json
+```
+
+Report `out_of_fold_summary`, `selector_diagnostics`, and every fold summary.
+Do not use `candidate_oracle_summary` as the achieved model result.

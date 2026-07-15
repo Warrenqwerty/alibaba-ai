@@ -950,3 +950,14 @@ selector, cross the already loaded GroundingDINO experts to increase candidate
 diversity: diagnostic base for pattern/cuff/waist, diagnostic tiny for pocket,
 and diagnostic base for zipper. This changes candidate generation only; the
 selected policy must remain 87/161.
+
+The cross-model candidate oracle reaches 107/161 Hit@0.3 (`0.6646`): cuff
+15/18, pattern 17/17, pocket 10/22, waist 9/12, and zipper 7/17. This creates a
+ten-hit theoretical margin and is sufficient to begin selector evaluation.
+Because the 161 manual labels are now supervision, do not tune and report on
+the same records. `cross_validate_grounding_candidate_selector.py` assigns all
+queries from one image to the same fold, trains on four folds, and emits only
+out-of-fold predictions for the fifth. It uses candidate source/model, model
+score and rank, normalized geometry, wearer-side consistency, agreement with
+current/heuristic boxes, target region, and prompt text. The next decision
+metric is the combined out-of-fold Hit@0.3; the oracle is only a ceiling.
