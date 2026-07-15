@@ -37,16 +37,39 @@ def grounding_detections(record: dict[str, Any]) -> list[dict[str, Any]]:
     return fallback if isinstance(fallback, list) else []
 
 
-def best_manual_detection(
-    record: dict[str, Any],
-) -> tuple[dict[str, Any] | None, float, int | None]:
-    scored = [
-        (detection, box_iou(detection["bbox"], record["target_bbox"]), rank)
+def manual_candidates(record: dict[str, Any]) -> list[dict[str, Any]]:
+    candidates = [
+        {
+            **detection,
+            "candidate_source": "grounding",
+            "candidate_rank": rank,
+        }
         for rank, detection in enumerate(grounding_detections(record), start=1)
         if detection.get("bbox") is not None
     ]
+    heuristic = record.get("heuristic_candidate")
+    if isinstance(heuristic, dict) and heuristic.get("predicted_bbox") is not None:
+        candidates.append(
+            {
+                "bbox": heuristic["predicted_bbox"],
+                "prompt": heuristic.get("selected_region"),
+                "score": None,
+                "candidate_source": "heuristic",
+                "candidate_rank": None,
+            }
+        )
+    return candidates
+
+
+def best_manual_candidate(
+    record: dict[str, Any],
+) -> tuple[dict[str, Any] | None, float]:
+    scored = [
+        (candidate, box_iou(candidate["bbox"], record["target_bbox"]))
+        for candidate in manual_candidates(record)
+    ]
     if not scored:
-        return None, 0.0, None
+        return None, 0.0
     return max(scored, key=lambda item: item[1])
 
 
@@ -76,25 +99,34 @@ def build_candidate_oracle(
         if selected_iou >= hit_threshold:
             region_stats["selected_hits"] += 1
 
-        detection, candidate_iou, rank = best_manual_detection(record)
-        if detection is not None:
+        if grounding_detections(record):
+            region_stats["records_with_grounding_candidates"] += 1
+        heuristic = record.get("heuristic_candidate")
+        if isinstance(heuristic, dict) and heuristic.get("predicted_bbox") is not None:
+            region_stats["records_with_heuristic_candidate"] += 1
+        candidate, candidate_iou = best_manual_candidate(record)
+        if candidate is not None:
             region_stats["records_with_candidates"] += 1
         oracle_iou = max(selected_iou, candidate_iou)
         if oracle_iou >= hit_threshold:
             region_stats["oracle_hits"] += 1
             if selected_iou < hit_threshold:
                 region_stats["recoverable_failures"] += 1
-        if detection is not None and candidate_iou > selected_iou:
-            oracle_source_counts["grounding_candidate"] += 1
-            assert rank is not None
-            oracle_rank_counts[str(rank)] += 1
+        if candidate is not None and candidate_iou > selected_iou:
+            candidate_source = str(candidate["candidate_source"])
+            oracle_source_counts[f"{candidate_source}_candidate"] += 1
+            region_stats[f"oracle_selected_{candidate_source}"] += 1
+            rank = candidate.get("candidate_rank")
+            if rank is not None:
+                oracle_rank_counts[str(rank)] += 1
             updated.update(
                 {
-                    "predicted_bbox": [float(value) for value in detection["bbox"]],
+                    "predicted_bbox": [float(value) for value in candidate["bbox"]],
                     "manual_bbox_iou": candidate_iou,
-                    "selected_region": detection.get("prompt"),
-                    "score": detection.get("score"),
+                    "selected_region": candidate.get("prompt"),
+                    "score": candidate.get("score"),
                     "candidate_oracle_rank": rank,
+                    "candidate_oracle_source": candidate_source,
                 }
             )
         else:

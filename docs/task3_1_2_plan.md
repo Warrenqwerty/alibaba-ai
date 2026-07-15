@@ -923,7 +923,12 @@ hits short of the 97/161 weekly target.
 
 Then run `scripts/eval/analyze_grounding_candidate_oracle.py` over `cuff`,
 `pocket`, `pattern`, and `waist`. The script compares the current selection
-with every saved Top-5 grounding detection. `recoverable_failures` is the
-maximum number of current misses that a better selector could recover. If the
-full oracle remains below 97 hits, stop selector tuning and generate new
-candidates for pocket/cuff/zipper instead.
+with every saved Top-5 grounding detection. The first completed oracle reaches
+98/161 Hit@0.3 (`0.6087`): cuff can recover 3 failures, pocket 4, pattern 1,
+and waist 3. This is only one hit above the target, so Top-5 reranking alone
+has too little safety margin. Re-run the side-aware evaluator with
+`--record-heuristic-candidates-for-grounding`, then recompute the union oracle
+over grounding and heuristic candidates. This flag records diagnostics only
+and does not change the selected online result. If the expanded oracle does
+not create a meaningful margin above 97 hits, generate new candidates for
+pocket/cuff/zipper instead of fitting a selector to this benchmark.

@@ -154,6 +154,14 @@ def parse_args() -> argparse.Namespace:
         default=0.5,
         help="Minimum side-candidate score divided by the top detection score.",
     )
+    parser.add_argument(
+        "--record-heuristic-candidates-for-grounding",
+        action="store_true",
+        help=(
+            "Diagnostic only: also run and save the heuristic candidate for "
+            "grounding-routed records without changing the selected result."
+        ),
+    )
     parser.add_argument("--max-records", type=int, default=None)
     parser.add_argument(
         "--output",
@@ -184,6 +192,7 @@ def evaluate_gated_hybrid_records(
     fallback_on_no_detection: bool = False,
     wearer_side_regions: set[str] | None = None,
     wearer_side_min_score_ratio: float = 0.5,
+    record_heuristic_candidates_for_grounding: bool = False,
 ) -> list[dict[str, Any]]:
     """Run the gated hybrid policy and compare selected boxes to manual labels."""
     config = load_config(model_config)
@@ -260,6 +269,23 @@ def evaluate_gated_hybrid_records(
                 ),
                 wearer_side_min_score_ratio=wearer_side_min_score_ratio,
             )
+            if record_heuristic_candidates_for_grounding:
+                heuristic_candidate = evaluate_heuristic_record(
+                    manual_record,
+                    predictor=predictor,
+                    ranker=ranker,
+                    segmentation_cache=segmentation_cache,
+                )
+                grounding_record["heuristic_candidate"] = {
+                    key: heuristic_candidate.get(key)
+                    for key in (
+                        "status",
+                        "ranker_backend",
+                        "selected_region",
+                        "predicted_bbox",
+                        "manual_bbox_iou",
+                    )
+                }
             fallback_reason = grounding_fallback_reason(
                 grounding_record,
                 constrain_grounding_to_garment=constrain_grounding_to_garment,
@@ -640,6 +666,9 @@ def main() -> None:
         fallback_on_no_detection=args.fallback_on_no_detection,
         wearer_side_regions=set(args.wearer_side_regions),
         wearer_side_min_score_ratio=args.wearer_side_min_score_ratio,
+        record_heuristic_candidates_for_grounding=(
+            args.record_heuristic_candidates_for_grounding
+        ),
     )
     summary = {
         "annotations": str(Path(args.annotations)),
@@ -660,6 +689,9 @@ def main() -> None:
         "fallback_on_no_detection": args.fallback_on_no_detection,
         "wearer_side_regions": sorted(set(args.wearer_side_regions)),
         "wearer_side_min_score_ratio": args.wearer_side_min_score_ratio,
+        "record_heuristic_candidates_for_grounding": (
+            args.record_heuristic_candidates_for_grounding
+        ),
         **summarize_records(records),
         "records": records,
     }

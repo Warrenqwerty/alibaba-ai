@@ -104,6 +104,7 @@ from scripts.eval.analyze_grounding_wearer_side_selection import (
     select_wearer_side_detection,
 )
 from scripts.eval.analyze_grounding_candidate_oracle import build_candidate_oracle
+from scripts.eval.analyze_grounding_candidate_oracle import best_manual_candidate
 from scripts.eval.evaluate_chinese_clip_manual_local_regions import (
     empty_prediction_record,
     finalize_run as finalize_chinese_clip_manual_run,
@@ -375,11 +376,31 @@ def test_grounding_candidate_oracle_reports_recoverable_failures():
     assert oracle_records[0]["candidate_oracle_rank"] == 2
     assert oracle_records[1]["manual_bbox_iou"] == pytest.approx(1.0)
     assert diagnostics["by_region"]["cuff"]["recoverable_failures"] == 1
+    assert diagnostics["by_region"]["cuff"]["records_with_grounding_candidates"] == 1
     assert diagnostics["by_region"]["pocket"]["oracle_hits"] == 1
     assert diagnostics["oracle_source_counts"] == {
         "grounding_candidate": 1,
         "current_selection": 1,
     }
+
+
+def test_grounding_candidate_oracle_can_include_heuristic_candidate():
+    candidate, iou = best_manual_candidate(
+        {
+            "target_bbox": [0, 0, 10, 10],
+            "detections": [
+                {"bbox": [20, 20, 30, 30], "score": 0.9, "prompt": "pocket"},
+            ],
+            "heuristic_candidate": {
+                "predicted_bbox": [0, 0, 10, 10],
+                "selected_region": "right_pocket",
+            },
+        }
+    )
+
+    assert iou == pytest.approx(1.0)
+    assert candidate["candidate_source"] == "heuristic"
+    assert candidate["candidate_rank"] is None
 
 
 def test_manual_grounding_record_applies_validated_wearer_side_selection(tmp_path):

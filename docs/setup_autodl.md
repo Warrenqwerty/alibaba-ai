@@ -968,6 +968,7 @@ PYTHONPATH=src HF_ENDPOINT=https://hf-mirror.com python scripts/eval/evaluate_ga
   --fallback-on-no-detection \
   --wearer-side-regions cuff \
   --wearer-side-min-score-ratio 0.5 \
+  --record-heuristic-candidates-for-grounding \
   --output /root/autodl-tmp/outputs/local_region_manual_eval_four_expert_side_cuff_audited.json
 ```
 
@@ -983,6 +984,9 @@ PYTHONPATH=src python scripts/eval/analyze_grounding_candidate_oracle.py \
   --output /root/autodl-tmp/outputs/local_region_grounding_candidate_oracle_audited.json
 ```
 
-The weekly target is 97/161. Report `candidate_oracle_summary.manual_hit_at`,
-each region's `recoverable_failures`, and `oracle_rank_counts` before choosing
-the next model experiment.
+The grounding-only Top-5 oracle reached 98/161 Hit@0.3, only one hit above the
+97/161 target. The command above also records a heuristic candidate for each
+grounding-routed record without selecting it. Report the expanded
+`candidate_oracle_summary.manual_hit_at`, each region's `recoverable_failures`,
+`oracle_source_counts`, and `oracle_rank_counts` before choosing the next model
+experiment.

@@ -709,12 +709,13 @@ PYTHONPATH=src HF_ENDPOINT=https://hf-mirror.com python scripts/eval/evaluate_ga
   --fallback-on-no-detection \
   --wearer-side-regions cuff \
   --wearer-side-min-score-ratio 0.5 \
+  --record-heuristic-candidates-for-grounding \
   --output /root/autodl-tmp/outputs/local_region_manual_eval_four_expert_side_cuff_audited.json
 ```
 
-Before tuning another selector, measure whether any saved Top-5 grounding box
-can recover the remaining failures. This oracle is diagnostic only and never
-uses manual boxes in online inference:
+Before tuning another selector, measure whether the saved Top-5 grounding boxes
+or the diagnostic heuristic candidate can recover the remaining failures. This
+oracle is diagnostic only and never uses manual boxes in online inference:
 
 ```bash
 PYTHONPATH=src python scripts/eval/analyze_grounding_candidate_oracle.py \
