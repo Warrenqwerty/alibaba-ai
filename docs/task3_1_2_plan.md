@@ -942,3 +942,11 @@ is already loaded for pocket, so the experiment adds only 17 zipper inference
 calls. Recompute the oracle over `cuff pocket pattern waist zipper`; only move
 to selector development if the expanded ceiling has a meaningful margin above
 97 hits.
+
+The zipper-expanded oracle reaches 101/161 Hit@0.3 (`0.6273`): diagnostic
+GroundingDINO-base recovers three additional zipper failures, increasing zipper
+from 4 to 7 oracle hits. The remaining margin is four hits. Before fitting a
+selector, cross the already loaded GroundingDINO experts to increase candidate
+diversity: diagnostic base for pattern/cuff/waist, diagnostic tiny for pocket,
+and diagnostic base for zipper. This changes candidate generation only; the
+selected policy must remain 87/161.

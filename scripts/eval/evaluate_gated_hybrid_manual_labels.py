@@ -223,13 +223,15 @@ def evaluate_gated_hybrid_records(
         grounding_routes=grounding_routes,
     )
     diagnostic_grounding_routes = dict(diagnostic_grounding_routes or {})
-    overlapping_regions = set(resolved_grounding_routes) & set(
-        diagnostic_grounding_routes
-    )
-    if overlapping_regions:
+    duplicate_routes = {
+        region
+        for region, model_name in diagnostic_grounding_routes.items()
+        if resolved_grounding_routes.get(region) == model_name
+    }
+    if duplicate_routes:
         raise ValueError(
-            "Diagnostic grounding routes must use heuristic-selected regions; "
-            f"overlap: {', '.join(sorted(overlapping_regions))}."
+            "A diagnostic route must use a different model from its selected "
+            f"route; duplicates: {', '.join(sorted(duplicate_routes))}."
         )
     route_configs = {
         (
@@ -310,6 +312,18 @@ def evaluate_gated_hybrid_records(
                         "manual_bbox_iou",
                     )
                 }
+            diagnostic_model = diagnostic_grounding_routes.get(target_region)
+            if diagnostic_model is not None:
+                diagnostic_record = evaluate_grounding_record(
+                    manual_record,
+                    grounder=grounders[(diagnostic_model, score_threshold)],
+                    image_cache=image_cache,
+                    prompt_mode=prompt_mode,
+                    prompt_profile=prompt_profile,
+                )
+                grounding_record["diagnostic_grounding_candidate"] = (
+                    diagnostic_grounding_payload(diagnostic_record)
+                )
             fallback_reason = grounding_fallback_reason(
                 grounding_record,
                 constrain_grounding_to_garment=constrain_grounding_to_garment,
@@ -327,6 +341,10 @@ def evaluate_gated_hybrid_records(
                 fallback["grounding_filter_status"] = grounding_record["status"]
                 fallback["grounding_detections"] = grounding_record["detections"]
                 fallback["grounding_selected_instance"] = grounding_record.get("selected_instance")
+                if "diagnostic_grounding_candidate" in grounding_record:
+                    fallback["diagnostic_grounding_candidate"] = grounding_record[
+                        "diagnostic_grounding_candidate"
+                    ]
                 records.append(fallback)
             else:
                 records.append(grounding_record)
@@ -347,22 +365,29 @@ def evaluate_gated_hybrid_records(
                 prompt_mode=prompt_mode,
                 prompt_profile=prompt_profile,
             )
-            heuristic_record["diagnostic_grounding_candidate"] = {
-                key: diagnostic_record.get(key)
-                for key in (
-                    "status",
-                    "grounding_model_name",
-                    "selected_region",
-                    "predicted_bbox",
-                    "manual_bbox_iou",
-                    "score",
-                    "prompt_profile",
-                    "prompts",
-                    "detections",
-                )
-            }
+            heuristic_record["diagnostic_grounding_candidate"] = (
+                diagnostic_grounding_payload(diagnostic_record)
+            )
         records.append(heuristic_record)
     return records
+
+
+def diagnostic_grounding_payload(record: Mapping[str, Any]) -> dict[str, Any]:
+    """Keep candidate provenance without changing the selected online record."""
+    return {
+        key: record.get(key)
+        for key in (
+            "status",
+            "grounding_model_name",
+            "selected_region",
+            "predicted_bbox",
+            "manual_bbox_iou",
+            "score",
+            "prompt_profile",
+            "prompts",
+            "detections",
+        )
+    }
 
 
 def should_route_to_grounding(

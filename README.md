@@ -748,6 +748,12 @@ The diagnostic route saves Top-K boxes but cannot change the 87/161 selected
 policy result. Include `zipper` in the candidate-oracle regions for the next
 ceiling measurement.
 
+The zipper candidate raises the oracle to 101/161 Hit@0.3 (`0.6273`), adding
+three recoverable zipper failures. To widen the four-hit margin without loading
+another model, cross the two already loaded GroundingDINO experts: use base as
+the diagnostic model for pattern/cuff/waist and tiny for pocket, while retaining
+base for zipper. Selected online routes remain unchanged.
+
 ### Archived Weak-Supervision Experiments
 
 These commands are kept for reproducibility, but they are no longer the main

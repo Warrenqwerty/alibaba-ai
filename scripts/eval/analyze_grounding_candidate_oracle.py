@@ -30,32 +30,44 @@ def parse_args() -> argparse.Namespace:
 
 
 def grounding_detections(record: dict[str, Any]) -> list[dict[str, Any]]:
+    candidates = []
     detections = record.get("detections")
     if isinstance(detections, list):
-        return [{**detection, "candidate_source": "grounding"} for detection in detections]
+        candidates.extend(
+            {
+                **detection,
+                "candidate_source": "grounding",
+                "candidate_rank": rank,
+            }
+            for rank, detection in enumerate(detections, start=1)
+        )
     fallback = record.get("grounding_detections")
     if isinstance(fallback, list):
-        return [
-            {**detection, "candidate_source": "grounding"}
-            for detection in fallback
-        ]
+        candidates.extend(
+            {
+                **detection,
+                "candidate_source": "grounding",
+                "candidate_rank": rank,
+            }
+            for rank, detection in enumerate(fallback, start=1)
+        )
     diagnostic = record.get("diagnostic_grounding_candidate")
     if isinstance(diagnostic, dict) and isinstance(diagnostic.get("detections"), list):
-        return [
-            {**detection, "candidate_source": "diagnostic_grounding"}
-            for detection in diagnostic["detections"]
-        ]
-    return []
+        candidates.extend(
+            {
+                **detection,
+                "candidate_source": "diagnostic_grounding",
+                "candidate_rank": rank,
+            }
+            for rank, detection in enumerate(diagnostic["detections"], start=1)
+        )
+    return candidates
 
 
 def manual_candidates(record: dict[str, Any]) -> list[dict[str, Any]]:
     candidates = [
-        {
-            **detection,
-            "candidate_source": detection.get("candidate_source", "grounding"),
-            "candidate_rank": rank,
-        }
-        for rank, detection in enumerate(grounding_detections(record), start=1)
+        detection
+        for detection in grounding_detections(record)
         if detection.get("bbox") is not None
     ]
     heuristic = record.get("heuristic_candidate")

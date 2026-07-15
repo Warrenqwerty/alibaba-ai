@@ -1009,3 +1009,20 @@ PYTHONPATH=src python scripts/eval/analyze_grounding_candidate_oracle.py \
   --hit-threshold 0.3 \
   --output /root/autodl-tmp/outputs/local_region_zipper_candidate_oracle_audited.json
 ```
+
+The zipper oracle reaches 101/161 Hit@0.3. Run the next cross-model candidate
+experiment by replacing the single diagnostic route with:
+
+```bash
+  --diagnostic-grounding-routes \
+    pattern=IDEA-Research/grounding-dino-base \
+    pocket=IDEA-Research/grounding-dino-tiny \
+    cuff=IDEA-Research/grounding-dino-base \
+    waist=IDEA-Research/grounding-dino-base \
+    zipper=IDEA-Research/grounding-dino-base \
+  --output /root/autodl-tmp/outputs/local_region_manual_eval_cross_model_candidates_audited.json
+```
+
+No additional model is loaded: tiny and base are already used by the selected
+pattern and pocket routes. Re-run the candidate oracle on the new output with
+`--regions cuff pocket pattern waist zipper`.

@@ -65,6 +65,7 @@ from scripts.eval.evaluate_gated_hybrid_manual_labels import resolve_score_thres
 from scripts.eval.evaluate_gated_hybrid_manual_labels import grounding_fallback_reason
 from scripts.eval.evaluate_gated_hybrid_manual_labels import should_route_to_grounding
 from scripts.eval.evaluate_gated_hybrid_manual_labels import evaluate_grounding_record
+from scripts.eval.evaluate_gated_hybrid_manual_labels import diagnostic_grounding_payload
 from scripts.inference.predict_gated_hybrid_local_region import (
     canonical_grounding_region,
     grounding_payload,
@@ -422,6 +423,41 @@ def test_grounding_candidate_oracle_can_include_diagnostic_grounding():
     assert iou == pytest.approx(1.0)
     assert candidate["candidate_source"] == "diagnostic_grounding"
     assert candidate["candidate_rank"] == 1
+
+
+def test_grounding_candidate_oracle_unions_selected_and_diagnostic_detections():
+    candidate, iou = best_manual_candidate(
+        {
+            "target_bbox": [0, 0, 10, 10],
+            "detections": [
+                {"bbox": [20, 20, 30, 30], "score": 0.9, "prompt": "cuff"},
+            ],
+            "diagnostic_grounding_candidate": {
+                "detections": [
+                    {"bbox": [0, 0, 10, 10], "score": 0.5, "prompt": "sleeve cuff"},
+                ]
+            },
+        }
+    )
+
+    assert iou == pytest.approx(1.0)
+    assert candidate["candidate_source"] == "diagnostic_grounding"
+    assert candidate["candidate_rank"] == 1
+
+
+def test_diagnostic_grounding_payload_keeps_candidate_provenance():
+    payload = diagnostic_grounding_payload(
+        {
+            "status": "ok",
+            "grounding_model_name": "model-b",
+            "detections": [{"bbox": [1, 2, 3, 4], "score": 0.7}],
+            "gated_policy_route": "grounding",
+        }
+    )
+
+    assert payload["grounding_model_name"] == "model-b"
+    assert payload["detections"][0]["bbox"] == [1, 2, 3, 4]
+    assert "gated_policy_route" not in payload
 
 
 def test_manual_grounding_record_applies_validated_wearer_side_selection(tmp_path):
