@@ -961,3 +961,15 @@ out-of-fold predictions for the fifth. It uses candidate source/model, model
 score and rank, normalized geometry, wearer-side consistency, agreement with
 current/heuristic boxes, target region, and prompt text. The next decision
 metric is the combined out-of-fold Hit@0.3; the oracle is only a ceiling.
+
+The first listwise selector does not pass that test: out-of-fold Hit@0.3 is
+85/161 (`0.5280`), below the current 87/161 (`0.5404`). Although it recovers
+seven misses, it also destroys nine existing hits; pocket loses four net hits
+and zipper loses two. This model is rejected for online routing.
+
+The next selector experiment is conservative pairwise override. For every
+alternative candidate it learns whether that candidate is a Hit@0.3 while the
+current prediction is a miss. At inference the current prediction remains the
+default, and replacement happens only when recovery probability is at least
+the fixed `0.5` threshold. Evaluation remains image-grouped five-fold OOF;
+the threshold must not be tuned on the reported folds.

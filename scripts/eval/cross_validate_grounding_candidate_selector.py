@@ -46,6 +46,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--hidden-dim", type=int, default=48)
     parser.add_argument("--learning-rate", type=float, default=0.003)
     parser.add_argument("--weight-decay", type=float, default=0.01)
+    parser.add_argument(
+        "--selection-policy",
+        choices=("listwise", "conservative_pairwise"),
+        default="listwise",
+    )
+    parser.add_argument(
+        "--override-threshold",
+        type=float,
+        default=0.5,
+        help="Minimum pairwise recovery probability required to replace current.",
+    )
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--output", required=True)
@@ -333,6 +344,76 @@ def train_selector(
     return model
 
 
+def pairwise_recovery_examples(
+    examples: list[tuple[torch.Tensor, torch.Tensor, list[dict[str, Any]]]],
+    indices: list[int],
+) -> tuple[torch.Tensor, torch.Tensor]:
+    pair_features = []
+    labels = []
+    for index in indices:
+        features, ious, candidates = examples[index]
+        if not candidates or candidates[0].get("candidate_source") != "current":
+            continue
+        current_feature = features[0]
+        current_is_hit = float(ious[0]) >= 0.3
+        for candidate_index in range(1, len(candidates)):
+            candidate_feature_vector = features[candidate_index]
+            pair_features.append(
+                torch.cat(
+                    [
+                        candidate_feature_vector,
+                        current_feature,
+                        candidate_feature_vector - current_feature,
+                    ]
+                )
+            )
+            candidate_is_hit = float(ious[candidate_index]) >= 0.3
+            labels.append(float(candidate_is_hit and not current_is_hit))
+    if not pair_features:
+        raise ValueError("No current-versus-candidate pairs available for training")
+    return torch.stack(pair_features), torch.tensor(labels, dtype=torch.float32)
+
+
+def train_conservative_selector(
+    examples: list[tuple[torch.Tensor, torch.Tensor, list[dict[str, Any]]]],
+    train_indices: list[int],
+    *,
+    hidden_dim: int,
+    num_epochs: int,
+    learning_rate: float,
+    weight_decay: float,
+    seed: int,
+    device: torch.device,
+) -> ManualCandidateSelector:
+    torch.manual_seed(seed)
+    features, labels = pairwise_recovery_examples(examples, train_indices)
+    model = ManualCandidateSelector(features.shape[1], hidden_dim).to(device)
+    optimizer = torch.optim.AdamW(
+        model.parameters(),
+        lr=learning_rate,
+        weight_decay=weight_decay,
+    )
+    num_positive = max(float(labels.sum()), 1.0)
+    num_negative = max(float(len(labels) - labels.sum()), 1.0)
+    positive_weight = torch.tensor(
+        math.sqrt(num_negative / num_positive),
+        dtype=torch.float32,
+        device=device,
+    )
+    criterion = nn.BCEWithLogitsLoss(pos_weight=positive_weight)
+    features = features.to(device)
+    labels = labels.to(device)
+    for _ in range(num_epochs):
+        model.train()
+        optimizer.zero_grad()
+        logits = model(features)
+        loss = criterion(logits, labels)
+        loss.backward()
+        optimizer.step()
+    model.eval()
+    return model
+
+
 def select_candidate_record(
     record: dict[str, Any],
     example: tuple[torch.Tensor, torch.Tensor, list[dict[str, Any]]],
@@ -358,11 +439,74 @@ def select_candidate_record(
     return selected
 
 
+def select_conservative_candidate_record(
+    record: dict[str, Any],
+    example: tuple[torch.Tensor, torch.Tensor, list[dict[str, Any]]],
+    model: ManualCandidateSelector,
+    device: torch.device,
+    *,
+    override_threshold: float,
+) -> dict[str, Any]:
+    if not 0.0 <= override_threshold <= 1.0:
+        raise ValueError("override_threshold must be between 0 and 1")
+    features, ious, candidates = example
+    if not candidates or candidates[0].get("candidate_source") != "current":
+        selected = dict(record)
+        selected["selector_source"] = "no_current"
+        selected["selector_override_probability"] = 0.0
+        selected["selector_overrode_current"] = False
+        return selected
+    if len(candidates) == 1:
+        selected = dict(record)
+        selected["selector_source"] = "current"
+        selected["selector_override_probability"] = 0.0
+        selected["selector_overrode_current"] = False
+        return selected
+
+    current_feature = features[0]
+    pair_features = torch.stack(
+        [
+            torch.cat(
+                [
+                    candidate_feature_vector,
+                    current_feature,
+                    candidate_feature_vector - current_feature,
+                ]
+            )
+            for candidate_feature_vector in features[1:]
+        ]
+    )
+    with torch.no_grad():
+        probabilities = torch.sigmoid(model(pair_features.to(device))).cpu()
+    best_alternative = int(torch.argmax(probabilities).item()) + 1
+    best_probability = float(probabilities[best_alternative - 1].item())
+    selected_index = best_alternative if best_probability >= override_threshold else 0
+    candidate = candidates[selected_index]
+    selected = dict(record)
+    selected.update(
+        {
+            "predicted_bbox": [float(value) for value in candidate["bbox"]],
+            "manual_bbox_iou": float(ious[selected_index].item()),
+            "selected_region": candidate.get("prompt"),
+            "selector_source": candidate.get("candidate_source"),
+            "selector_rank": candidate.get("candidate_rank"),
+            "selector_override_probability": best_probability,
+            "selector_overrode_current": selected_index != 0,
+        }
+    )
+    return selected
+
+
 def selector_diagnostics(
     baseline_records: list[dict[str, Any]],
     selected_records: list[dict[str, Any]],
 ) -> dict[str, Any]:
     source_counts = Counter(record.get("selector_source") for record in selected_records)
+    override_counts = Counter(
+        "overrode_current" if record.get("selector_overrode_current") else "kept_current"
+        for record in selected_records
+        if "selector_overrode_current" in record
+    )
     transitions: Counter[str] = Counter()
     changes: Counter[str] = Counter()
     by_region: dict[str, Counter[str]] = defaultdict(Counter)
@@ -390,6 +534,7 @@ def selector_diagnostics(
             region_counts["same_iou"] += 1
     return {
         "selected_source_counts": dict(source_counts),
+        "override_counts": dict(override_counts),
         "hit_transition_counts": dict(transitions),
         "iou_change_counts": dict(changes),
         "by_region": {
@@ -432,7 +577,12 @@ def main() -> None:
     all_indices = set(range(len(selected_records)))
     for fold_index, test_indices in enumerate(folds):
         train_indices = sorted(all_indices - set(test_indices))
-        model = train_selector(
+        train_function = (
+            train_conservative_selector
+            if args.selection_policy == "conservative_pairwise"
+            else train_selector
+        )
+        model = train_function(
             examples,
             train_indices,
             hidden_dim=args.hidden_dim,
@@ -444,12 +594,21 @@ def main() -> None:
         )
         fold_records = []
         for index in test_indices:
-            selected = select_candidate_record(
-                selected_records[index],
-                examples[index],
-                model,
-                device,
-            )
+            if args.selection_policy == "conservative_pairwise":
+                selected = select_conservative_candidate_record(
+                    selected_records[index],
+                    examples[index],
+                    model,
+                    device,
+                    override_threshold=args.override_threshold,
+                )
+            else:
+                selected = select_candidate_record(
+                    selected_records[index],
+                    examples[index],
+                    model,
+                    device,
+                )
             selected["selector_fold"] = fold_index
             oof_records[index] = selected
             fold_records.append(selected)
@@ -483,6 +642,8 @@ def main() -> None:
         "hidden_dim": args.hidden_dim,
         "learning_rate": args.learning_rate,
         "weight_decay": args.weight_decay,
+        "selection_policy": args.selection_policy,
+        "override_threshold": args.override_threshold,
         "seed": args.seed,
         "split_policy": "image_grouped_cross_validation",
         "baseline_summary": summarize_records(all_records),

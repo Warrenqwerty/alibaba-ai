@@ -1046,3 +1046,27 @@ PYTHONPATH=src python scripts/eval/cross_validate_grounding_candidate_selector.p
 
 Report `out_of_fold_summary`, `selector_diagnostics`, and every fold summary.
 Do not use `candidate_oracle_summary` as the achieved model result.
+
+The listwise run reaches only 85/161 Hit@0.3 (`0.5280`), versus the current
+policy's 87/161 (`0.5404`): seven hits are gained but nine are lost. Do not use
+this selector online. Run the conservative current-versus-alternative selector:
+
+```bash
+PYTHONPATH=src python scripts/eval/cross_validate_grounding_candidate_selector.py \
+  --eval-json /root/autodl-tmp/outputs/local_region_manual_eval_cross_model_candidates_audited.json \
+  --regions cuff pocket pattern waist zipper \
+  --num-folds 5 \
+  --num-epochs 120 \
+  --hidden-dim 48 \
+  --learning-rate 0.003 \
+  --weight-decay 0.01 \
+  --selection-policy conservative_pairwise \
+  --override-threshold 0.5 \
+  --seed 42 \
+  --device cpu \
+  --output /root/autodl-tmp/outputs/local_region_candidate_selector_conservative_5fold_audited.json
+```
+
+Keep `--override-threshold 0.5` fixed for this OOF run. The relevant result is
+still `out_of_fold_summary`, while `override_counts` shows how often current
+was replaced.

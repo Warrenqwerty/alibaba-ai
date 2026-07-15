@@ -114,8 +114,11 @@ from scripts.eval.evaluate_chinese_clip_manual_local_regions import (
 from scripts.eval.cross_validate_grounding_candidate_selector import (
     candidate_examples,
     image_grouped_folds,
+    pairwise_recovery_examples,
     select_candidate_record,
+    select_conservative_candidate_record,
     selector_candidates,
+    train_conservative_selector,
     train_selector,
 )
 
@@ -583,6 +586,93 @@ def test_manual_candidate_selector_trains_and_selects_on_cpu():
 
     assert selected["selector_source"] in {"current", "diagnostic_grounding"}
     assert len(selected["predicted_bbox"]) == 4
+
+
+def test_pairwise_recovery_labels_only_miss_to_hit_overrides():
+    records = [
+        {
+            "image": "miss.jpg",
+            "query_text": "衣服上的拉链",
+            "target_region": "zipper",
+            "target_bbox": [0, 0, 10, 10],
+            "predicted_bbox": [20, 0, 30, 10],
+            "diagnostic_grounding_candidate": {
+                "detections": [
+                    {"bbox": [0, 0, 10, 10], "score": 0.8, "prompt": "zipper"},
+                ]
+            },
+        },
+        {
+            "image": "hit.jpg",
+            "query_text": "衣服上的拉链",
+            "target_region": "zipper",
+            "target_bbox": [0, 0, 10, 10],
+            "predicted_bbox": [0, 0, 10, 10],
+            "diagnostic_grounding_candidate": {
+                "detections": [
+                    {"bbox": [20, 0, 30, 10], "score": 0.8, "prompt": "zipper"},
+                ]
+            },
+        },
+    ]
+    examples = [candidate_examples(record, (100, 80)) for record in records]
+
+    pair_features, labels = pairwise_recovery_examples(examples, [0, 1])
+
+    assert pair_features.shape[0] == 2
+    assert labels.tolist() == [1.0, 0.0]
+
+
+def test_conservative_selector_respects_override_threshold():
+    records = [
+        {
+            "id": f"pair-{index}",
+            "image": f"pair-{index}.jpg",
+            "query_text": "衣服上的拉链",
+            "target_region": "zipper",
+            "target_bbox": [0, 0, 10, 10],
+            "predicted_bbox": [20, 0, 30, 10],
+            "selected_region": "zipper",
+            "diagnostic_grounding_candidate": {
+                "grounding_model_name": "IDEA-Research/grounding-dino-base",
+                "detections": [
+                    {"bbox": [0, 0, 10, 10], "score": 0.8, "prompt": "zipper"},
+                ],
+            },
+        }
+        for index in range(4)
+    ]
+    examples = [candidate_examples(record, (100, 80)) for record in records]
+    model = train_conservative_selector(
+        examples,
+        [0, 1, 2],
+        hidden_dim=16,
+        num_epochs=2,
+        learning_rate=0.003,
+        weight_decay=0.01,
+        seed=42,
+        device=torch.device("cpu"),
+    )
+
+    kept = select_conservative_candidate_record(
+        records[3],
+        examples[3],
+        model,
+        torch.device("cpu"),
+        override_threshold=1.0,
+    )
+    overridden = select_conservative_candidate_record(
+        records[3],
+        examples[3],
+        model,
+        torch.device("cpu"),
+        override_threshold=0.0,
+    )
+
+    assert kept["selector_source"] == "current"
+    assert kept["selector_overrode_current"] is False
+    assert overridden["selector_source"] == "diagnostic_grounding"
+    assert overridden["selector_overrode_current"] is True
 
 
 def test_manual_grounding_record_applies_validated_wearer_side_selection(tmp_path):
