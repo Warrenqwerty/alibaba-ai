@@ -5,14 +5,25 @@ import json
 from pathlib import Path
 from typing import Any
 
-from scripts.data.merge_local_region_manual_eval_labels import record_key
-
-
 AUDIT_INSTRUCTION = (
     "Review the existing box without predictions or landmarks. Keep a tight box only "
     "when the query identifies one visible garment part. For left/right, use garment/wearer "
     "left/right. Skip when the target is absent, occluded, or ambiguous across garments."
 )
+
+
+def record_key(record: dict[str, Any]) -> str:
+    """Match manual-label merge keys without importing another script module."""
+    record_id = record.get("id")
+    if isinstance(record_id, str) and record_id:
+        return f"id:{record_id}"
+    return "fallback:" + "\t".join(
+        (
+            str(record.get("image", "")),
+            str(record.get("query_text", "")),
+            str(record.get("target_region", "")),
+        )
+    )
 
 
 def parse_args() -> argparse.Namespace:
