@@ -1069,7 +1069,19 @@ nested run measures deployable no-loss recovery.
 
 The region-conditioned soft-target listwise result reaches Hit@0.3 `0.4778`:
 cuff is `0.4339` and waist is `0.7339`. It gains 393 hits and loses 123 against
-the current policy, so conservative calibration is premature. The next loss is
-multi-positive Hit@0.3 likelihood, which directly optimizes the probability of
-selecting any threshold-positive candidate. Linear and MLP variants use the
-same image-grouped folds; the manual benchmark remains closed.
+the current policy, so conservative calibration is premature. Multi-positive
+linear does not improve the overall score (`0.4778`, 1,117 hits), and MLP drops
+to `0.4542`. This rejects loss tuning and added selector capacity as the next
+direction.
+
+The remaining bottleneck is cuff representation. The next artifact adds
+target-independent DINOv2 patch spatial descriptors only to the 1,996 cuff
+records: CLS, patch mean, 2x2 quadrants, center, and border are pooled for both
+tight and 1.6x context crops and projected deterministically to 128 dimensions.
+Waist keeps the existing global features. Re-run the same 5-fold linear
+soft-target listwise diagnostic and require both
+`num_records_with_dinov2_spatial_embeddings == 1996` and
+`target_bbox_used_for_features == false`. To reach 1,403 total hits while
+retaining the current waist result, cuff must rise to roughly Hit@0.3 `0.577`.
+The frozen manual benchmark remains closed until the full weak OOF result is at
+least `0.60`.

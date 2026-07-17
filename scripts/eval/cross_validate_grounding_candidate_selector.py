@@ -43,7 +43,12 @@ DINO_VECTOR_NAMES = (
     "dinov2_context_embedding",
 )
 DINO_PROJECTION_DIM = 64
-CANDIDATE_FEATURE_SCHEMA = "shared_plus_region_conditioned_signals_v2"
+DINO_SPATIAL_VECTOR_NAMES = (
+    "dinov2_spatial_tight_embedding",
+    "dinov2_spatial_context_embedding",
+)
+DINO_SPATIAL_PROJECTION_DIM = 128
+CANDIDATE_FEATURE_SCHEMA = "shared_plus_region_conditioned_spatial_signals_v3"
 
 
 def parse_args() -> argparse.Namespace:
@@ -168,17 +173,40 @@ def visual_scores_by_box(record: dict[str, Any]) -> dict[tuple[float, ...], dict
     }
 
 
-def record_has_complete_dinov2_embeddings(record: dict[str, Any]) -> bool:
+def record_has_complete_visual_vectors(
+    record: dict[str, Any],
+    *,
+    vector_names: tuple[str, ...],
+    expected_dim: int,
+) -> bool:
     candidates = selector_candidates(record)
     if not candidates:
         return False
     return all(
         all(
             isinstance(candidate.get(f"visual_{name}"), list)
-            and len(candidate[f"visual_{name}"]) == DINO_PROJECTION_DIM
-            for name in DINO_VECTOR_NAMES
+            and len(candidate[f"visual_{name}"]) == expected_dim
+            for name in vector_names
         )
         for candidate in candidates
+    )
+
+
+def record_has_complete_dinov2_embeddings(record: dict[str, Any]) -> bool:
+    return record_has_complete_visual_vectors(
+        record,
+        vector_names=DINO_VECTOR_NAMES,
+        expected_dim=DINO_PROJECTION_DIM,
+    )
+
+
+def record_has_complete_dinov2_spatial_embeddings(
+    record: dict[str, Any],
+) -> bool:
+    return record_has_complete_visual_vectors(
+        record,
+        vector_names=DINO_SPATIAL_VECTOR_NAMES,
+        expected_dim=DINO_SPATIAL_PROJECTION_DIM,
     )
 
 
@@ -224,13 +252,17 @@ def selector_candidates(record: dict[str, Any]) -> list[dict[str, Any]]:
             updated.update(
                 {
                     f"visual_{name}": [float(value) for value in visual[name]]
-                    for name in DINO_VECTOR_NAMES
+                    for name in (*DINO_VECTOR_NAMES, *DINO_SPATIAL_VECTOR_NAMES)
                     if visual.get(name) is not None
                 }
             )
             if visual.get("dinov2_tight_context_similarity") is not None:
                 updated["visual_dinov2_tight_context_similarity"] = float(
                     visual["dinov2_tight_context_similarity"]
+                )
+            if visual.get("dinov2_spatial_tight_context_similarity") is not None:
+                updated["visual_dinov2_spatial_tight_context_similarity"] = float(
+                    visual["dinov2_spatial_tight_context_similarity"]
                 )
         enriched.append(updated)
     return enriched
@@ -359,6 +391,37 @@ def candidate_feature(
         ],
         float(candidate.get("visual_dinov2_tight_context_similarity") or 0.0),
     ]
+    tight_spatial_dino = fixed_visual_vector(
+        candidate.get("visual_dinov2_spatial_tight_embedding"),
+        expected_dim=DINO_SPATIAL_PROJECTION_DIM,
+        name="dinov2_spatial_tight_embedding",
+    )
+    context_spatial_dino = fixed_visual_vector(
+        candidate.get("visual_dinov2_spatial_context_embedding"),
+        expected_dim=DINO_SPATIAL_PROJECTION_DIM,
+        name="dinov2_spatial_context_embedding",
+    )
+    has_spatial_dino = any(
+        candidate.get(f"visual_{name}") is not None
+        for name in DINO_SPATIAL_VECTOR_NAMES
+    )
+    spatial_dino = [
+        float(has_spatial_dino),
+        *tight_spatial_dino,
+        *context_spatial_dino,
+        *[
+            tight_value - context_value
+            for tight_value, context_value in zip(
+                tight_spatial_dino,
+                context_spatial_dino,
+                strict=True,
+            )
+        ],
+        float(
+            candidate.get("visual_dinov2_spatial_tight_context_similarity")
+            or 0.0
+        ),
+    ]
     numeric = [
         score,
         float(score_value is None),
@@ -371,6 +434,7 @@ def candidate_feature(
         *agreement,
         *visual,
         *dino,
+        *spatial_dino,
     ]
     values = [
         *one_hot(region, DEFAULT_REGIONS),
@@ -1134,6 +1198,10 @@ def main() -> None:
         ),
         "num_records_with_dinov2_embeddings": sum(
             record_has_complete_dinov2_embeddings(record)
+            for record in selected_records
+        ),
+        "num_records_with_dinov2_spatial_embeddings": sum(
+            record_has_complete_dinov2_spatial_embeddings(record)
             for record in selected_records
         ),
         "baseline_summary": summarize_records(all_records),

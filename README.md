@@ -1034,6 +1034,15 @@ rerunning listwise and conservative image-grouped OOF diagnostics.
 
 With those interactions, soft-target listwise OOF reaches Hit@0.3 `0.4778`
 (`0.4339` cuff, `0.7339` waist), gaining 393 hits but losing 123. Because the
-metric accepts any candidate above the IoU threshold, the next diagnostic uses
-a multi-positive objective that maximizes total probability on the Hit@0.3
-candidate set instead of fitting a fixed distribution among all positive boxes.
+metric accepts any candidate above the IoU threshold, multi-positive and MLP
+diagnostics were tested next. Multi-positive linear remains at `0.4778`
+(1,117/2,338 hits), while MLP falls to `0.4542`; loss shape and model capacity
+are therefore not the current bottleneck.
+
+The next experiment is cuff-specific DINOv2 patch spatial enrichment. It pools
+CLS, global patch mean, four quadrants, center, and border from each tight and
+1.6x context crop, then stores a deterministic 128-dimensional projection.
+Only cuff is enriched; waist keeps the existing feature path and already
+exceeds 60% OOF. The spatial run must remain on the independent weak split and
+must report `target_bbox_used_for_features: false`. Do not open the manual
+benchmark unless full weak OOF reaches 60% (at least 1,403/2,338 hits).

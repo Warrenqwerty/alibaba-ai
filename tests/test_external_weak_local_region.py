@@ -222,11 +222,38 @@ def dinov2_metadata(fingerprint="projection-a"):
     }
 
 
+def dinov2_spatial_metadata(fingerprint="spatial-projection-a"):
+    return {
+        "model_name": "facebook/dinov2-base",
+        "feature_mode": "spatial_pyramid",
+        "regions": ["cuff"],
+        "context_scale": 1.6,
+        "projection_dim": 128,
+        "projection_seed": 42,
+        "projection_fingerprint": fingerprint,
+        "spatial_components": [
+            "cls",
+            "patch_mean",
+            "top_left",
+            "top_right",
+            "bottom_left",
+            "bottom_right",
+            "center",
+            "border",
+        ],
+        "target_bbox_used_for_features": False,
+    }
+
+
 def test_external_selector_requires_matching_dinov2_projection_metadata():
     metadata = dinov2_metadata()
     validate_dinov2_enrichment_compatibility(
         {"dinov2_candidate_enrichment": metadata},
         {"dinov2_candidate_enrichment": dict(metadata)},
+    )
+    validate_dinov2_enrichment_compatibility(
+        {"dinov2_candidate_enrichment": metadata},
+        {"dinov2_candidate_enrichment": {**metadata, "feature_mode": "global"}},
     )
     validate_dinov2_enrichment_compatibility({}, {})
 
@@ -239,6 +266,27 @@ def test_external_selector_requires_matching_dinov2_projection_metadata():
         validate_dinov2_enrichment_compatibility(
             {"dinov2_candidate_enrichment": metadata},
             {"dinov2_candidate_enrichment": dinov2_metadata("projection-b")},
+        )
+
+    spatial = dinov2_spatial_metadata()
+    validate_dinov2_enrichment_compatibility(
+        {"dinov2_spatial_candidate_enrichment": spatial},
+        {"dinov2_spatial_candidate_enrichment": dict(spatial)},
+    )
+    with pytest.raises(ValueError, match="projection_fingerprint"):
+        validate_dinov2_enrichment_compatibility(
+            {"dinov2_spatial_candidate_enrichment": spatial},
+            {
+                "dinov2_spatial_candidate_enrichment": (
+                    dinov2_spatial_metadata("spatial-projection-b")
+                )
+            },
+        )
+    different_regions = {**spatial, "regions": ["waist"]}
+    with pytest.raises(ValueError, match="regions"):
+        validate_dinov2_enrichment_compatibility(
+            {"dinov2_spatial_candidate_enrichment": spatial},
+            {"dinov2_spatial_candidate_enrichment": different_regions},
         )
 
 
@@ -301,6 +349,46 @@ def test_external_selector_rejects_partial_dinov2_candidate_coverage(tmp_path):
 
     with pytest.raises(ValueError, match="complete DINOv2"):
         validate_dinov2_record_coverage(payload, [record], label="train")
+
+
+def test_external_selector_checks_spatial_coverage_only_for_enriched_regions(
+    tmp_path,
+):
+    image_path = tmp_path / "train.jpg"
+    cuff_record = candidate_record(image_path, "cuff-1", weak=True)
+    waist_record = {
+        **candidate_record(image_path, "waist-1", weak=True),
+        "target_region": "waist",
+    }
+    embedding = [0.0] * 128
+    cuff_record["visual_candidate_scores"] = [
+        {
+            "bbox": candidate["bbox"],
+            "dinov2_spatial_tight_embedding": embedding,
+            "dinov2_spatial_context_embedding": embedding,
+        }
+        for candidate in [
+            {"bbox": [20, 0, 30, 10]},
+            {"bbox": [0, 0, 10, 10]},
+        ]
+    ]
+    payload = {
+        "dinov2_spatial_candidate_enrichment": dinov2_spatial_metadata(),
+    }
+
+    validate_dinov2_record_coverage(
+        payload,
+        [cuff_record, waist_record],
+        label="train",
+    )
+    cuff_record["visual_candidate_scores"].pop()
+
+    with pytest.raises(ValueError, match="complete DINOv2 spatial"):
+        validate_dinov2_record_coverage(
+            payload,
+            [cuff_record, waist_record],
+            label="train",
+        )
 
 
 def test_external_selector_main_trains_before_frozen_test(tmp_path, monkeypatch):

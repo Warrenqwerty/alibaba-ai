@@ -1259,54 +1259,58 @@ PYTHONPATH=src HF_ENDPOINT=https://hf-mirror.com python \
 ```
 
 Require `num_scored_records == 2338`, `projection_dim == 64`, a non-empty
-`projection_fingerprint`, and `target_bbox_used_for_features == false`. First
-run a listwise image-grouped OOF diagnostic on CUDA. This is not a deployment
-policy; it measures whether the region-conditioned feature space can rank the
-saved candidate pool:
+`projection_fingerprint`, and `target_bbox_used_for_features == false`.
+
+The completed region-conditioned diagnostics show that soft-target linear
+reaches Hit@0.3 `0.4778` (1,117/2,338), multi-positive linear also reaches
+`0.4778`, and multi-positive MLP falls to `0.4542`. Do not rerun the MLP or tune
+the loss. Add cuff-only patch spatial descriptors to the existing enriched
+artifact instead:
+
+```bash
+cd /root/projects/alibaba-ai
+git pull
+PYTHONPATH=src HF_ENDPOINT=https://hf-mirror.com python \
+  scripts/eval/enrich_grounding_candidates_with_dinov2.py \
+  --eval-json /root/autodl-tmp/outputs/local_region_train_online_candidates_cuff_waist_chinese_clip_dinov2_2338_v2.json \
+  --regions cuff \
+  --model-name facebook/dinov2-base \
+  --feature-mode spatial_pyramid \
+  --context-scale 1.6 \
+  --image-batch-size 32 \
+  --projection-seed 42 \
+  --device cuda \
+  --output /root/autodl-tmp/outputs/local_region_train_online_candidates_cuff_waist_clip_dinov2_spatial_cuff_2338_v2.json
+```
+
+Require `num_scored_records == 1996`, `projection_dim == 128`, eight
+`spatial_components`, a non-empty `projection_fingerprint`, and
+`target_bbox_used_for_features == false`. Then run the same image-grouped OOF
+diagnostic with the stronger linear/soft-target configuration:
 
 ```bash
 PYTHONPATH=src python scripts/eval/cross_validate_grounding_candidate_selector.py \
-  --eval-json /root/autodl-tmp/outputs/local_region_train_online_candidates_cuff_waist_chinese_clip_dinov2_2338_v2.json \
+  --eval-json /root/autodl-tmp/outputs/local_region_train_online_candidates_cuff_waist_clip_dinov2_spatial_cuff_2338_v2.json \
   --regions cuff waist \
   --num-folds 5 \
   --num-epochs 200 \
   --selector-architecture linear \
   --selection-policy listwise \
-  --listwise-loss multi_positive_hit \
+  --listwise-loss soft_target \
   --threshold-policy fixed \
   --learning-rate 0.01 \
   --weight-decay 0.01 \
   --seed 42 \
   --device cuda \
-  --output /root/autodl-tmp/outputs/local_region_clip_dinov2_region_conditioned_multi_positive_linear_oof_2338_v2.json
+  --output /root/autodl-tmp/outputs/local_region_clip_dinov2_spatial_cuff_listwise_oof_2338_v2.json
 ```
 
-Run the nonlinear comparison with exactly the same folds and objective:
-
-```bash
-PYTHONPATH=src python scripts/eval/cross_validate_grounding_candidate_selector.py \
-  --eval-json /root/autodl-tmp/outputs/local_region_train_online_candidates_cuff_waist_chinese_clip_dinov2_2338_v2.json \
-  --regions cuff waist \
-  --num-folds 5 \
-  --num-epochs 200 \
-  --hidden-dim 128 \
-  --selector-architecture mlp \
-  --selection-policy listwise \
-  --listwise-loss multi_positive_hit \
-  --threshold-policy fixed \
-  --learning-rate 0.001 \
-  --weight-decay 0.02 \
-  --seed 42 \
-  --device cuda \
-  --output /root/autodl-tmp/outputs/local_region_clip_dinov2_region_conditioned_multi_positive_mlp_oof_2338_v2.json
-```
-
-Only if a listwise variant reaches the 60% weak OOF gate, run the conservative
+Only if this listwise run reaches the 60% weak OOF gate, run the conservative
 nested selector, still using only the independent weak labels:
 
 ```bash
 PYTHONPATH=src python scripts/eval/cross_validate_grounding_candidate_selector.py \
-  --eval-json /root/autodl-tmp/outputs/local_region_train_online_candidates_cuff_waist_chinese_clip_dinov2_2338_v2.json \
+  --eval-json /root/autodl-tmp/outputs/local_region_train_online_candidates_cuff_waist_clip_dinov2_spatial_cuff_2338_v2.json \
   --regions cuff waist \
   --num-folds 5 \
   --inner-folds 3 \
@@ -1321,15 +1325,20 @@ PYTHONPATH=src python scripts/eval/cross_validate_grounding_candidate_selector.p
   --weight-decay 0.01 \
   --seed 42 \
   --device cuda \
-  --output /root/autodl-tmp/outputs/local_region_clip_dinov2_region_conditioned_conservative_oof_2338_v2.json
+  --output /root/autodl-tmp/outputs/local_region_clip_dinov2_spatial_cuff_conservative_oof_2338_v2.json
 ```
 
-Both outputs must report
-`num_records_with_dinov2_embeddings == 2338`. When train and frozen-manual
+The listwise output must report `num_records_with_dinov2_embeddings == 2338`
+and `num_records_with_dinov2_spatial_embeddings == 1996`. When train and frozen-manual
 artifacts are later used together, the external selector rejects mismatched
-DINOv2 model, context, projection seed, dimension, or projection fingerprint.
+DINOv2 model, enriched region set, feature mode, context, projection seed,
+dimension, spatial components, or projection fingerprint. Legacy global
+artifacts without `feature_mode` are treated as `global`.
 The baseline contains 847 Hit@0.3 cases; the 60% target requires at least 1,403
-and the candidate oracle contains about 1,595. If listwise OOF remains below
-60%, candidate ranking/representation is still the bottleneck. If listwise
-passes 60% but conservative does not, threshold calibration and recovery
-routing are the bottleneck.
+and the candidate oracle contains about 1,595. The current listwise result is
+1,117 hits, so spatial features must recover 286 net hits. With the current
+waist result retained, cuff needs roughly Hit@0.3 `0.577`. If listwise OOF
+remains below 60%, move to a cuff-specific dense patch/text ranker rather than
+opening the manual benchmark or tuning selector depth. If listwise passes 60%
+but conservative does not, threshold calibration and recovery routing are the
+bottleneck.

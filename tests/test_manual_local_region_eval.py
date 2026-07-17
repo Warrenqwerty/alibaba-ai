@@ -124,6 +124,7 @@ from scripts.eval.cross_validate_grounding_candidate_selector import (
     listwise_hit_loss,
     pairwise_recovery_examples,
     parse_threshold_grid,
+    record_has_complete_dinov2_spatial_embeddings,
     select_candidate_record,
     select_conservative_candidate_record,
     selector_candidates,
@@ -138,6 +139,9 @@ from scripts.eval.enrich_grounding_candidates_with_chinese_clip import relative_
 from scripts.eval.enrich_grounding_candidates_with_chinese_clip import score_record_candidates
 from scripts.eval.enrich_grounding_candidates_with_dinov2 import (
     deterministic_projection,
+)
+from scripts.eval.enrich_grounding_candidates_with_dinov2 import (
+    dinov2_spatial_descriptor,
 )
 from scripts.eval.enrich_grounding_candidates_with_dinov2 import (
     project_dinov2_features,
@@ -697,6 +701,31 @@ def test_dinov2_projection_is_deterministic_and_normalized():
     )
 
 
+def test_dinov2_spatial_descriptor_uses_patch_pyramid_components():
+    class Output:
+        last_hidden_state = torch.arange(2 * 17 * 4, dtype=torch.float32).reshape(
+            2,
+            17,
+            4,
+        )
+
+    descriptors = dinov2_spatial_descriptor(Output())
+
+    assert descriptors.shape == (2, 4 * 8)
+    assert torch.isfinite(descriptors).all()
+    assert torch.linalg.vector_norm(descriptors, dim=1).tolist() == pytest.approx(
+        [1.0, 1.0]
+    )
+
+
+def test_dinov2_spatial_descriptor_rejects_non_square_patch_grid():
+    class Output:
+        last_hidden_state = torch.zeros((1, 16, 4), dtype=torch.float32)
+
+    with pytest.raises(ValueError, match="square grid"):
+        dinov2_spatial_descriptor(Output())
+
+
 def test_candidate_signals_are_explicitly_conditioned_on_target_region():
     values = [1.0, 2.0]
 
@@ -809,6 +838,82 @@ def test_dinov2_enrichment_preserves_clip_scores_without_target_box(monkeypatch)
     assert enriched_features.shape == legacy_features.shape
     assert len(candidates[0]["visual_dinov2_tight_embedding"]) == 64
     assert not torch.equal(enriched_features, legacy_features)
+
+
+def test_dinov2_spatial_enrichment_preserves_existing_candidate_scores(monkeypatch):
+    embedding = [0.1] * 64
+    record = {
+        "image": "/tmp/example.jpg",
+        "query_text": "左边的袖口",
+        "target_region": "cuff",
+        "target_bbox": [0, 0, 10, 10],
+        "predicted_bbox": [20, 0, 30, 10],
+        "diagnostic_grounding_candidate": {
+            "detections": [
+                {"bbox": [0, 0, 10, 10], "score": 0.8, "prompt": "sleeve cuff"},
+            ]
+        },
+        "visual_candidate_scores": [
+            {
+                "bbox": [20, 0, 30, 10],
+                "tight_score": 0.2,
+                "dinov2_tight_embedding": embedding,
+                "dinov2_context_embedding": embedding,
+            }
+        ],
+    }
+    monkeypatch.setattr(
+        "scripts.eval.enrich_grounding_candidates_with_dinov2."
+        "encode_dinov2_spatial_images",
+        lambda *args, **kwargs: torch.tensor(
+            [
+                [1.0, 0.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0, 0.0],
+            ]
+        ),
+    )
+    projection = deterministic_projection(
+        4,
+        output_dim=128,
+        seed=42,
+        device=torch.device("cpu"),
+    )
+
+    scores = score_dinov2_record_candidates(
+        record,
+        Image.new("RGB", (100, 80)),
+        model=object(),
+        processor=object(),
+        projection=projection,
+        device=torch.device("cpu"),
+        context_scale=1.6,
+        image_batch_size=8,
+        feature_mode="spatial_pyramid",
+    )
+
+    assert scores[0]["tight_score"] == pytest.approx(0.2)
+    assert scores[0]["dinov2_tight_embedding"] == embedding
+    assert len(scores[0]["dinov2_spatial_tight_embedding"]) == 128
+    assert len(scores[1]["dinov2_spatial_context_embedding"]) == 128
+    assert scores[0]["dinov2_spatial_tight_context_similarity"] == pytest.approx(
+        1.0
+    )
+
+    enriched_record = {**record, "visual_candidate_scores": scores}
+    assert record_has_complete_dinov2_spatial_embeddings(enriched_record)
+    spatial_features, _, candidates = candidate_examples(
+        enriched_record,
+        (100, 80),
+    )
+    legacy_features, _, _ = candidate_examples(
+        {**record, "visual_candidate_scores": []},
+        (100, 80),
+    )
+    assert spatial_features.shape == legacy_features.shape
+    assert len(candidates[0]["visual_dinov2_spatial_tight_embedding"]) == 128
+    assert not torch.equal(spatial_features, legacy_features)
 
 
 def test_image_grouped_folds_do_not_split_one_image():

@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import logging
+import math
 import sys
 from pathlib import Path
 from typing import Any
@@ -19,6 +20,9 @@ from scripts.eval.cross_validate_grounding_candidate_selector import candidate_k
 from scripts.eval.cross_validate_grounding_candidate_selector import (
     DINO_PROJECTION_DIM,
 )
+from scripts.eval.cross_validate_grounding_candidate_selector import (
+    DINO_SPATIAL_PROJECTION_DIM,
+)
 from scripts.eval.cross_validate_grounding_candidate_selector import selector_candidates
 from scripts.eval.cross_validate_grounding_candidate_selector import (
     visual_scores_by_box,
@@ -30,6 +34,16 @@ from scripts.eval.evaluate_chinese_clip_local_region_ranker import crop_candidat
 LOGGER = logging.getLogger(__name__)
 DEFAULT_MODEL_NAME = "facebook/dinov2-base"
 DEFAULT_REGIONS = ("cuff", "pocket", "pattern", "waist", "zipper")
+SPATIAL_COMPONENT_NAMES = (
+    "cls",
+    "patch_mean",
+    "top_left",
+    "top_right",
+    "bottom_left",
+    "bottom_right",
+    "center",
+    "border",
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -45,6 +59,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--context-scale", type=float, default=1.6)
     parser.add_argument("--image-batch-size", type=int, default=32)
     parser.add_argument("--projection-seed", type=int, default=42)
+    parser.add_argument(
+        "--feature-mode",
+        choices=("global", "spatial_pyramid"),
+        default="global",
+    )
     parser.add_argument("--device", default=None)
     parser.add_argument("--output", required=True)
     return parser.parse_args()
@@ -85,6 +104,58 @@ def dinov2_feature_tensor(output: Any) -> torch.Tensor:
     raise TypeError(f"Unsupported DINOv2 feature output type: {type(output)!r}")
 
 
+def dinov2_last_hidden_state(output: Any) -> torch.Tensor:
+    if hasattr(output, "last_hidden_state"):
+        return output.last_hidden_state
+    if isinstance(output, (tuple, list)) and output:
+        first = output[0]
+        if isinstance(first, torch.Tensor) and first.ndim == 3:
+            return first
+    raise TypeError(f"DINOv2 output has no patch-token tensor: {type(output)!r}")
+
+
+def dinov2_spatial_descriptor(output: Any) -> torch.Tensor:
+    hidden = dinov2_last_hidden_state(output).float()
+    patch_tokens = hidden[:, 1:]
+    grid_size = math.isqrt(patch_tokens.shape[1])
+    if grid_size < 2 or grid_size * grid_size != patch_tokens.shape[1]:
+        raise ValueError(
+            "DINOv2 patch tokens must form a square grid; got "
+            f"{patch_tokens.shape[1]} tokens"
+        )
+    grid = patch_tokens.reshape(
+        patch_tokens.shape[0],
+        grid_size,
+        grid_size,
+        patch_tokens.shape[-1],
+    )
+    midpoint = grid_size // 2
+    center_width = max(1, grid_size // 2)
+    center_start = (grid_size - center_width) // 2
+    center_end = center_start + center_width
+    center_mask = torch.zeros(
+        (grid_size, grid_size),
+        dtype=torch.bool,
+        device=grid.device,
+    )
+    center_mask[center_start:center_end, center_start:center_end] = True
+    components = [
+        hidden[:, 0],
+        patch_tokens.mean(dim=1),
+        grid[:, :midpoint, :midpoint].mean(dim=(1, 2)),
+        grid[:, :midpoint, midpoint:].mean(dim=(1, 2)),
+        grid[:, midpoint:, :midpoint].mean(dim=(1, 2)),
+        grid[:, midpoint:, midpoint:].mean(dim=(1, 2)),
+        grid[:, center_mask].mean(dim=1),
+        grid[:, ~center_mask].mean(dim=1),
+    ]
+    normalized = [
+        torch.nn.functional.normalize(component, dim=-1)
+        for component in components
+    ]
+    return torch.nn.functional.normalize(torch.cat(normalized, dim=-1), dim=-1)
+
+
 def encode_dinov2_images(
     crops: list[Image.Image],
     model: Any,
@@ -109,6 +180,27 @@ def encode_dinov2_images(
                 dim=-1,
             )
         )
+    return torch.cat(features, dim=0)
+
+
+def encode_dinov2_spatial_images(
+    crops: list[Image.Image],
+    model: Any,
+    processor: Any,
+    device: torch.device,
+    *,
+    image_batch_size: int,
+) -> torch.Tensor:
+    if image_batch_size <= 0:
+        raise ValueError("image_batch_size must be positive")
+    features = []
+    for start in range(0, len(crops), image_batch_size):
+        inputs = processor(
+            images=crops[start : start + image_batch_size],
+            return_tensors="pt",
+        )
+        inputs = {key: value.to(device) for key, value in inputs.items()}
+        features.append(dinov2_spatial_descriptor(model(**inputs)))
     return torch.cat(features, dim=0)
 
 
@@ -166,7 +258,10 @@ def score_record_candidates(
     device: torch.device,
     context_scale: float,
     image_batch_size: int,
+    feature_mode: str = "global",
 ) -> list[dict[str, Any]]:
+    if feature_mode not in {"global", "spatial_pyramid"}:
+        raise ValueError(f"Unsupported DINOv2 feature mode: {feature_mode}")
     candidates = selector_candidates(record)
     if not candidates:
         return []
@@ -178,7 +273,12 @@ def score_record_candidates(
         )
         for candidate in candidates
     ]
-    full_features = encode_dinov2_images(
+    encoder = (
+        encode_dinov2_spatial_images
+        if feature_mode == "spatial_pyramid"
+        else encode_dinov2_images
+    )
+    full_features = encoder(
         tight_crops + context_crops,
         model,
         processor,
@@ -190,6 +290,14 @@ def score_record_candidates(
     tight_features = projected[:num_candidates]
     context_features = projected[num_candidates:]
     similarities = (tight_features * context_features).sum(dim=1)
+    if feature_mode == "spatial_pyramid":
+        tight_key = "dinov2_spatial_tight_embedding"
+        context_key = "dinov2_spatial_context_embedding"
+        similarity_key = "dinov2_spatial_tight_context_similarity"
+    else:
+        tight_key = "dinov2_tight_embedding"
+        context_key = "dinov2_context_embedding"
+        similarity_key = "dinov2_tight_context_similarity"
     previous_rows = visual_scores_by_box(record)
     scored = []
     for index, candidate in enumerate(candidates):
@@ -201,9 +309,9 @@ def score_record_candidates(
                 "candidate_source": candidate.get("candidate_source"),
                 "candidate_rank": candidate.get("candidate_rank"),
                 "prompt": candidate.get("prompt"),
-                "dinov2_tight_embedding": tight_features[index].tolist(),
-                "dinov2_context_embedding": context_features[index].tolist(),
-                "dinov2_tight_context_similarity": float(similarities[index].item()),
+                tight_key: tight_features[index].tolist(),
+                context_key: context_features[index].tolist(),
+                similarity_key: float(similarities[index].item()),
             }
         )
         scored.append(row)
@@ -220,6 +328,7 @@ def enrich_records(
     device: torch.device,
     context_scale: float,
     image_batch_size: int,
+    feature_mode: str,
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
     enriched = []
     num_scored_records = 0
@@ -245,6 +354,7 @@ def enrich_records(
                     device=device,
                     context_scale=context_scale,
                     image_batch_size=image_batch_size,
+                    feature_mode=feature_mode,
                 )
                 updated["visual_candidate_scores"] = scores
                 num_scored_records += 1
@@ -279,9 +389,19 @@ def main() -> None:
     device = torch.device(args.device or ("cuda" if torch.cuda.is_available() else "cpu"))
     model, processor = load_dinov2(args.model_name, device)
     hidden_size = int(getattr(model.config, "hidden_size", 0))
+    if hidden_size <= 0:
+        raise ValueError("DINOv2 model config has no positive hidden_size")
+    if args.feature_mode == "spatial_pyramid":
+        projection_input_dim = hidden_size * len(SPATIAL_COMPONENT_NAMES)
+        projection_output_dim = DINO_SPATIAL_PROJECTION_DIM
+        metadata_key = "dinov2_spatial_candidate_enrichment"
+    else:
+        projection_input_dim = hidden_size
+        projection_output_dim = DINO_PROJECTION_DIM
+        metadata_key = "dinov2_candidate_enrichment"
     projection = deterministic_projection(
-        hidden_size,
-        output_dim=DINO_PROJECTION_DIM,
+        projection_input_dim,
+        output_dim=projection_output_dim,
         seed=args.projection_seed,
         device=device,
     )
@@ -294,21 +414,25 @@ def main() -> None:
         device=device,
         context_scale=args.context_scale,
         image_batch_size=args.image_batch_size,
+        feature_mode=args.feature_mode,
     )
     metadata = {
         "source_eval_json": str(Path(args.eval_json)),
         "model_name": args.model_name,
         "regions": args.regions,
+        "feature_mode": args.feature_mode,
         "context_scale": args.context_scale,
-        "projection_dim": DINO_PROJECTION_DIM,
+        "projection_dim": projection_output_dim,
         "projection_seed": args.projection_seed,
         "projection_fingerprint": projection_fingerprint(projection),
         "target_bbox_used_for_features": False,
         **counts,
     }
+    if args.feature_mode == "spatial_pyramid":
+        metadata["spatial_components"] = list(SPATIAL_COMPONENT_NAMES)
     output = {
         **{key: value for key, value in payload.items() if key != "records"},
-        "dinov2_candidate_enrichment": metadata,
+        metadata_key: metadata,
         "records": enriched_records,
     }
     output_path = Path(args.output)

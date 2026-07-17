@@ -33,6 +33,9 @@ from scripts.eval.cross_validate_grounding_candidate_selector import (
     record_has_complete_dinov2_embeddings,
 )
 from scripts.eval.cross_validate_grounding_candidate_selector import (
+    record_has_complete_dinov2_spatial_embeddings,
+)
+from scripts.eval.cross_validate_grounding_candidate_selector import (
     select_conservative_candidate_record,
 )
 from scripts.eval.cross_validate_grounding_candidate_selector import (
@@ -47,11 +50,29 @@ from scripts.eval.evaluate_local_region_manual_labels import summarize_records
 DEFAULT_REGIONS = ("cuff", "waist")
 DINO_COMPATIBILITY_FIELDS = (
     "model_name",
+    "feature_mode",
+    "regions",
     "context_scale",
     "projection_dim",
     "projection_seed",
     "projection_fingerprint",
+    "spatial_components",
 )
+DINO_ENRICHMENT_COVERAGE = {
+    "dinov2_candidate_enrichment": record_has_complete_dinov2_embeddings,
+    "dinov2_spatial_candidate_enrichment": (
+        record_has_complete_dinov2_spatial_embeddings
+    ),
+}
+
+
+def dinov2_compatibility_value(metadata: dict[str, Any], field: str) -> Any:
+    value = metadata.get(field)
+    if field == "feature_mode" and value is None:
+        return "global"
+    if field == "regions" and isinstance(value, list):
+        return tuple(sorted(str(region) for region in value))
+    return value
 
 
 def parse_args() -> argparse.Namespace:
@@ -124,32 +145,36 @@ def validate_dinov2_enrichment_compatibility(
     train_payload: dict[str, Any],
     test_payload: dict[str, Any],
 ) -> None:
-    train_metadata = train_payload.get("dinov2_candidate_enrichment")
-    test_metadata = test_payload.get("dinov2_candidate_enrichment")
-    if train_metadata is None and test_metadata is None:
-        return
-    if not isinstance(train_metadata, dict) or not isinstance(test_metadata, dict):
-        raise ValueError(
-            "DINOv2 candidate enrichment must be present on both train and test."
-        )
-    for label, metadata in (("train", train_metadata), ("test", test_metadata)):
-        if metadata.get("target_bbox_used_for_features") is not False:
+    for enrichment_key in DINO_ENRICHMENT_COVERAGE:
+        train_metadata = train_payload.get(enrichment_key)
+        test_metadata = test_payload.get(enrichment_key)
+        if train_metadata is None and test_metadata is None:
+            continue
+        if not isinstance(train_metadata, dict) or not isinstance(test_metadata, dict):
             raise ValueError(
-                f"{label} DINOv2 enrichment must state "
-                "target_bbox_used_for_features=false."
+                f"{enrichment_key} must be present on both train and test."
             )
-        if not metadata.get("projection_fingerprint"):
-            raise ValueError(f"{label} DINOv2 enrichment has no projection fingerprint.")
-    mismatches = [
-        field
-        for field in DINO_COMPATIBILITY_FIELDS
-        if train_metadata.get(field) != test_metadata.get(field)
-    ]
-    if mismatches:
-        raise ValueError(
-            "Train/test DINOv2 enrichment settings differ: "
-            + ", ".join(mismatches)
-        )
+        for label, metadata in (("train", train_metadata), ("test", test_metadata)):
+            if metadata.get("target_bbox_used_for_features") is not False:
+                raise ValueError(
+                    f"{label} {enrichment_key} must state "
+                    "target_bbox_used_for_features=false."
+                )
+            if not metadata.get("projection_fingerprint"):
+                raise ValueError(
+                    f"{label} {enrichment_key} has no projection fingerprint."
+                )
+        mismatches = [
+            field
+            for field in DINO_COMPATIBILITY_FIELDS
+            if dinov2_compatibility_value(train_metadata, field)
+            != dinov2_compatibility_value(test_metadata, field)
+        ]
+        if mismatches:
+            raise ValueError(
+                f"Train/test {enrichment_key} settings differ: "
+                + ", ".join(mismatches)
+            )
 
 
 def validate_dinov2_record_coverage(
@@ -158,18 +183,33 @@ def validate_dinov2_record_coverage(
     *,
     label: str,
 ) -> None:
-    if payload.get("dinov2_candidate_enrichment") is None:
-        return
-    incomplete = [
-        record.get("id")
-        for record in records
-        if not record_has_complete_dinov2_embeddings(record)
-    ]
-    if incomplete:
-        raise ValueError(
-            f"{label} contains records without complete DINOv2 candidate "
-            f"embeddings; first ids: {incomplete[:3]}"
-        )
+    for enrichment_key, coverage_check in DINO_ENRICHMENT_COVERAGE.items():
+        metadata = payload.get(enrichment_key)
+        if metadata is None:
+            continue
+        enriched_regions = set(metadata.get("regions") or [])
+        expected_records = records
+        if enriched_regions:
+            expected_records = [
+                record
+                for record in records
+                if str(record.get("target_region") or "") in enriched_regions
+            ]
+        incomplete = [
+            record.get("id")
+            for record in expected_records
+            if not coverage_check(record)
+        ]
+        if incomplete:
+            feature_label = (
+                "DINOv2 spatial candidate"
+                if enrichment_key == "dinov2_spatial_candidate_enrichment"
+                else "DINOv2 candidate"
+            )
+            raise ValueError(
+                f"{label} contains records without complete {feature_label} "
+                f"embeddings; first ids: {incomplete[:3]}"
+            )
 
 
 def selected_record_indices(
@@ -429,6 +469,14 @@ def main() -> None:
             record_has_complete_dinov2_embeddings(record)
             for record in test_records
         ),
+        "num_train_records_with_dinov2_spatial_embeddings": sum(
+            record_has_complete_dinov2_spatial_embeddings(record)
+            for record in train_records
+        ),
+        "num_test_records_with_dinov2_spatial_embeddings": sum(
+            record_has_complete_dinov2_spatial_embeddings(record)
+            for record in test_records
+        ),
         "weak_train_baseline_summary": summarize_records(train_records),
         "frozen_test_baseline_summary": summarize_records(all_test_records),
         "frozen_test_summary": summarize_records(full_test_records),
@@ -444,6 +492,10 @@ def main() -> None:
         "dinov2_candidate_enrichment": {
             "train": train_payload.get("dinov2_candidate_enrichment"),
             "test": test_payload.get("dinov2_candidate_enrichment"),
+        },
+        "dinov2_spatial_candidate_enrichment": {
+            "train": train_payload.get("dinov2_spatial_candidate_enrichment"),
+            "test": test_payload.get("dinov2_spatial_candidate_enrichment"),
         },
         "records": full_test_records,
     }
