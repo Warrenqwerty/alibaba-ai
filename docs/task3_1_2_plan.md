@@ -1057,3 +1057,12 @@ through a deterministic 64-dimensional random projection shared by train and
 test artifacts. This projection is label-independent; neither target bbox nor
 IoU is read during feature generation. Selection remains image-grouped OOF on
 DeepFashion2 train until the visual selector shows a material net gain.
+
+The initial shared-weight DINOv2 linear OOF result is Hit@0.3 `0.3636`, only
+three hits above the `0.3623` baseline. All cuff folds disable the selector;
+all waist folds enable it. The cause is structural: region one-hot values are
+constant within a candidate group, so a linear model cannot use different
+visual and geometry directions for cuff and waist. The next schema explicitly
+crosses every candidate signal with target region while retaining the shared
+features. A listwise OOF run measures raw rankability, and the conservative
+nested run measures deployable no-loss recovery.

@@ -1259,9 +1259,29 @@ PYTHONPATH=src HF_ENDPOINT=https://hf-mirror.com python \
 ```
 
 Require `num_scored_records == 2338`, `projection_dim == 64`, a non-empty
-`projection_fingerprint`, and `target_bbox_used_for_features == false`. Then
-run the same nested selector on CUDA, still using only the independent weak
-labels:
+`projection_fingerprint`, and `target_bbox_used_for_features == false`. First
+run a listwise image-grouped OOF diagnostic on CUDA. This is not a deployment
+policy; it measures whether the region-conditioned feature space can rank the
+saved candidate pool:
+
+```bash
+PYTHONPATH=src python scripts/eval/cross_validate_grounding_candidate_selector.py \
+  --eval-json /root/autodl-tmp/outputs/local_region_train_online_candidates_cuff_waist_chinese_clip_dinov2_2338_v2.json \
+  --regions cuff waist \
+  --num-folds 5 \
+  --num-epochs 200 \
+  --selector-architecture linear \
+  --selection-policy listwise \
+  --threshold-policy fixed \
+  --learning-rate 0.01 \
+  --weight-decay 0.01 \
+  --seed 42 \
+  --device cuda \
+  --output /root/autodl-tmp/outputs/local_region_clip_dinov2_region_conditioned_listwise_oof_2338_v2.json
+```
+
+Then run the conservative nested selector, still using only the independent
+weak labels:
 
 ```bash
 PYTHONPATH=src python scripts/eval/cross_validate_grounding_candidate_selector.py \
@@ -1280,10 +1300,15 @@ PYTHONPATH=src python scripts/eval/cross_validate_grounding_candidate_selector.p
   --weight-decay 0.01 \
   --seed 42 \
   --device cuda \
-  --output /root/autodl-tmp/outputs/local_region_external_weak_selector_clip_dinov2_oof_linear_2338_v2.json
+  --output /root/autodl-tmp/outputs/local_region_clip_dinov2_region_conditioned_conservative_oof_2338_v2.json
 ```
 
-The selector output must report
+Both outputs must report
 `num_records_with_dinov2_embeddings == 2338`. When train and frozen-manual
 artifacts are later used together, the external selector rejects mismatched
 DINOv2 model, context, projection seed, dimension, or projection fingerprint.
+The baseline contains 847 Hit@0.3 cases; the 60% target requires at least 1,403
+and the candidate oracle contains about 1,595. If listwise OOF remains below
+60%, candidate ranking/representation is still the bottleneck. If listwise
+passes 60% but conservative does not, threshold calibration and recovery
+routing are the bottleneck.

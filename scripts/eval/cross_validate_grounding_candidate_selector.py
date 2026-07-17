@@ -43,6 +43,7 @@ DINO_VECTOR_NAMES = (
     "dinov2_context_embedding",
 )
 DINO_PROJECTION_DIM = 64
+CANDIDATE_FEATURE_SCHEMA = "shared_plus_region_conditioned_signals_v2"
 
 
 def parse_args() -> argparse.Namespace:
@@ -230,6 +231,17 @@ def one_hot(value: str, names: tuple[str, ...]) -> list[float]:
     return [float(value == name) for name in names]
 
 
+def condition_signals_on_region(
+    values: list[float],
+    region: str,
+) -> list[float]:
+    return [
+        value if region == region_name else 0.0
+        for region_name in DEFAULT_REGIONS
+        for value in values
+    ]
+
+
 def hash_text(text: str | None, num_buckets: int = TEXT_BUCKETS) -> list[float]:
     vector = [0.0] * num_buckets
     normalized = (text or "").strip().lower()
@@ -357,6 +369,7 @@ def candidate_feature(
         *one_hot(model_name, MODEL_NAMES),
         *source_region,
         *numeric,
+        *condition_signals_on_region(numeric, region),
         *hash_text(candidate.get("prompt")),
     ]
     return torch.tensor(values, dtype=torch.float32)
@@ -1052,6 +1065,7 @@ def main() -> None:
             for region, counts in sorted(nested_region_activation_counts.items())
         },
         "seed": args.seed,
+        "candidate_feature_schema": CANDIDATE_FEATURE_SCHEMA,
         "split_policy": "image_grouped_cross_validation",
         "visual_candidate_enrichment": payload.get("visual_candidate_enrichment"),
         "num_records_with_visual_scores": sum(

@@ -118,6 +118,7 @@ from scripts.eval.cross_validate_grounding_candidate_selector import (
     calibrate_nested_region_policies,
     candidate_examples,
     choose_nested_region_policies,
+    condition_signals_on_region,
     image_grouped_folds,
     keep_current_candidate_record,
     pairwise_recovery_examples,
@@ -693,6 +694,16 @@ def test_dinov2_projection_is_deterministic_and_normalized():
     assert torch.linalg.vector_norm(projected, dim=1).tolist() == pytest.approx(
         [1.0, 1.0]
     )
+
+
+def test_candidate_signals_are_explicitly_conditioned_on_target_region():
+    values = [1.0, 2.0]
+
+    cuff = condition_signals_on_region(values, "cuff")
+    waist = condition_signals_on_region(values, "waist")
+
+    assert cuff == [1.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    assert waist == [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 2.0, 0.0, 0.0]
 
 
 def test_dinov2_enrichment_preserves_clip_scores_without_target_box(monkeypatch):

@@ -1023,3 +1023,11 @@ The next PRD-aligned experiment attaches frozen DINOv2 tight-crop and
 label-independent random projection stores 64 dimensions per crop. The
 enrichment path reports `target_bbox_used_for_features: false`; weak target
 boxes remain training labels only and never enter selector features.
+
+The first shared-weight DINOv2 linear selector adds only three OOF Hit@0.3
+cases (`0.3623` to `0.3636`): cuff is disabled in all five folds and waist is
+enabled in all five. This exposes a linear-feature limitation rather than a
+candidate shortage: a constant region one-hot cannot condition candidate
+visual or geometry weights. The follow-up feature schema therefore retains
+shared signals and adds explicit region-by-signal interaction blocks before
+rerunning listwise and conservative image-grouped OOF diagnostics.

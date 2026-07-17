@@ -15,6 +15,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from scripts.eval.cross_validate_grounding_candidate_selector import (
+    CANDIDATE_FEATURE_SCHEMA,
     ManualCandidateSelector,
 )
 from scripts.eval.cross_validate_grounding_candidate_selector import candidate_examples
@@ -293,6 +294,7 @@ def save_selector_checkpoint(
             "region_policies": policies,
             "regions": args.regions,
             "seed": args.seed,
+            "candidate_feature_schema": CANDIDATE_FEATURE_SCHEMA,
             "training_source": "independent_deepfashion2_train_weak_labels",
         },
         output_path,
@@ -403,6 +405,7 @@ def main() -> None:
         "learning_rate": args.learning_rate,
         "weight_decay": args.weight_decay,
         "seed": args.seed,
+        "candidate_feature_schema": CANDIDATE_FEATURE_SCHEMA,
         "calibration_policy": "image_grouped_first_fold",
         "calibration_folds": args.calibration_folds,
         "num_fit_records": len(fit_indices),
