@@ -798,6 +798,50 @@ PYTHONPATH=src python scripts/eval/cross_validate_grounding_candidate_selector.p
 The override threshold is fixed before evaluation; do not tune it against the
 same out-of-fold result.
 
+The conservative pairwise run is also rejected. It overrides 20/86 routed
+records, gains three Hit@0.3 cases, and loses five, leaving the full OOF result
+at 85/161 (`0.5280`). Geometry, detector confidence, and source metadata are
+therefore insufficient to identify the oracle candidate.
+
+Add frozen visual-semantic evidence to the same candidate pool. This does not
+repeat the earlier Chinese-CLIP-as-localizer baseline: grounding still creates
+the 107/161 oracle pool, while Chinese-CLIP only scores each tight crop and a
+fixed 1.6x context crop. The enrichment step never reads manual target boxes:
+
+```bash
+PYTHONPATH=src HF_ENDPOINT=https://hf-mirror.com python \
+  scripts/eval/enrich_grounding_candidates_with_chinese_clip.py \
+  --eval-json /root/autodl-tmp/outputs/local_region_manual_eval_cross_model_candidates_audited.json \
+  --regions cuff pocket pattern waist zipper \
+  --model-name OFA-Sys/chinese-clip-vit-base-patch16 \
+  --prompt-profile region_ensemble \
+  --context-scale 1.6 \
+  --image-batch-size 32 \
+  --device cuda \
+  --output /root/autodl-tmp/outputs/local_region_cross_model_candidates_chinese_clip_audited.json
+```
+
+Then run the same leakage-safe selector on the enriched artifact:
+
+```bash
+PYTHONPATH=src python scripts/eval/cross_validate_grounding_candidate_selector.py \
+  --eval-json /root/autodl-tmp/outputs/local_region_cross_model_candidates_chinese_clip_audited.json \
+  --regions cuff pocket pattern waist zipper \
+  --num-folds 5 \
+  --num-epochs 120 \
+  --hidden-dim 48 \
+  --learning-rate 0.003 \
+  --weight-decay 0.01 \
+  --selection-policy conservative_pairwise \
+  --override-threshold 0.5 \
+  --seed 42 \
+  --device cpu \
+  --output /root/autodl-tmp/outputs/local_region_candidate_selector_clip_conservative_5fold_audited.json
+```
+
+Require `num_records_with_visual_scores == 86`, and continue to use only the
+out-of-fold Hit@0.3 as the achieved result.
+
 ### Archived Weak-Supervision Experiments
 
 These commands are kept for reproducibility, but they are no longer the main

@@ -1070,3 +1070,43 @@ PYTHONPATH=src python scripts/eval/cross_validate_grounding_candidate_selector.p
 Keep `--override-threshold 0.5` fixed for this OOF run. The relevant result is
 still `out_of_fold_summary`, while `override_counts` shows how often current
 was replaced.
+
+Observed conservative result: 20 overrides produce three gained hits and five
+lost hits. Full OOF Hit@0.3 remains 85/161 (`0.5280`), so this selector is also
+disabled online. Add frozen Chinese-CLIP evidence to the existing candidates:
+
+```bash
+OMP_NUM_THREADS=4 MKL_NUM_THREADS=4 PYTHONPATH=src HF_ENDPOINT=https://hf-mirror.com \
+python scripts/eval/enrich_grounding_candidates_with_chinese_clip.py \
+  --eval-json /root/autodl-tmp/outputs/local_region_manual_eval_cross_model_candidates_audited.json \
+  --regions cuff pocket pattern waist zipper \
+  --model-name OFA-Sys/chinese-clip-vit-base-patch16 \
+  --prompt-profile region_ensemble \
+  --context-scale 1.6 \
+  --image-batch-size 32 \
+  --device cuda \
+  --output /root/autodl-tmp/outputs/local_region_cross_model_candidates_chinese_clip_audited.json
+```
+
+This pass needs the GPU but does not load the segmentation or grounding models.
+It records tight-crop and 1.6x-context similarities plus within-query ranks,
+without reading `target_bbox`. Run selector training on CPU afterward:
+
+```bash
+OMP_NUM_THREADS=4 MKL_NUM_THREADS=4 PYTHONPATH=src \
+python scripts/eval/cross_validate_grounding_candidate_selector.py \
+  --eval-json /root/autodl-tmp/outputs/local_region_cross_model_candidates_chinese_clip_audited.json \
+  --regions cuff pocket pattern waist zipper \
+  --num-folds 5 \
+  --num-epochs 120 \
+  --hidden-dim 48 \
+  --learning-rate 0.003 \
+  --weight-decay 0.01 \
+  --selection-policy conservative_pairwise \
+  --override-threshold 0.5 \
+  --seed 42 \
+  --device cpu \
+  --output /root/autodl-tmp/outputs/local_region_candidate_selector_clip_conservative_5fold_audited.json
+```
+
+Before interpreting the metric, verify `num_records_with_visual_scores` is 86.

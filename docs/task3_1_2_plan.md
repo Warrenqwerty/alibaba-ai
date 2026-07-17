@@ -973,3 +973,19 @@ current prediction is a miss. At inference the current prediction remains the
 default, and replacement happens only when recovery probability is at least
 the fixed `0.5` threshold. Evaluation remains image-grouped five-fold OOF;
 the threshold must not be tuned on the reported folds.
+
+The conservative result is still 85/161 (`0.5280`). It makes 20 overrides,
+recovers three misses, and destroys five current hits. This confirms that
+source, confidence, prompt hash, and geometry alone do not expose the visual
+content needed for candidate choice; it is not evidence that the 107/161
+candidate ceiling is invalid.
+
+The next experiment adds frozen Chinese-CLIP candidate features. For each
+grounding/current/heuristic candidate, encode both its tight crop and a fixed
+1.6x context crop against an ensemble of the original Chinese query and one
+canonical Chinese part description. Store raw similarities and within-query
+ranks in a reusable JSON artifact. No manual box or IoU is read during this
+step. The same conservative selector then receives those features and is
+evaluated with the unchanged image-grouped five-fold OOF protocol. This tests
+the PRD's CLIP/DINOv2-style visual-semantic direction without pretending that
+the earlier weak Chinese-CLIP localizer result was successful.

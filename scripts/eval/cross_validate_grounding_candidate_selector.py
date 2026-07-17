@@ -30,6 +30,14 @@ DEFAULT_REGIONS = ("cuff", "pocket", "pattern", "waist", "zipper")
 SOURCE_NAMES = ("current", "grounding", "diagnostic_grounding", "heuristic")
 MODEL_NAMES = ("heuristic", "grounding_dino_tiny", "grounding_dino_base", "owlv2")
 TEXT_BUCKETS = 32
+VISUAL_SCORE_NAMES = (
+    "tight_score",
+    "context_score",
+    "max_score",
+    "mean_score",
+    "tight_rank_score",
+    "context_rank_score",
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -107,6 +115,17 @@ def candidate_key(box: list[float] | tuple[float, ...]) -> tuple[float, ...]:
     return tuple(round(float(value), 3) for value in box)
 
 
+def visual_scores_by_box(record: dict[str, Any]) -> dict[tuple[float, ...], dict[str, Any]]:
+    rows = record.get("visual_candidate_scores")
+    if not isinstance(rows, list):
+        return {}
+    return {
+        candidate_key(row["bbox"]): row
+        for row in rows
+        if isinstance(row, dict) and row.get("bbox") is not None
+    }
+
+
 def selector_candidates(record: dict[str, Any]) -> list[dict[str, Any]]:
     candidates = []
     selected_box = record.get("predicted_bbox")
@@ -133,7 +152,21 @@ def selector_candidates(record: dict[str, Any]) -> list[dict[str, Any]]:
             continue
         seen_boxes.add(key)
         deduplicated.append(candidate)
-    return deduplicated
+    visual_scores = visual_scores_by_box(record)
+    enriched = []
+    for candidate in deduplicated:
+        updated = dict(candidate)
+        visual = visual_scores.get(candidate_key(candidate["bbox"]))
+        if visual is not None:
+            updated.update(
+                {
+                    f"visual_{name}": float(visual[name])
+                    for name in VISUAL_SCORE_NAMES
+                    if visual.get(name) is not None
+                }
+            )
+        enriched.append(updated)
+    return enriched
 
 
 def one_hot(value: str, names: tuple[str, ...]) -> list[float]:
@@ -209,6 +242,18 @@ def candidate_feature(
         box_iou(candidate["bbox"], heuristic_box) if heuristic_box is not None else 0.0,
         float(heuristic_box is not None),
     ]
+    has_visual_scores = any(
+        candidate.get(f"visual_{name}") is not None for name in VISUAL_SCORE_NAMES
+    )
+    visual = [
+        float(has_visual_scores),
+        *[
+            float(candidate.get(f"visual_{name}") or 0.0)
+            for name in VISUAL_SCORE_NAMES
+        ],
+        float(candidate.get("visual_context_score") or 0.0)
+        - float(candidate.get("visual_tight_score") or 0.0),
+    ]
     numeric = [
         score,
         float(score_value is None),
@@ -219,6 +264,7 @@ def candidate_feature(
         side_matches,
         *geometry,
         *agreement,
+        *visual,
     ]
     values = [
         *one_hot(region, DEFAULT_REGIONS),
@@ -434,6 +480,8 @@ def select_candidate_record(
             "selector_source": candidate.get("candidate_source"),
             "selector_rank": candidate.get("candidate_rank"),
             "selector_score": float(scores[selected_index].item()),
+            "selector_visual_tight_score": candidate.get("visual_tight_score"),
+            "selector_visual_context_score": candidate.get("visual_context_score"),
         }
     )
     return selected
@@ -492,6 +540,8 @@ def select_conservative_candidate_record(
             "selector_rank": candidate.get("candidate_rank"),
             "selector_override_probability": best_probability,
             "selector_overrode_current": selected_index != 0,
+            "selector_visual_tight_score": candidate.get("visual_tight_score"),
+            "selector_visual_context_score": candidate.get("visual_context_score"),
         }
     )
     return selected
@@ -646,6 +696,12 @@ def main() -> None:
         "override_threshold": args.override_threshold,
         "seed": args.seed,
         "split_policy": "image_grouped_cross_validation",
+        "visual_candidate_enrichment": payload.get("visual_candidate_enrichment"),
+        "num_records_with_visual_scores": sum(
+            isinstance(record.get("visual_candidate_scores"), list)
+            and bool(record["visual_candidate_scores"])
+            for record in selected_records
+        ),
         "baseline_summary": summarize_records(all_records),
         "candidate_oracle_summary": summarize_records(oracle_records),
         "candidate_oracle_diagnostics": oracle_diagnostics,

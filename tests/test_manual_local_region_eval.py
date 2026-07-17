@@ -120,7 +120,12 @@ from scripts.eval.cross_validate_grounding_candidate_selector import (
     selector_candidates,
     train_conservative_selector,
     train_selector,
+    visual_scores_by_box,
 )
+from scripts.eval.enrich_grounding_candidates_with_chinese_clip import contextual_box
+from scripts.eval.enrich_grounding_candidates_with_chinese_clip import record_text_prompts
+from scripts.eval.enrich_grounding_candidates_with_chinese_clip import relative_rank_scores
+from scripts.eval.enrich_grounding_candidates_with_chinese_clip import score_record_candidates
 
 
 def test_manual_manifest_records_start_unlabeled(tmp_path):
@@ -524,6 +529,112 @@ def test_candidate_examples_build_fixed_features_and_manual_ious():
     assert features.ndim == 2
     assert features.shape[0] == len(candidates) == 2
     assert ious.tolist() == pytest.approx([0.0, 1.0])
+
+
+def test_visual_candidate_scores_attach_by_bbox():
+    record = {
+        "image": "/tmp/example.jpg",
+        "query_text": "衣服上的拉链",
+        "target_region": "zipper",
+        "target_bbox": [0, 0, 10, 10],
+        "predicted_bbox": [20, 0, 30, 10],
+        "diagnostic_grounding_candidate": {
+            "detections": [
+                {"bbox": [0, 0, 10, 10], "score": 0.8, "prompt": "zipper"},
+            ]
+        },
+        "visual_candidate_scores": [
+            {
+                "bbox": [20, 0, 30, 10],
+                "tight_score": 0.2,
+                "context_score": 0.3,
+                "max_score": 0.3,
+                "mean_score": 0.25,
+                "tight_rank_score": 0.0,
+                "context_rank_score": 0.0,
+            },
+            {
+                "bbox": [0, 0, 10, 10],
+                "tight_score": 0.8,
+                "context_score": 0.7,
+                "max_score": 0.8,
+                "mean_score": 0.75,
+                "tight_rank_score": 1.0,
+                "context_rank_score": 1.0,
+            },
+        ],
+    }
+
+    indexed = visual_scores_by_box(record)
+    features, _, candidates = candidate_examples(record, (100, 80))
+
+    assert len(indexed) == 2
+    assert features.shape[0] == len(candidates) == 2
+    assert candidates[0]["visual_tight_score"] == pytest.approx(0.2)
+    assert candidates[1]["visual_context_score"] == pytest.approx(0.7)
+
+
+def test_chinese_clip_candidate_enrichment_uses_tight_and_context_crops(monkeypatch):
+    record = {
+        "image": "/tmp/example.jpg",
+        "query_text": "衣服上的拉链",
+        "target_region": "zipper",
+        "predicted_bbox": [20, 0, 30, 10],
+        "diagnostic_grounding_candidate": {
+            "detections": [
+                {"bbox": [0, 0, 10, 10], "score": 0.8, "prompt": "zipper"},
+            ]
+        },
+    }
+    monkeypatch.setattr(
+        "scripts.eval.enrich_grounding_candidates_with_chinese_clip.encode_text_ensemble",
+        lambda *args, **kwargs: torch.tensor([[1.0, 0.0]]),
+    )
+    monkeypatch.setattr(
+        "scripts.eval.enrich_grounding_candidates_with_chinese_clip.encode_images",
+        lambda *args, **kwargs: torch.tensor(
+            [
+                [0.2, 0.8],
+                [0.9, 0.1],
+                [0.3, 0.7],
+                [0.7, 0.3],
+            ]
+        ),
+    )
+
+    scores = score_record_candidates(
+        record,
+        Image.new("RGB", (100, 80)),
+        model=object(),
+        processor=object(),
+        device=torch.device("cpu"),
+        prompt_profile="region_ensemble",
+        context_scale=1.6,
+        image_batch_size=8,
+    )
+
+    assert len(scores) == 2
+    assert scores[0]["tight_score"] == pytest.approx(0.2)
+    assert scores[1]["tight_score"] == pytest.approx(0.9)
+    assert scores[0]["context_score"] == pytest.approx(0.3)
+    assert scores[1]["context_score"] == pytest.approx(0.7)
+    assert scores[1]["tight_rank_score"] == pytest.approx(1.0)
+
+
+def test_chinese_clip_enrichment_helpers_are_fixed_and_bounded():
+    assert contextual_box([0, 0, 20, 10], (100, 80), 2.0) == pytest.approx(
+        (0.0, 0.0, 30.0, 15.0)
+    )
+    assert relative_rank_scores(torch.tensor([0.2, 0.8, 0.5])) == pytest.approx(
+        [0.0, 1.0, 0.5]
+    )
+    assert record_text_prompts(
+        {
+            "query_text": "衣服上的拉链",
+            "target_region": "zipper",
+        },
+        "region_ensemble",
+    ) == ["衣服上的拉链", "衣服上用于开合的拉链"]
 
 
 def test_image_grouped_folds_do_not_split_one_image():
