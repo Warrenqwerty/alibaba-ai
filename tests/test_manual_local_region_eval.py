@@ -121,6 +121,7 @@ from scripts.eval.cross_validate_grounding_candidate_selector import (
     condition_signals_on_region,
     image_grouped_folds,
     keep_current_candidate_record,
+    listwise_hit_loss,
     pairwise_recovery_examples,
     parse_threshold_grid,
     select_candidate_record,
@@ -706,6 +707,33 @@ def test_candidate_signals_are_explicitly_conditioned_on_target_region():
     assert waist == [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 2.0, 0.0, 0.0]
 
 
+def test_multi_positive_listwise_loss_rewards_any_hit_candidate():
+    ious = torch.tensor([0.6, 0.4, 0.0])
+    base = listwise_hit_loss(
+        torch.tensor([0.0, 0.0, 0.0]),
+        ious,
+        objective="multi_positive_hit",
+    )
+    improved = listwise_hit_loss(
+        torch.tensor([3.0, 0.0, 0.0]),
+        ious,
+        objective="multi_positive_hit",
+    )
+
+    assert improved < base
+    assert listwise_hit_loss(
+        torch.tensor([0.0, 0.0]),
+        torch.tensor([0.1, 0.2]),
+        objective="multi_positive_hit",
+    ).isfinite()
+    with pytest.raises(ValueError, match="Unsupported listwise"):
+        listwise_hit_loss(
+            torch.tensor([0.0]),
+            torch.tensor([0.0]),
+            objective="unknown",
+        )
+
+
 def test_dinov2_enrichment_preserves_clip_scores_without_target_box(monkeypatch):
     record = {
         "image": "/tmp/example.jpg",
@@ -803,7 +831,8 @@ def test_image_grouped_folds_do_not_split_one_image():
     assert sorted(index for fold in folds for index in fold) == list(range(5))
 
 
-def test_manual_candidate_selector_trains_and_selects_on_cpu():
+@pytest.mark.parametrize("listwise_loss", ["soft_target", "multi_positive_hit"])
+def test_manual_candidate_selector_trains_and_selects_on_cpu(listwise_loss):
     records = [
         {
             "id": f"record-{index}",
@@ -833,6 +862,7 @@ def test_manual_candidate_selector_trains_and_selects_on_cpu():
         weight_decay=0.01,
         seed=42,
         device=torch.device("cpu"),
+        listwise_loss=listwise_loss,
     )
     selected = select_candidate_record(
         records[3],

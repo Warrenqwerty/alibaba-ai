@@ -1272,16 +1272,37 @@ PYTHONPATH=src python scripts/eval/cross_validate_grounding_candidate_selector.p
   --num-epochs 200 \
   --selector-architecture linear \
   --selection-policy listwise \
+  --listwise-loss multi_positive_hit \
   --threshold-policy fixed \
   --learning-rate 0.01 \
   --weight-decay 0.01 \
   --seed 42 \
   --device cuda \
-  --output /root/autodl-tmp/outputs/local_region_clip_dinov2_region_conditioned_listwise_oof_2338_v2.json
+  --output /root/autodl-tmp/outputs/local_region_clip_dinov2_region_conditioned_multi_positive_linear_oof_2338_v2.json
 ```
 
-Then run the conservative nested selector, still using only the independent
-weak labels:
+Run the nonlinear comparison with exactly the same folds and objective:
+
+```bash
+PYTHONPATH=src python scripts/eval/cross_validate_grounding_candidate_selector.py \
+  --eval-json /root/autodl-tmp/outputs/local_region_train_online_candidates_cuff_waist_chinese_clip_dinov2_2338_v2.json \
+  --regions cuff waist \
+  --num-folds 5 \
+  --num-epochs 200 \
+  --hidden-dim 128 \
+  --selector-architecture mlp \
+  --selection-policy listwise \
+  --listwise-loss multi_positive_hit \
+  --threshold-policy fixed \
+  --learning-rate 0.001 \
+  --weight-decay 0.02 \
+  --seed 42 \
+  --device cuda \
+  --output /root/autodl-tmp/outputs/local_region_clip_dinov2_region_conditioned_multi_positive_mlp_oof_2338_v2.json
+```
+
+Only if a listwise variant reaches the 60% weak OOF gate, run the conservative
+nested selector, still using only the independent weak labels:
 
 ```bash
 PYTHONPATH=src python scripts/eval/cross_validate_grounding_candidate_selector.py \

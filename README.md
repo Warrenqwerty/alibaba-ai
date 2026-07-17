@@ -1031,3 +1031,9 @@ candidate shortage: a constant region one-hot cannot condition candidate
 visual or geometry weights. The follow-up feature schema therefore retains
 shared signals and adds explicit region-by-signal interaction blocks before
 rerunning listwise and conservative image-grouped OOF diagnostics.
+
+With those interactions, soft-target listwise OOF reaches Hit@0.3 `0.4778`
+(`0.4339` cuff, `0.7339` waist), gaining 393 hits but losing 123. Because the
+metric accepts any candidate above the IoU threshold, the next diagnostic uses
+a multi-positive objective that maximizes total probability on the Hit@0.3
+candidate set instead of fitting a fixed distribution among all positive boxes.

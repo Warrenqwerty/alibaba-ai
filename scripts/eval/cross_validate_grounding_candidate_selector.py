@@ -71,6 +71,15 @@ def parse_args() -> argparse.Namespace:
         default="listwise",
     )
     parser.add_argument(
+        "--listwise-loss",
+        choices=("soft_target", "multi_positive_hit"),
+        default="soft_target",
+        help=(
+            "Listwise objective. multi_positive_hit directly maximizes the "
+            "probability assigned to any IoU>=0.3 candidate."
+        ),
+    )
+    parser.add_argument(
         "--override-threshold",
         type=float,
         default=0.5,
@@ -470,7 +479,10 @@ def parse_threshold_grid(value: str) -> tuple[float, ...]:
     return thresholds
 
 
-def listwise_hit_loss(scores: torch.Tensor, ious: torch.Tensor) -> torch.Tensor:
+def soft_target_listwise_hit_loss(
+    scores: torch.Tensor,
+    ious: torch.Tensor,
+) -> torch.Tensor:
     hits = ious >= 0.3
     if bool(hits.any()):
         target = hits.float() * (0.5 + ious)
@@ -478,6 +490,29 @@ def listwise_hit_loss(scores: torch.Tensor, ious: torch.Tensor) -> torch.Tensor:
     else:
         target = torch.softmax(ious / 0.08, dim=0)
     return -(target * torch.log_softmax(scores, dim=0)).sum()
+
+
+def multi_positive_hit_loss(
+    scores: torch.Tensor,
+    ious: torch.Tensor,
+) -> torch.Tensor:
+    hits = ious >= 0.3
+    if not bool(hits.any()):
+        return soft_target_listwise_hit_loss(scores, ious)
+    return torch.logsumexp(scores, dim=0) - torch.logsumexp(scores[hits], dim=0)
+
+
+def listwise_hit_loss(
+    scores: torch.Tensor,
+    ious: torch.Tensor,
+    *,
+    objective: str = "soft_target",
+) -> torch.Tensor:
+    if objective == "soft_target":
+        return soft_target_listwise_hit_loss(scores, ious)
+    if objective == "multi_positive_hit":
+        return multi_positive_hit_loss(scores, ious)
+    raise ValueError(f"Unsupported listwise objective: {objective}")
 
 
 def train_selector(
@@ -491,6 +526,7 @@ def train_selector(
     seed: int,
     device: torch.device,
     architecture: str = "mlp",
+    listwise_loss: str = "soft_target",
 ) -> ManualCandidateSelector:
     torch.manual_seed(seed)
     input_dim = examples[train_indices[0]][0].shape[1]
@@ -500,17 +536,33 @@ def train_selector(
         lr=learning_rate,
         weight_decay=weight_decay,
     )
-    generator = random.Random(seed)
+    training_groups = [examples[index] for index in train_indices]
+    group_slices = []
+    offset = 0
+    for features, _, _ in training_groups:
+        next_offset = offset + len(features)
+        group_slices.append(slice(offset, next_offset))
+        offset = next_offset
+    all_features = torch.cat(
+        [features for features, _, _ in training_groups],
+        dim=0,
+    ).to(device)
+    all_ious = torch.cat(
+        [ious for _, ious, _ in training_groups],
+        dim=0,
+    ).to(device)
     for _ in range(num_epochs):
-        epoch_indices = list(train_indices)
-        generator.shuffle(epoch_indices)
         model.train()
         optimizer.zero_grad()
-        losses = []
-        for index in epoch_indices:
-            features, ious, _ = examples[index]
-            scores = model(features.to(device))
-            losses.append(listwise_hit_loss(scores, ious.to(device)))
+        scores = model(all_features)
+        losses = [
+            listwise_hit_loss(
+                scores[group_slice],
+                all_ious[group_slice],
+                objective=listwise_loss,
+            )
+            for group_slice in group_slices
+        ]
         loss = torch.stack(losses).mean()
         loss.backward()
         optimizer.step()
@@ -958,22 +1010,28 @@ def main() -> None:
                 seed=args.seed + fold_index * 100,
                 device=device,
             )
-        train_function = (
-            train_conservative_selector
-            if args.selection_policy == "conservative_pairwise"
-            else train_selector
-        )
-        model = train_function(
-            examples,
-            train_indices,
-            hidden_dim=args.hidden_dim,
-            num_epochs=args.num_epochs,
-            learning_rate=args.learning_rate,
-            weight_decay=args.weight_decay,
-            seed=args.seed + fold_index,
-            device=device,
-            architecture=args.selector_architecture,
-        )
+        training_kwargs = {
+            "hidden_dim": args.hidden_dim,
+            "num_epochs": args.num_epochs,
+            "learning_rate": args.learning_rate,
+            "weight_decay": args.weight_decay,
+            "seed": args.seed + fold_index,
+            "device": device,
+            "architecture": args.selector_architecture,
+        }
+        if args.selection_policy == "conservative_pairwise":
+            model = train_conservative_selector(
+                examples,
+                train_indices,
+                **training_kwargs,
+            )
+        else:
+            model = train_selector(
+                examples,
+                train_indices,
+                listwise_loss=args.listwise_loss,
+                **training_kwargs,
+            )
         fold_records = []
         for index in test_indices:
             if args.selection_policy == "conservative_pairwise":
@@ -1054,6 +1112,7 @@ def main() -> None:
         "weight_decay": args.weight_decay,
         "selector_architecture": args.selector_architecture,
         "selection_policy": args.selection_policy,
+        "listwise_loss": args.listwise_loss,
         "override_threshold": args.override_threshold,
         "threshold_policy": args.threshold_policy,
         "inner_folds": args.inner_folds,

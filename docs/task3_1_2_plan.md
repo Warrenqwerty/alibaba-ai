@@ -1066,3 +1066,10 @@ visual and geometry directions for cuff and waist. The next schema explicitly
 crosses every candidate signal with target region while retaining the shared
 features. A listwise OOF run measures raw rankability, and the conservative
 nested run measures deployable no-loss recovery.
+
+The region-conditioned soft-target listwise result reaches Hit@0.3 `0.4778`:
+cuff is `0.4339` and waist is `0.7339`. It gains 393 hits and loses 123 against
+the current policy, so conservative calibration is premature. The next loss is
+multi-positive Hit@0.3 likelihood, which directly optimizes the probability of
+selecting any threshold-positive candidate. Linear and MLP variants use the
+same image-grouped folds; the manual benchmark remains closed.
