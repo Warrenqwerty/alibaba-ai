@@ -1003,3 +1003,35 @@ choose a threshold independently for each region. A region is disabled unless
 inner OOF shows at least one net Hit@0.3 gain and zero lost hits. The outer test
 fold remains untouched until final scoring, so neither region enablement nor
 threshold choice leaks from the reported predictions.
+
+The nested result does not pass: OOF Hit@0.3 remains `85/161` (`0.5280`),
+compared with `87/161` (`0.5404`) for the current policy. Only cuff is enabled
+in every outer fold; pocket is enabled in two folds, and pattern/waist/zipper
+are disabled in all folds. Five overrides produce zero gained hits and two lost
+hits. This selector is rejected and must not be integrated online.
+
+## Independent Train-Weak / Frozen-Manual Protocol
+
+Further selector fitting on the same 161 manual records stops here. The next
+experiment moves all trainable decisions to DeepFashion2 `train` and keeps the
+audited 161-record `validation` benchmark frozen:
+
+1. Extract only category-defined sleeve-terminal landmarks (`left_cuff`,
+   `right_cuff`) and lower-body waistband landmarks (`waist`). Do not include
+   rule fallback records.
+2. Exclude multi-item images by default so an item-specific weak label is not
+   paired with a candidate from another garment.
+3. Run the exact online policy to create current, Top-K grounding, diagnostic
+   grounding, and heuristic candidates. Candidate generation consumes image
+   pixels and the query, never the weak target bbox.
+4. Fit the conservative pairwise selector on train weak IoU. Reserve one
+   image-grouped train fold for threshold and region activation calibration.
+5. Load the manual benchmark only after the model and thresholds are fixed.
+   Reject the selector unless the complete frozen result exceeds `87/161`
+   without per-record or per-region tuning on those labels.
+
+DeepFashion2 uses a different landmark order per category. The implemented
+mapping follows category contour indices for short/long sleeve endpoints and
+points 1-3 for the waist of shorts, trousers, and skirts. A visualization
+spot-check is mandatory before the first large GPU run because left/right and
+endpoint semantics must agree with the manual annotation convention.

@@ -341,6 +341,7 @@ def evaluate_gated_hybrid_records(
                 fallback["grounding_filter_status"] = grounding_record["status"]
                 fallback["grounding_detections"] = grounding_record["detections"]
                 fallback["grounding_selected_instance"] = grounding_record.get("selected_instance")
+                attach_grounding_fallback_provenance(fallback, grounding_record)
                 if "diagnostic_grounding_candidate" in grounding_record:
                     fallback["diagnostic_grounding_candidate"] = grounding_record[
                         "diagnostic_grounding_candidate"
@@ -370,6 +371,23 @@ def evaluate_gated_hybrid_records(
             )
         records.append(heuristic_record)
     return records
+
+
+def attach_grounding_fallback_provenance(
+    fallback: dict[str, Any],
+    grounding_record: Mapping[str, Any],
+) -> None:
+    """Preserve the rejected grounder's identity for downstream candidates."""
+    for field in (
+        "grounding_model_name",
+        "grounding_score_threshold",
+        "prompt_profile",
+        "prompts",
+        "wearer_side_selection_status",
+        "wearer_side",
+    ):
+        if field in grounding_record:
+            fallback[field] = grounding_record[field]
 
 
 def diagnostic_grounding_payload(record: Mapping[str, Any]) -> dict[str, Any]:

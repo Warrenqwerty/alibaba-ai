@@ -67,6 +67,9 @@ from scripts.eval.evaluate_gated_hybrid_manual_labels import grounding_fallback_
 from scripts.eval.evaluate_gated_hybrid_manual_labels import should_route_to_grounding
 from scripts.eval.evaluate_gated_hybrid_manual_labels import evaluate_grounding_record
 from scripts.eval.evaluate_gated_hybrid_manual_labels import diagnostic_grounding_payload
+from scripts.eval.evaluate_gated_hybrid_manual_labels import (
+    attach_grounding_fallback_provenance,
+)
 from scripts.inference.predict_gated_hybrid_local_region import (
     canonical_grounding_region,
     grounding_payload,
@@ -964,6 +967,65 @@ def test_manual_grounding_record_applies_validated_wearer_side_selection(tmp_pat
     assert record["predicted_bbox"] == [10.0, 10.0, 35.0, 30.0]
     assert record["manual_bbox_iou"] == pytest.approx(1.0)
     assert record["wearer_side_selection_status"] == "side_candidate"
+
+
+def test_grounding_candidate_generation_does_not_depend_on_target_bbox(tmp_path):
+    image_path = tmp_path / "pocket.jpg"
+    Image.new("RGB", (100, 80)).save(image_path)
+
+    class FakeGrounder:
+        backend = "grounding_dino"
+        model_name = "fake-grounding-dino"
+        score_threshold = 0.15
+
+        def predict(self, image, prompts):
+            detection = {
+                "bbox": [10, 10, 30, 30],
+                "score": 0.8,
+                "prompt": "pocket",
+            }
+            return {"status": "ok", "best": detection, "detections": [detection]}
+
+    common = {
+        "image": str(image_path),
+        "query_text": "右侧的口袋",
+        "target_region": "pocket",
+    }
+    first = evaluate_grounding_record(
+        {**common, "target_bbox": [10, 10, 30, 30]},
+        grounder=FakeGrounder(),
+        image_cache={},
+        prompt_mode="english",
+        prompt_profile="ensemble",
+    )
+    second = evaluate_grounding_record(
+        {**common, "target_bbox": [60, 40, 80, 60]},
+        grounder=FakeGrounder(),
+        image_cache={},
+        prompt_mode="english",
+        prompt_profile="ensemble",
+    )
+
+    assert first["predicted_bbox"] == second["predicted_bbox"]
+    assert first["detections"] == second["detections"]
+    assert first["manual_bbox_iou"] != second["manual_bbox_iou"]
+
+
+def test_grounding_fallback_preserves_candidate_model_provenance():
+    fallback = {"gated_policy_route": "heuristic_fallback_no_detection"}
+    attach_grounding_fallback_provenance(
+        fallback,
+        {
+            "grounding_model_name": "google/owlv2-large-patch14-ensemble",
+            "grounding_score_threshold": 0.05,
+            "prompt_profile": "precise",
+            "prompts": ["right sleeve cuff"],
+        },
+    )
+
+    assert fallback["grounding_model_name"].startswith("google/owlv2")
+    assert fallback["grounding_score_threshold"] == 0.05
+    assert fallback["prompt_profile"] == "precise"
 
 
 def test_prompt_profile_target_region_filter_is_exact():

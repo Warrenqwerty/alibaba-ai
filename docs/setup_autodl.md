@@ -1144,3 +1144,94 @@ For every outer fold, threshold selection sees only three-fold inner OOF
 predictions from the outer training images. A region remains on the current
 policy unless inner OOF has at least one net gain and zero lost hits. Inspect
 both `nested_region_activation_counts` and final `selector_diagnostics`.
+
+Observed nested result: OOF Hit@0.3 is `85/161` (`0.5280`) versus the current
+policy's `87/161` (`0.5404`). It performs five overrides, gains zero hits, and
+loses two. Do not integrate or continue tuning this selector on the manual set.
+
+### Independent Weak-Train Selector
+
+Build a randomized landmark-only train set on CPU. This command excludes all
+rule fallback targets and exports one visual per image/item/region for review:
+
+```bash
+cd /root/projects/alibaba-ai
+git pull
+PYTHONPATH=src python scripts/data/build_deepfashion2_local_region_queries.py \
+  --image-dir /root/autodl-tmp/datasets/DeepFashion2/train/image \
+  --anno-dir /root/autodl-tmp/datasets/DeepFashion2/train/annos \
+  --regions left_cuff right_cuff waist \
+  --landmark-only \
+  --shuffle \
+  --seed 42 \
+  --max-images 5000 \
+  --vis-dir /root/autodl-tmp/outputs/local_region_train_landmark_vis \
+  --vis-count 40 \
+  --output /root/autodl-tmp/outputs/local_region_train_landmark_cuff_waist.jsonl
+```
+
+Before using a GPU, inspect the 40 images. Green must be a tight cuff/waist
+weak target, blue the source garment. Sleeve-less items must not appear as cuff
+records, and the reported `source_counts` must contain only
+`landmark_pseudo_label`.
+
+Run a 100-record online candidate smoke test on the 5090. The selected OWLv2
+route, GroundingDINO-base diagnostic route, and frozen heuristic candidate all
+run before the landmark target is used for IoU scoring:
+
+```bash
+PYTHONPATH=src HF_ENDPOINT=https://hf-mirror.com python \
+  scripts/data/build_online_local_region_weak_candidates.py \
+  --queries /root/autodl-tmp/outputs/local_region_train_landmark_cuff_waist.jsonl \
+  --checkpoint /root/autodl-tmp/checkpoints/deepfashion2_6class_hard_mining/instance_segmentation/epoch_001.pt \
+  --device cuda \
+  --regions cuff waist \
+  --max-records 100 \
+  --grounding-routes \
+    cuff=google/owlv2-large-patch14-ensemble \
+    waist=google/owlv2-large-patch14-ensemble \
+  --grounding-route-profiles cuff=precise waist=ensemble \
+  --grounding-route-thresholds cuff=0.05 waist=0.05 \
+  --diagnostic-grounding-routes \
+    cuff=IDEA-Research/grounding-dino-base \
+    waist=IDEA-Research/grounding-dino-base \
+  --grounding-backend auto \
+  --prompt-mode english \
+  --prompt-profile ensemble \
+  --score-threshold 0.15 \
+  --wearer-side-regions cuff \
+  --wearer-side-min-score-ratio 0.5 \
+  --output /root/autodl-tmp/outputs/local_region_train_online_candidates_cuff_waist_100.json
+```
+
+Check that `supervision_type` is `landmark_pseudo_label_only`,
+`candidate_generation_uses_target_bbox` is `false`, and both cuff variants are
+present. If correct, repeat with `--max-records 2000` and change the output
+suffix to `_2000`.
+
+Train and calibrate on those external weak records, then evaluate once on the
+existing frozen manual candidate artifact. This step is CPU-only:
+
+```bash
+OMP_NUM_THREADS=4 MKL_NUM_THREADS=4 PYTHONPATH=src python \
+  scripts/eval/train_external_grounding_candidate_selector.py \
+  --train-eval-json /root/autodl-tmp/outputs/local_region_train_online_candidates_cuff_waist_2000.json \
+  --test-eval-json /root/autodl-tmp/outputs/local_region_manual_eval_cross_model_candidates_audited.json \
+  --regions cuff waist \
+  --calibration-folds 5 \
+  --selector-architecture linear \
+  --num-epochs 200 \
+  --learning-rate 0.01 \
+  --weight-decay 0.01 \
+  --thresholds 0.3,0.4,0.5,0.6,0.7,0.8,0.9 \
+  --max-calibration-lost-hits 0 \
+  --min-calibration-net-gain 1 \
+  --seed 42 \
+  --device cpu \
+  --model-output /root/autodl-tmp/checkpoints/local_region_ranker/external_weak_cuff_waist.pt \
+  --output /root/autodl-tmp/outputs/local_region_external_weak_selector_audited.json
+```
+
+The output must report `test_labels_used_for_training_or_calibration: false`
+and `train_test_image_overlap: 0`. The achieved result is only
+`frozen_test_summary`; weak-train and oracle summaries are diagnostics.

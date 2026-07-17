@@ -17,6 +17,22 @@ LANDMARK_REGION_GROUPS = {
     "hem": (15, 16, 18, 19, 20, 21),
 }
 
+# DeepFashion2 uses a different local landmark order for each garment category.
+# These endpoint pairs follow the official category contours and isolate the
+# sleeve terminal rather than the complete sleeve. Lower-body points 1-3 form
+# the waistband contour for shorts, trousers, and skirts.
+CATEGORY_LANDMARK_REGION_GROUPS = {
+    1: {"left_cuff": (9, 10), "right_cuff": (22, 23)},
+    2: {"left_cuff": (11, 12), "right_cuff": (28, 29)},
+    3: {"left_cuff": (9, 10), "right_cuff": (22, 23)},
+    4: {"left_cuff": (11, 12), "right_cuff": (28, 29)},
+    7: {"waist": (1, 2, 3)},
+    8: {"waist": (1, 2, 3)},
+    9: {"waist": (1, 2, 3)},
+    10: {"left_cuff": (9, 10), "right_cuff": (26, 27)},
+    11: {"left_cuff": (11, 12), "right_cuff": (32, 33)},
+}
+
 
 def propose_region_from_landmarks(
     garment_mask: np.ndarray,
@@ -24,6 +40,7 @@ def propose_region_from_landmarks(
     raw_landmarks: Iterable[float | int],
     region: str,
     *,
+    category_id: int | None = None,
     min_points: int = 2,
     padding_ratio: float = 0.08,
 ) -> LocalRegionProposal:
@@ -32,7 +49,15 @@ def propose_region_from_landmarks(
     if mask.ndim != 2:
         raise ValueError(f"garment_mask must be 2D, got shape {mask.shape}")
 
-    target_indices = LANDMARK_REGION_GROUPS.get(region)
+    try:
+        normalized_category_id = int(category_id) if category_id is not None else -1
+    except (TypeError, ValueError):
+        normalized_category_id = -1
+    category_regions = CATEGORY_LANDMARK_REGION_GROUPS.get(
+        normalized_category_id,
+        {},
+    )
+    target_indices = category_regions.get(region, LANDMARK_REGION_GROUPS.get(region))
     if target_indices is None:
         return propose_local_region(mask, garment_box, region)
 
@@ -113,10 +138,9 @@ def _convex_hull(points: list[tuple[int, int]]) -> list[tuple[int, int]]:
         point_a: tuple[int, int],
         point_b: tuple[int, int],
     ) -> int:
-        return (
-            (point_a[0] - origin[0]) * (point_b[1] - origin[1])
-            - (point_a[1] - origin[1]) * (point_b[0] - origin[0])
-        )
+        return (point_a[0] - origin[0]) * (point_b[1] - origin[1]) - (
+            point_a[1] - origin[1]
+        ) * (point_b[0] - origin[0])
 
     lower: list[tuple[int, int]] = []
     for point in unique_points:
@@ -146,5 +170,8 @@ def _landmark_confidence(region: str, landmarks: list[FashionLandmark]) -> float
         "neckline": 0.82,
         "hem": 0.78,
         "shoulder": 0.74,
+        "left_cuff": 0.78,
+        "right_cuff": 0.78,
+        "waist": 0.8,
     }.get(region, 0.65)
     return round(base * (0.75 + 0.25 * visible_ratio), 4)

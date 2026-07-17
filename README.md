@@ -984,3 +984,26 @@ python scripts/eval/evaluate_local_region_queries.py \
   --max-images 20 \
   --output /root/autodl-tmp/outputs/local_region_query_eval_learned.json
 ```
+
+### Independent Weak-Supervision Selector Protocol
+
+The nested region-gated linear selector is also rejected. Its image-grouped
+OOF Hit@0.3 is `85/161` (`0.5280`), below the fixed current policy at `87/161`
+(`0.5404`). It makes five overrides, gains no new hits, and loses two. The
+manual benchmark is too small to train a reliable candidate selector and must
+now remain a frozen test set.
+
+The current training experiment uses a disjoint protocol:
+
+1. Build cuff and waist weak targets from category-specific DeepFashion2 train
+   landmarks only. Rule fallbacks are excluded.
+2. Generate every candidate with the real online segmentation/grounding path.
+   The weak target bbox is read only after inference to compute training IoU.
+3. Train the conservative selector and choose region thresholds only on a
+   train-image calibration split.
+4. Evaluate once on the frozen 161-record audited validation benchmark.
+
+The category-aware landmark builder supports short/long sleeve endpoints for
+shirts, outerwear, and dresses, plus waistband landmarks for shorts, trousers,
+and skirts. Use `--vis-dir` and inspect the generated cuff/waist boxes before
+running GPU inference. Full AutoDL commands are in `docs/setup_autodl.md`.
