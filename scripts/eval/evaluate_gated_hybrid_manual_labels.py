@@ -310,8 +310,13 @@ def evaluate_gated_hybrid_records(
                         "selected_region",
                         "predicted_bbox",
                         "manual_bbox_iou",
+                        "selected_instance",
                     )
                 }
+                if grounding_record.get("selected_instance") is None:
+                    grounding_record["selected_instance"] = heuristic_candidate.get(
+                        "selected_instance"
+                    )
             diagnostic_model = diagnostic_grounding_routes.get(target_region)
             if diagnostic_model is not None:
                 diagnostic_record = evaluate_grounding_record(
@@ -687,6 +692,11 @@ def evaluate_heuristic_record(
         "gated_policy_route": "heuristic",
         "segmentation_inference_time_ms": segmentation.inference_time_ms,
         "local_region_latency_ms": result.latency_ms,
+        "selected_instance": (
+            result.selected_instance.to_dict(include_mask=False)
+            if result.selected_instance is not None
+            else None
+        ),
     }
 
 

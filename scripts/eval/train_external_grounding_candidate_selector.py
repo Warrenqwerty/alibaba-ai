@@ -36,6 +36,9 @@ from scripts.eval.cross_validate_grounding_candidate_selector import (
     record_has_complete_dinov2_spatial_embeddings,
 )
 from scripts.eval.cross_validate_grounding_candidate_selector import (
+    record_has_online_garment_geometry,
+)
+from scripts.eval.cross_validate_grounding_candidate_selector import (
     select_conservative_candidate_record,
 )
 from scripts.eval.cross_validate_grounding_candidate_selector import (
@@ -64,6 +67,12 @@ DINO_ENRICHMENT_COVERAGE = {
         record_has_complete_dinov2_spatial_embeddings
     ),
 }
+GARMENT_GEOMETRY_COMPATIBILITY_FIELDS = (
+    "model_config",
+    "checkpoint",
+    "regions",
+    "selection_method",
+)
 
 
 def dinov2_compatibility_value(metadata: dict[str, Any], field: str) -> Any:
@@ -212,6 +221,68 @@ def validate_dinov2_record_coverage(
             )
 
 
+def validate_online_garment_geometry_compatibility(
+    train_payload: dict[str, Any],
+    test_payload: dict[str, Any],
+) -> None:
+    key = "online_garment_geometry_enrichment"
+    train_metadata = train_payload.get(key)
+    test_metadata = test_payload.get(key)
+    if train_metadata is None and test_metadata is None:
+        return
+    if not isinstance(train_metadata, dict) or not isinstance(test_metadata, dict):
+        raise ValueError(
+            "Online garment geometry enrichment must be present on both train "
+            "and test."
+        )
+    for label, metadata in (("train", train_metadata), ("test", test_metadata)):
+        if metadata.get("target_bbox_used_for_features") is not False:
+            raise ValueError(
+                f"{label} online garment geometry must state "
+                "target_bbox_used_for_features=false."
+            )
+    mismatches = [
+        field
+        for field in GARMENT_GEOMETRY_COMPATIBILITY_FIELDS
+        if dinov2_compatibility_value(train_metadata, field)
+        != dinov2_compatibility_value(test_metadata, field)
+    ]
+    if mismatches:
+        raise ValueError(
+            "Train/test online garment geometry settings differ: "
+            + ", ".join(mismatches)
+        )
+
+
+def validate_online_garment_geometry_coverage(
+    payload: dict[str, Any],
+    records: list[dict[str, Any]],
+    *,
+    label: str,
+) -> None:
+    metadata = payload.get("online_garment_geometry_enrichment")
+    if metadata is None:
+        return
+    enriched_regions = set(metadata.get("regions") or [])
+    expected_records = records
+    if enriched_regions:
+        expected_records = [
+            record
+            for record in records
+            if str(record.get("target_region") or "") in enriched_regions
+        ]
+    missing = [
+        record.get("id")
+        for record in expected_records
+        if "online_garment_instance" not in record
+    ]
+    if missing:
+        raise ValueError(
+            f"{label} contains records without online garment geometry; "
+            f"first ids: {missing[:3]}"
+        )
+
+
 def selected_record_indices(
     records: list[dict[str, Any]],
     regions: set[str],
@@ -355,6 +426,7 @@ def main() -> None:
     test_payload, all_test_records = load_eval_payload(args.test_eval_json)
     validate_external_training_payload(train_payload)
     validate_dinov2_enrichment_compatibility(train_payload, test_payload)
+    validate_online_garment_geometry_compatibility(train_payload, test_payload)
     train_indices_in_payload = selected_record_indices(all_train_records, regions)
     test_indices_in_payload = selected_record_indices(all_test_records, regions)
     train_records = [all_train_records[index] for index in train_indices_in_payload]
@@ -365,6 +437,16 @@ def main() -> None:
         raise ValueError("No requested regions found in frozen test records")
     validate_dinov2_record_coverage(train_payload, train_records, label="train")
     validate_dinov2_record_coverage(test_payload, test_records, label="test")
+    validate_online_garment_geometry_coverage(
+        train_payload,
+        train_records,
+        label="train",
+    )
+    validate_online_garment_geometry_coverage(
+        test_payload,
+        test_records,
+        label="test",
+    )
     ensure_disjoint_images(train_records, test_records)
 
     train_examples = build_examples(train_records)
@@ -477,6 +559,14 @@ def main() -> None:
             record_has_complete_dinov2_spatial_embeddings(record)
             for record in test_records
         ),
+        "num_train_records_with_online_garment_geometry": sum(
+            record_has_online_garment_geometry(record)
+            for record in train_records
+        ),
+        "num_test_records_with_online_garment_geometry": sum(
+            record_has_online_garment_geometry(record)
+            for record in test_records
+        ),
         "weak_train_baseline_summary": summarize_records(train_records),
         "frozen_test_baseline_summary": summarize_records(all_test_records),
         "frozen_test_summary": summarize_records(full_test_records),
@@ -496,6 +586,10 @@ def main() -> None:
         "dinov2_spatial_candidate_enrichment": {
             "train": train_payload.get("dinov2_spatial_candidate_enrichment"),
             "test": test_payload.get("dinov2_spatial_candidate_enrichment"),
+        },
+        "online_garment_geometry_enrichment": {
+            "train": train_payload.get("online_garment_geometry_enrichment"),
+            "test": test_payload.get("online_garment_geometry_enrichment"),
         },
         "records": full_test_records,
     }

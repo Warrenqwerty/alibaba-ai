@@ -1046,3 +1046,11 @@ Only cuff is enriched; waist keeps the existing feature path and already
 exceeds 60% OOF. The spatial run must remain on the independent weak split and
 must report `target_bbox_used_for_features: false`. Do not open the manual
 benchmark unless full weak OOF reaches 60% (at least 1,403/2,338 hits).
+
+The completed spatial run reaches Hit@0.3 `0.5021` (1,174/2,338), with cuff at
+`0.4624` and waist unchanged at `0.7339`. This adds 57 hits over the previous
+listwise result but remains 229 short of the gate. The next controlled variable
+is online garment-relative geometry: re-run only the 3.1.1 segmentation model
+on the saved records, retain its predicted garment box, and express every
+candidate relative to that box and predicted garment category. This remains
+target-independent and does not rerun the grounding or visual encoders.

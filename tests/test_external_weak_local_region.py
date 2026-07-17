@@ -26,6 +26,8 @@ from scripts.eval.train_external_grounding_candidate_selector import (
     validate_dinov2_enrichment_compatibility,
     validate_dinov2_record_coverage,
     validate_external_training_payload,
+    validate_online_garment_geometry_compatibility,
+    validate_online_garment_geometry_coverage,
 )
 
 
@@ -245,6 +247,16 @@ def dinov2_spatial_metadata(fingerprint="spatial-projection-a"):
     }
 
 
+def garment_geometry_metadata(checkpoint="checkpoint.pt"):
+    return {
+        "model_config": "configs/model/instance_segmentation_deepfashion2.yaml",
+        "checkpoint": checkpoint,
+        "regions": ["cuff", "waist"],
+        "selection_method": "online_segmentation_select_garment_instance",
+        "target_bbox_used_for_features": False,
+    }
+
+
 def test_external_selector_requires_matching_dinov2_projection_metadata():
     metadata = dinov2_metadata()
     validate_dinov2_enrichment_compatibility(
@@ -389,6 +401,32 @@ def test_external_selector_checks_spatial_coverage_only_for_enriched_regions(
             [cuff_record, waist_record],
             label="train",
         )
+
+
+def test_external_selector_validates_online_garment_geometry_metadata(tmp_path):
+    metadata = garment_geometry_metadata()
+    validate_online_garment_geometry_compatibility(
+        {"online_garment_geometry_enrichment": metadata},
+        {"online_garment_geometry_enrichment": dict(metadata)},
+    )
+    with pytest.raises(ValueError, match="checkpoint"):
+        validate_online_garment_geometry_compatibility(
+            {"online_garment_geometry_enrichment": metadata},
+            {
+                "online_garment_geometry_enrichment": (
+                    garment_geometry_metadata("other.pt")
+                )
+            },
+        )
+
+    image_path = tmp_path / "train.jpg"
+    record = candidate_record(image_path, "cuff-1", weak=True)
+    payload = {"online_garment_geometry_enrichment": metadata}
+    with pytest.raises(ValueError, match="without online garment geometry"):
+        validate_online_garment_geometry_coverage(payload, [record], label="train")
+
+    record["online_garment_instance"] = None
+    validate_online_garment_geometry_coverage(payload, [record], label="train")
 
 
 def test_external_selector_main_trains_before_frozen_test(tmp_path, monkeypatch):

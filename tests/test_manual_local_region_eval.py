@@ -119,12 +119,14 @@ from scripts.eval.cross_validate_grounding_candidate_selector import (
     candidate_examples,
     choose_nested_region_policies,
     condition_signals_on_region,
+    garment_relative_features,
     image_grouped_folds,
     keep_current_candidate_record,
     listwise_hit_loss,
     pairwise_recovery_examples,
     parse_threshold_grid,
     record_has_complete_dinov2_spatial_embeddings,
+    record_has_online_garment_geometry,
     select_candidate_record,
     select_conservative_candidate_record,
     selector_candidates,
@@ -152,6 +154,11 @@ from scripts.eval.enrich_grounding_candidates_with_dinov2 import (
 from scripts.eval.enrich_grounding_candidates_with_dinov2 import (
     score_record_candidates as score_dinov2_record_candidates,
 )
+from scripts.eval.enrich_grounding_candidates_with_garment_geometry import (
+    enrich_records as enrich_online_garment_geometry_records,
+)
+from fashion_mm.models.instance_segmentation import FashionInstance
+from fashion_mm.models.instance_segmentation import SegmentationResult
 
 
 def test_manual_manifest_records_start_unlabeled(tmp_path):
@@ -914,6 +921,101 @@ def test_dinov2_spatial_enrichment_preserves_existing_candidate_scores(monkeypat
     assert spatial_features.shape == legacy_features.shape
     assert len(candidates[0]["visual_dinov2_spatial_tight_embedding"]) == 128
     assert not torch.equal(spatial_features, legacy_features)
+
+
+def test_online_garment_geometry_enrichment_reuses_current_image_segmentation():
+    class Predictor:
+        def __init__(self):
+            self.calls = []
+
+        def predict(self, image_path):
+            self.calls.append(image_path)
+            return SegmentationResult(
+                image_size=(100, 100),
+                instances=[
+                    FashionInstance(
+                        mask=np.ones((100, 100), dtype=bool),
+                        box=(10.0, 10.0, 90.0, 90.0),
+                        label_id=1,
+                        label_name="top",
+                        score=0.9,
+                    )
+                ],
+            )
+
+    predictor = Predictor()
+    records = [
+        {
+            "id": "cuff",
+            "image": "/tmp/same.jpg",
+            "query_text": "左边的袖口",
+            "target_region": "cuff",
+            "target_bbox": [0, 0, 1, 1],
+        },
+        {
+            "id": "waist",
+            "image": "/tmp/same.jpg",
+            "query_text": "衣服的腰部",
+            "target_region": "waist",
+            "target_bbox": [90, 90, 100, 100],
+        },
+        {
+            "id": "pattern",
+            "image": "/tmp/other.jpg",
+            "query_text": "衣服上的图案",
+            "target_region": "pattern",
+            "target_bbox": [0, 0, 1, 1],
+        },
+    ]
+
+    enriched, counts = enrich_online_garment_geometry_records(
+        records,
+        predictor=predictor,
+        regions={"cuff", "waist"},
+    )
+
+    assert predictor.calls == ["/tmp/same.jpg"]
+    assert counts == {
+        "num_scored_records": 2,
+        "num_records_with_online_garment_instance": 2,
+        "num_records_without_online_garment_instance": 0,
+        "num_unique_images": 1,
+        "num_segmentation_inferences": 1,
+    }
+    assert enriched[0]["online_garment_instance"]["box"] == pytest.approx(
+        [10.0, 10.0, 90.0, 90.0]
+    )
+    assert enriched[1]["online_garment_instance"] == enriched[0][
+        "online_garment_instance"
+    ]
+    assert "online_garment_instance" not in enriched[2]
+
+
+def test_garment_relative_features_use_online_box_not_target_box():
+    base = {
+        "query_text": "左边的袖口",
+        "online_garment_instance": {
+            "box": [10.0, 10.0, 90.0, 90.0],
+            "label_name": "top",
+        },
+    }
+    candidate_box = [70.0, 40.0, 90.0, 60.0]
+
+    first, first_category = garment_relative_features(
+        {**base, "target_bbox": [0, 0, 1, 1]},
+        candidate_box,
+    )
+    second, second_category = garment_relative_features(
+        {**base, "target_bbox": [50, 50, 99, 99]},
+        candidate_box,
+    )
+
+    assert first == pytest.approx(second)
+    assert first_category == second_category == "top"
+    assert len(first) == 19
+    assert first[0] == 1.0
+    assert first[16:19] == pytest.approx([1.0, 1.0, 0.125])
+    assert record_has_online_garment_geometry(base)
 
 
 def test_image_grouped_folds_do_not_split_one_image():

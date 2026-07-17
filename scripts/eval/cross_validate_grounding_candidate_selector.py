@@ -29,6 +29,7 @@ from scripts.eval.evaluate_local_region_manual_labels import summarize_records
 DEFAULT_REGIONS = ("cuff", "pocket", "pattern", "waist", "zipper")
 SOURCE_NAMES = ("current", "grounding", "diagnostic_grounding", "heuristic")
 MODEL_NAMES = ("heuristic", "grounding_dino_tiny", "grounding_dino_base", "owlv2")
+GARMENT_CATEGORY_NAMES = ("top", "pants", "skirt", "outerwear", "dress", "unknown")
 TEXT_BUCKETS = 32
 VISUAL_SCORE_NAMES = (
     "tight_score",
@@ -48,7 +49,7 @@ DINO_SPATIAL_VECTOR_NAMES = (
     "dinov2_spatial_context_embedding",
 )
 DINO_SPATIAL_PROJECTION_DIM = 128
-CANDIDATE_FEATURE_SCHEMA = "shared_plus_region_conditioned_spatial_signals_v3"
+CANDIDATE_FEATURE_SCHEMA = "spatial_plus_online_garment_geometry_v4"
 
 
 def parse_args() -> argparse.Namespace:
@@ -210,6 +211,31 @@ def record_has_complete_dinov2_spatial_embeddings(
     )
 
 
+def online_garment_instance(record: dict[str, Any]) -> dict[str, Any] | None:
+    candidates = [
+        record.get("online_garment_instance"),
+        record.get("selected_instance"),
+        record.get("grounding_selected_instance"),
+    ]
+    heuristic = record.get("heuristic_candidate")
+    if isinstance(heuristic, dict):
+        candidates.append(heuristic.get("selected_instance"))
+    for instance in candidates:
+        if not isinstance(instance, dict):
+            continue
+        box = instance.get("box")
+        if not isinstance(box, (list, tuple)) or len(box) != 4:
+            continue
+        if float(box[2]) <= float(box[0]) or float(box[3]) <= float(box[1]):
+            continue
+        return instance
+    return None
+
+
+def record_has_online_garment_geometry(record: dict[str, Any]) -> bool:
+    return online_garment_instance(record) is not None
+
+
 def selector_candidates(record: dict[str, Any]) -> list[dict[str, Any]]:
     candidates = []
     selected_box = record.get("predicted_bbox")
@@ -306,6 +332,85 @@ def side_features(
     return 1.0, float(image_side == desired_image_side(wearer_side))
 
 
+def bounded_ratio(numerator: float, denominator: float) -> float:
+    value = numerator / max(denominator, 1.0)
+    return max(-3.0, min(3.0, value))
+
+
+def garment_relative_features(
+    record: dict[str, Any],
+    candidate_box: list[float] | tuple[float, ...],
+) -> tuple[list[float], str]:
+    instance = online_garment_instance(record)
+    if instance is None:
+        return [0.0] * 19, "unknown"
+
+    x1, y1, x2, y2 = [float(value) for value in candidate_box]
+    gx1, gy1, gx2, gy2 = [float(value) for value in instance["box"]]
+    width = max(x2 - x1, 1.0)
+    height = max(y2 - y1, 1.0)
+    garment_width = max(gx2 - gx1, 1.0)
+    garment_height = max(gy2 - gy1, 1.0)
+    center_x = (x1 + x2) * 0.5
+    center_y = (y1 + y2) * 0.5
+    garment_center_x = (gx1 + gx2) * 0.5
+
+    intersection_width = max(0.0, min(x2, gx2) - max(x1, gx1))
+    intersection_height = max(0.0, min(y2, gy2) - max(y1, gy1))
+    candidate_coverage = (intersection_width * intersection_height) / (
+        width * height
+    )
+    wearer_side = query_wearer_side(str(record.get("query_text") or ""))
+    has_side = float(wearer_side is not None)
+    garment_side_matches = 0.0
+    desired_edge_distance = 0.0
+    if wearer_side is not None:
+        image_side = "left" if center_x < garment_center_x else "right"
+        desired_side = desired_image_side(wearer_side)
+        garment_side_matches = float(image_side == desired_side)
+        desired_edge_distance = (
+            bounded_ratio(center_x - gx1, garment_width)
+            if desired_side == "left"
+            else bounded_ratio(gx2 - center_x, garment_width)
+        )
+
+    category = str(instance.get("label_name") or "unknown")
+    if category not in GARMENT_CATEGORY_NAMES:
+        category = "unknown"
+    return [
+        1.0,
+        bounded_ratio(x1 - gx1, garment_width),
+        bounded_ratio(y1 - gy1, garment_height),
+        bounded_ratio(x2 - gx1, garment_width),
+        bounded_ratio(y2 - gy1, garment_height),
+        bounded_ratio(center_x - gx1, garment_width),
+        bounded_ratio(center_y - gy1, garment_height),
+        bounded_ratio(width, garment_width),
+        bounded_ratio(height, garment_height),
+        bounded_ratio(width * height, garment_width * garment_height),
+        candidate_coverage,
+        box_iou(candidate_box, instance["box"]),
+        bounded_ratio(center_x - gx1, garment_width),
+        bounded_ratio(gx2 - center_x, garment_width),
+        bounded_ratio(center_y - gy1, garment_height),
+        bounded_ratio(gy2 - center_y, garment_height),
+        has_side,
+        garment_side_matches,
+        desired_edge_distance,
+    ], category
+
+
+def condition_signals_on_garment_category(
+    values: list[float],
+    category: str,
+) -> list[float]:
+    return [
+        value if category == category_name else 0.0
+        for category_name in GARMENT_CATEGORY_NAMES
+        for value in values
+    ]
+
+
 def candidate_feature(
     record: dict[str, Any],
     candidate: dict[str, Any],
@@ -330,6 +435,10 @@ def candidate_feature(
         str(record.get("query_text") or ""),
         candidate["bbox"],
         image_width,
+    )
+    garment_geometry, garment_category = garment_relative_features(
+        record,
+        candidate["bbox"],
     )
     source_region = [
         float(source == source_name and region == region_name)
@@ -435,14 +544,20 @@ def candidate_feature(
         *visual,
         *dino,
         *spatial_dino,
+        *garment_geometry,
     ]
     values = [
         *one_hot(region, DEFAULT_REGIONS),
         *one_hot(source, SOURCE_NAMES),
         *one_hot(model_name, MODEL_NAMES),
+        *one_hot(garment_category, GARMENT_CATEGORY_NAMES),
         *source_region,
         *numeric,
         *condition_signals_on_region(numeric, region),
+        *condition_signals_on_garment_category(
+            garment_geometry,
+            garment_category,
+        ),
         *hash_text(candidate.get("prompt")),
     ]
     return torch.tensor(values, dtype=torch.float32)
@@ -1191,6 +1306,9 @@ def main() -> None:
         "candidate_feature_schema": CANDIDATE_FEATURE_SCHEMA,
         "split_policy": "image_grouped_cross_validation",
         "visual_candidate_enrichment": payload.get("visual_candidate_enrichment"),
+        "online_garment_geometry_enrichment": payload.get(
+            "online_garment_geometry_enrichment"
+        ),
         "num_records_with_visual_scores": sum(
             isinstance(record.get("visual_candidate_scores"), list)
             and bool(record["visual_candidate_scores"])
@@ -1202,6 +1320,10 @@ def main() -> None:
         ),
         "num_records_with_dinov2_spatial_embeddings": sum(
             record_has_complete_dinov2_spatial_embeddings(record)
+            for record in selected_records
+        ),
+        "num_records_with_online_garment_geometry": sum(
+            record_has_online_garment_geometry(record)
             for record in selected_records
         ),
         "baseline_summary": summarize_records(all_records),

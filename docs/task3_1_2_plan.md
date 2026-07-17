@@ -1085,3 +1085,12 @@ soft-target listwise diagnostic and require both
 retaining the current waist result, cuff must rise to roughly Hit@0.3 `0.577`.
 The frozen manual benchmark remains closed until the full weak OOF result is at
 least `0.60`.
+
+The spatial OOF result improves to Hit@0.3 `0.5021` (1,174/2,338): cuff rises
+to `0.4624`, waist remains `0.7339`, and the run gains 437 baseline failures
+while losing 110 baseline hits. Spatial detail is useful, but the result is
+still 229 hits below the gate. The next experiment adds no new label or
+grounding output. It recovers the 3.1.1 predicted garment instance box on CUDA
+and adds candidate coordinates, size, overlap, border distance, and wearer-side
+agreement relative to that online box, with explicit predicted-category
+conditioning. The landmark target bbox remains evaluation-only.
