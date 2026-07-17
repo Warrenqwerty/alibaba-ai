@@ -1005,5 +1005,8 @@ The current training experiment uses a disjoint protocol:
 
 The category-aware landmark builder supports short/long sleeve endpoints for
 shirts, outerwear, and dresses, plus waistband landmarks for shorts, trousers,
-and skirts. Use `--vis-dir` and inspect the generated cuff/waist boxes before
-running GPU inference. Full AutoDL commands are in `docs/setup_autodl.md`.
+and skirts. DeepFashion2 contour names follow image side; cuff pairs are
+swapped to the benchmark's garment/wearer-side convention for frontal and
+flat-lay images. Back views therefore remain noisy weak labels. Use `--vis-dir`
+and inspect the generated cuff/waist boxes before running GPU inference. Full
+AutoDL commands are in `docs/setup_autodl.md`.

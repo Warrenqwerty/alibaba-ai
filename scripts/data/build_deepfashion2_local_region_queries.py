@@ -160,6 +160,11 @@ def build_records_for_annotation(
                         "num_items_in_image": len(items),
                         "query": query,
                         "region": region,
+                        "side_convention": (
+                            "garment_wearer_front_view"
+                            if region in {"left_cuff", "right_cuff"}
+                            else None
+                        ),
                         "garment_box": [float(value) for value in item["bounding_box"]],
                         "region_box": [float(value) for value in proposal.box],
                         "source": proposal.source,
@@ -269,6 +274,8 @@ def main() -> None:
         "shuffle": args.shuffle,
         "seed": args.seed,
         "num_unique_images": len({record["image"] for record in records}),
+        "cuff_side_convention": "garment_wearer_front_view",
+        "cuff_side_limitation": "back_views_remain_noisy_weak_labels",
         "num_visualizations": num_visualizations,
         "visualization_dir": str(Path(args.vis_dir)) if args.vis_dir else None,
         **summarize_records(records),

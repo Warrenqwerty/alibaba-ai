@@ -18,19 +18,20 @@ LANDMARK_REGION_GROUPS = {
 }
 
 # DeepFashion2 uses a different local landmark order for each garment category.
-# These endpoint pairs follow the official category contours and isolate the
-# sleeve terminal rather than the complete sleeve. Lower-body points 1-3 form
-# the waistband contour for shorts, trousers, and skirts.
+# Its contour left/right follows image side. Public queries and the manual
+# benchmark use garment/wearer side, so cuff pairs are intentionally swapped
+# for the dominant frontal/flat-lay case. Back views remain noisy weak labels.
+# Lower-body points 1-3 form the waistband for shorts, trousers, and skirts.
 CATEGORY_LANDMARK_REGION_GROUPS = {
-    1: {"left_cuff": (9, 10), "right_cuff": (22, 23)},
-    2: {"left_cuff": (11, 12), "right_cuff": (28, 29)},
-    3: {"left_cuff": (9, 10), "right_cuff": (22, 23)},
-    4: {"left_cuff": (11, 12), "right_cuff": (28, 29)},
+    1: {"left_cuff": (22, 23), "right_cuff": (9, 10)},
+    2: {"left_cuff": (28, 29), "right_cuff": (11, 12)},
+    3: {"left_cuff": (22, 23), "right_cuff": (9, 10)},
+    4: {"left_cuff": (28, 29), "right_cuff": (11, 12)},
     7: {"waist": (1, 2, 3)},
     8: {"waist": (1, 2, 3)},
     9: {"waist": (1, 2, 3)},
-    10: {"left_cuff": (9, 10), "right_cuff": (26, 27)},
-    11: {"left_cuff": (11, 12), "right_cuff": (32, 33)},
+    10: {"left_cuff": (26, 27), "right_cuff": (9, 10)},
+    11: {"left_cuff": (32, 33), "right_cuff": (11, 12)},
 }
 
 

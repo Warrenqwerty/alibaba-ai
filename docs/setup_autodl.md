@@ -1173,7 +1173,10 @@ PYTHONPATH=src python scripts/data/build_deepfashion2_local_region_queries.py \
 Before using a GPU, inspect the 40 images. Green must be a tight cuff/waist
 weak target, blue the source garment. Sleeve-less items must not appear as cuff
 records, and the reported `source_counts` must contain only
-`landmark_pseudo_label`.
+`landmark_pseudo_label`. DeepFashion2 names contours by image side, while this
+project uses garment/wearer side. The builder therefore swaps cuff pairs for
+frontal/flat-lay images and reports `cuff_side_convention` plus the known back
+view limitation in its summary.
 
 Run a 100-record online candidate smoke test on the 5090. The selected OWLv2
 route, GroundingDINO-base diagnostic route, and frozen heuristic candidate all

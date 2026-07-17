@@ -1032,6 +1032,8 @@ audited 161-record `validation` benchmark frozen:
 
 DeepFashion2 uses a different landmark order per category. The implemented
 mapping follows category contour indices for short/long sleeve endpoints and
-points 1-3 for the waist of shorts, trousers, and skirts. A visualization
-spot-check is mandatory before the first large GPU run because left/right and
-endpoint semantics must agree with the manual annotation convention.
+points 1-3 for the waist of shorts, trousers, and skirts. DeepFashion2 contour
+left/right is image-side; the implementation swaps the cuff pair to
+garment/wearer side for frontal and flat-lay images. This is an explicit weak
+label approximation because back views have the opposite projection. A
+visualization spot-check is mandatory before the first large GPU run.

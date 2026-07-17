@@ -75,6 +75,9 @@ def test_landmark_only_query_builder_keeps_supported_cuffs(tmp_path):
     }
     assert {record["source"] for record in records} == {"landmark_pseudo_label"}
     assert {record["num_items_in_image"] for record in records} == {1}
+    assert {record["side_convention"] for record in records} == {
+        "garment_wearer_front_view"
+    }
 
     vis_dir = tmp_path / "visualizations"
     assert export_record_visualizations(records, vis_dir, max_records=10) == 2

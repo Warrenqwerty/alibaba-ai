@@ -69,7 +69,7 @@ def test_landmark_region_falls_back_when_points_are_missing():
     assert proposal.source == "rule_baseline"
 
 
-def test_category_specific_cuff_landmarks_isolate_both_sleeve_ends():
+def test_category_specific_cuffs_convert_image_side_to_wearer_side():
     garment_mask = np.zeros((120, 120), dtype=bool)
     garment_mask[10:110, 10:110] = True
     landmarks = raw_landmarks(
@@ -99,8 +99,8 @@ def test_category_specific_cuff_landmarks_isolate_both_sleeve_ends():
 
     assert left.source == "landmark_pseudo_label"
     assert right.source == "landmark_pseudo_label"
-    assert left.box is not None and left.box[2] < 40
-    assert right.box is not None and right.box[0] > 80
+    assert left.box is not None and left.box[0] > 80
+    assert right.box is not None and right.box[2] < 40
 
 
 def test_lower_body_waist_uses_category_specific_landmarks():
