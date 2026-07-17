@@ -1094,3 +1094,20 @@ grounding output. It recovers the 3.1.1 predicted garment instance box on CUDA
 and adds candidate coordinates, size, overlap, border distance, and wearer-side
 agreement relative to that online box, with explicit predicted-category
 conditioning. The landmark target bbox remains evaluation-only.
+
+The online garment-relative geometry OOF result reaches Hit@0.3 `0.5141`
+(1,202/2,338), Hit@0.5 `0.1719`, cuff Hit@0.3 `0.4714`, and waist Hit@0.3
+`0.7632`. It adds 28 hits over the spatial-only run but remains 201 hits below
+the 60% gate. Both regions improve, so the predicted garment box is retained.
+
+The next controlled experiment targets a remaining structural limitation:
+candidate scores are currently independent even though every query has about
+9.4 candidates from OWLv2, GroundingDINO-tiny, GroundingDINO-base, and the
+heuristic path. Feature schema v5 adds candidate-pool agreement and explicit
+expert interactions without generating any new prediction. Features include
+cross-source/model maximum and mean IoU, overlap support density, within-source
+score percentile, candidate-area percentile, bilingual prompt-side agreement,
+and source/model/query-side conditioned structured signals. `target_bbox` is
+still used only to form training IoU labels. The same linear soft-target model
+and image-grouped five-fold split must be used so any change is attributable to
+candidate relations rather than capacity or loss tuning.

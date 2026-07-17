@@ -116,6 +116,7 @@ from scripts.eval.evaluate_chinese_clip_manual_local_regions import (
 )
 from scripts.eval.cross_validate_grounding_candidate_selector import (
     calibrate_nested_region_policies,
+    candidate_consensus_features,
     candidate_examples,
     choose_nested_region_policies,
     condition_signals_on_region,
@@ -125,6 +126,7 @@ from scripts.eval.cross_validate_grounding_candidate_selector import (
     listwise_hit_loss,
     pairwise_recovery_examples,
     parse_threshold_grid,
+    prompt_wearer_side,
     record_has_complete_dinov2_spatial_embeddings,
     record_has_online_garment_geometry,
     select_candidate_record,
@@ -562,6 +564,84 @@ def test_candidate_examples_build_fixed_features_and_manual_ious():
     assert features.ndim == 2
     assert features.shape[0] == len(candidates) == 2
     assert ious.tolist() == pytest.approx([0.0, 1.0])
+
+
+def test_prompt_wearer_side_supports_chinese_and_english_prompts():
+    assert prompt_wearer_side("left sleeve cuff") == "left"
+    assert prompt_wearer_side("right cuff") == "right"
+    assert prompt_wearer_side("左边的袖口") == "left"
+    assert prompt_wearer_side("bright floral pattern") is None
+    assert prompt_wearer_side("left or right cuff") is None
+
+
+def test_candidate_consensus_rewards_cross_expert_overlap():
+    record = {
+        "grounding_model_name": "google/owlv2-large-patch14-ensemble",
+        "diagnostic_grounding_candidate": {
+            "grounding_model_name": "IDEA-Research/grounding-dino-base",
+        },
+    }
+    candidate = {
+        "bbox": [0, 0, 10, 10],
+        "score": 0.9,
+        "candidate_source": "grounding",
+    }
+    candidates = [
+        candidate,
+        {
+            "bbox": [1, 0, 11, 10],
+            "score": 0.8,
+            "candidate_source": "diagnostic_grounding",
+        },
+        {
+            "bbox": [50, 50, 60, 60],
+            "score": None,
+            "candidate_source": "heuristic",
+        },
+    ]
+
+    features = candidate_consensus_features(record, candidate, candidates)
+
+    assert len(features) == 24
+    assert features[8] > 0.8
+    assert features[10] == pytest.approx(0.25)
+    assert features[13] == pytest.approx(0.25)
+    assert all(0.0 <= value <= 2.0 for value in features)
+
+
+def test_candidate_features_never_use_manual_target_bbox():
+    base = {
+        "image": "/tmp/example.jpg",
+        "query_text": "这件上衣右侧的袖口",
+        "target_region": "cuff",
+        "predicted_bbox": [20, 0, 30, 10],
+        "selected_region": "right_cuff",
+        "score": 0.8,
+        "gated_policy_route": "grounding",
+        "grounding_model_name": "google/owlv2-large-patch14-ensemble",
+        "online_garment_instance": {
+            "box": [0, 0, 80, 70],
+            "label_name": "top",
+        },
+        "detections": [
+            {
+                "bbox": [0, 0, 10, 10],
+                "score": 0.7,
+                "prompt": "right sleeve cuff",
+            },
+        ],
+    }
+    first_features, first_ious, _ = candidate_examples(
+        {**base, "target_bbox": [0, 0, 10, 10]},
+        (100, 80),
+    )
+    second_features, second_ious, _ = candidate_examples(
+        {**base, "target_bbox": [50, 50, 60, 60]},
+        (100, 80),
+    )
+
+    assert torch.equal(first_features, second_features)
+    assert not torch.equal(first_ious, second_ious)
 
 
 def test_visual_candidate_scores_attach_by_bbox():

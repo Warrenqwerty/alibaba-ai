@@ -4,6 +4,7 @@ import argparse
 import json
 import math
 import random
+import re
 import sys
 from collections import Counter
 from collections import defaultdict
@@ -30,6 +31,7 @@ DEFAULT_REGIONS = ("cuff", "pocket", "pattern", "waist", "zipper")
 SOURCE_NAMES = ("current", "grounding", "diagnostic_grounding", "heuristic")
 MODEL_NAMES = ("heuristic", "grounding_dino_tiny", "grounding_dino_base", "owlv2")
 GARMENT_CATEGORY_NAMES = ("top", "pants", "skirt", "outerwear", "dress", "unknown")
+QUERY_SIDE_NAMES = ("left", "right", "none")
 TEXT_BUCKETS = 32
 VISUAL_SCORE_NAMES = (
     "tight_score",
@@ -49,7 +51,7 @@ DINO_SPATIAL_VECTOR_NAMES = (
     "dinov2_spatial_context_embedding",
 )
 DINO_SPATIAL_PROJECTION_DIM = 128
-CANDIDATE_FEATURE_SCHEMA = "spatial_plus_online_garment_geometry_v4"
+CANDIDATE_FEATURE_SCHEMA = "candidate_consensus_expert_interactions_v5"
 
 
 def parse_args() -> argparse.Namespace:
@@ -411,6 +413,146 @@ def condition_signals_on_garment_category(
     ]
 
 
+def condition_signals_on_value(
+    values: list[float],
+    value: str,
+    names: tuple[str, ...],
+) -> list[float]:
+    return [
+        signal if value == name else 0.0
+        for name in names
+        for signal in values
+    ]
+
+
+def prompt_wearer_side(prompt: str | None) -> str | None:
+    normalized = (prompt or "").strip().lower()
+    has_left = "左" in normalized or bool(
+        re.search(r"(^|[^a-z])left([^a-z]|$)", normalized)
+    )
+    has_right = "右" in normalized or bool(
+        re.search(r"(^|[^a-z])right([^a-z]|$)", normalized)
+    )
+    if has_left == has_right:
+        return None
+    return "left" if has_left else "right"
+
+
+def candidate_consensus_features(
+    record: dict[str, Any],
+    candidate: dict[str, Any],
+    candidates: list[dict[str, Any]],
+) -> list[float]:
+    """Describe target-independent agreement inside one query candidate pool."""
+    candidate_box = candidate["bbox"]
+    candidate_source = str(candidate.get("candidate_source") or "current")
+    candidate_model = candidate_model_name(record, candidate_source)
+    other_candidates = [
+        other
+        for other in candidates
+        if candidate_key(other["bbox"]) != candidate_key(candidate_box)
+    ]
+    overlaps = [box_iou(candidate_box, other["bbox"]) for other in other_candidates]
+    cross_source_overlaps = [
+        overlap
+        for overlap, other in zip(overlaps, other_candidates, strict=True)
+        if str(other.get("candidate_source") or "current") != candidate_source
+    ]
+    cross_model_overlaps = [
+        overlap
+        for overlap, other in zip(overlaps, other_candidates, strict=True)
+        if candidate_model_name(
+            record,
+            str(other.get("candidate_source") or "current"),
+        )
+        != candidate_model
+    ]
+    denominator = max(len(other_candidates), 1)
+
+    support_sources = {
+        str(other.get("candidate_source") or "current")
+        for overlap, other in zip(overlaps, other_candidates, strict=True)
+        if overlap >= 0.3
+    }
+    support_models = {
+        candidate_model_name(
+            record,
+            str(other.get("candidate_source") or "current"),
+        )
+        for overlap, other in zip(overlaps, other_candidates, strict=True)
+        if overlap >= 0.3
+    }
+    same_source_scores = [
+        float(other["score"])
+        for other in candidates
+        if str(other.get("candidate_source") or "current") == candidate_source
+        and other.get("score") is not None
+    ]
+    score_value = candidate.get("score")
+    score_percentile = 0.0
+    if score_value is not None and same_source_scores:
+        score_percentile = sum(
+            score <= float(score_value) for score in same_source_scores
+        ) / len(same_source_scores)
+
+    x1, y1, x2, y2 = [float(value) for value in candidate_box]
+    candidate_area = max(x2 - x1, 1.0) * max(y2 - y1, 1.0)
+    areas = []
+    for other in candidates:
+        ox1, oy1, ox2, oy2 = [float(value) for value in other["bbox"]]
+        areas.append(max(ox2 - ox1, 1.0) * max(oy2 - oy1, 1.0))
+    area_percentile = sum(area <= candidate_area for area in areas) / max(
+        len(areas),
+        1,
+    )
+
+    max_iou_by_source = []
+    for source in SOURCE_NAMES:
+        values = [
+            overlap
+            for overlap, other in zip(overlaps, other_candidates, strict=True)
+            if str(other.get("candidate_source") or "current") == source
+        ]
+        max_iou_by_source.append(max(values, default=0.0))
+    max_iou_by_model = []
+    for model in MODEL_NAMES:
+        values = [
+            overlap
+            for overlap, other in zip(overlaps, other_candidates, strict=True)
+            if candidate_model_name(
+                record,
+                str(other.get("candidate_source") or "current"),
+            )
+            == model
+        ]
+        max_iou_by_model.append(max(values, default=0.0))
+
+    return [
+        min(len(candidates) / 10.0, 2.0),
+        min(len(other_candidates) / 10.0, 2.0),
+        sum(
+            str(other.get("candidate_source") or "current") == candidate_source
+            for other in other_candidates
+        )
+        / denominator,
+        max(overlaps, default=0.0),
+        sum(overlaps) / denominator,
+        sum(overlap >= 0.1 for overlap in overlaps) / denominator,
+        sum(overlap >= 0.3 for overlap in overlaps) / denominator,
+        sum(overlap >= 0.5 for overlap in overlaps) / denominator,
+        max(cross_source_overlaps, default=0.0),
+        sum(cross_source_overlaps) / max(len(cross_source_overlaps), 1),
+        len(support_sources) / len(SOURCE_NAMES),
+        max(cross_model_overlaps, default=0.0),
+        sum(cross_model_overlaps) / max(len(cross_model_overlaps), 1),
+        len(support_models) / len(MODEL_NAMES),
+        score_percentile,
+        area_percentile,
+        *max_iou_by_source,
+        *max_iou_by_model,
+    ]
+
+
 def candidate_feature(
     record: dict[str, Any],
     candidate: dict[str, Any],
@@ -419,6 +561,7 @@ def candidate_feature(
     max_source_score: float,
     current_box: list[float] | None,
     heuristic_box: list[float] | None,
+    all_candidates: list[dict[str, Any]],
 ) -> torch.Tensor:
     image_width, image_height = image_size
     x1, y1, x2, y2 = [float(value) for value in candidate["bbox"]]
@@ -440,6 +583,18 @@ def candidate_feature(
         record,
         candidate["bbox"],
     )
+    query_side = query_wearer_side(str(record.get("query_text") or "")) or "none"
+    candidate_prompt_side = prompt_wearer_side(candidate.get("prompt")) or "none"
+    prompt_has_side = float(candidate_prompt_side != "none")
+    prompt_side_matches = float(
+        query_side != "none" and candidate_prompt_side == query_side
+    )
+    prompt_side_conflicts = float(
+        query_side != "none"
+        and candidate_prompt_side != "none"
+        and candidate_prompt_side != query_side
+    )
+    consensus = candidate_consensus_features(record, candidate, all_candidates)
     source_region = [
         float(source == source_name and region == region_name)
         for source_name in SOURCE_NAMES
@@ -545,18 +700,56 @@ def candidate_feature(
         *dino,
         *spatial_dino,
         *garment_geometry,
+        *consensus,
+        prompt_has_side,
+        prompt_side_matches,
+        prompt_side_conflicts,
+    ]
+    expert_signals = [
+        score,
+        float(score_value is None),
+        score / max(max_source_score, 1e-6) if score_value is not None else 0.0,
+        rank / 5.0,
+        float(rank_value is None),
+        has_side,
+        side_matches,
+        *geometry,
+        *agreement,
+        *visual,
+        *garment_geometry,
+        *consensus,
+        prompt_has_side,
+        prompt_side_matches,
+        prompt_side_conflicts,
+    ]
+    side_sensitive_signals = [
+        *geometry,
+        *garment_geometry,
+        *consensus,
+        prompt_has_side,
+        prompt_side_matches,
+        prompt_side_conflicts,
     ]
     values = [
         *one_hot(region, DEFAULT_REGIONS),
         *one_hot(source, SOURCE_NAMES),
         *one_hot(model_name, MODEL_NAMES),
         *one_hot(garment_category, GARMENT_CATEGORY_NAMES),
+        *one_hot(query_side, QUERY_SIDE_NAMES),
+        *one_hot(candidate_prompt_side, QUERY_SIDE_NAMES),
         *source_region,
         *numeric,
         *condition_signals_on_region(numeric, region),
         *condition_signals_on_garment_category(
             garment_geometry,
             garment_category,
+        ),
+        *condition_signals_on_value(expert_signals, source, SOURCE_NAMES),
+        *condition_signals_on_value(expert_signals, model_name, MODEL_NAMES),
+        *condition_signals_on_value(
+            side_sensitive_signals,
+            query_side,
+            QUERY_SIDE_NAMES,
         ),
         *hash_text(candidate.get("prompt")),
     ]
@@ -612,6 +805,7 @@ def candidate_examples(
                 ],
                 current_box=current_box,
                 heuristic_box=heuristic_box,
+                all_candidates=candidates,
             )
             for candidate in candidates
         ]

@@ -1054,3 +1054,12 @@ is online garment-relative geometry: re-run only the 3.1.1 segmentation model
 on the saved records, retain its predicted garment box, and express every
 candidate relative to that box and predicted garment category. This remains
 target-independent and does not rerun the grounding or visual encoders.
+
+Online garment-relative geometry raises Hit@0.3 to `0.5141` (1,202/2,338):
+cuff reaches `0.4714`, waist reaches `0.7632`, and Hit@0.5 reaches `0.1719`.
+The feature is useful but leaves a 201-hit gap to the 60% gate. The next v5
+selector therefore models the saved candidate pool itself. It adds
+target-independent cross-expert box agreement, overlap density, score and area
+percentiles, English/Chinese left-right prompt agreement, and source/model-side
+interactions. The controlled comparison keeps the linear soft-target model,
+fold split, seed, and all frozen visual features unchanged.

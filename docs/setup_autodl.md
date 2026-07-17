@@ -1348,27 +1348,55 @@ PYTHONPATH=src python scripts/eval/cross_validate_grounding_candidate_selector.p
   > /root/autodl-tmp/outputs/garment_geometry_listwise_run.log 2>&1
 ```
 
-Only if the garment-geometry listwise run reaches the 60% weak OOF gate, run
-the conservative nested selector, still using only the independent weak labels:
+Observed garment-geometry result: Hit@0.3 is `0.5141` (1,202/2,338), cuff is
+`0.4714`, waist is `0.7632`, and Hit@0.5 is `0.1719`. This adds 28 hits over
+the spatial-only run but remains 201 below the 60% gate.
+
+The next v5 experiment reuses that exact enriched JSON and adds only
+target-independent candidate-pool consensus and expert-interaction features.
+It does not rerun segmentation, GroundingDINO, OWLv2, Chinese-CLIP, or DINOv2.
+Keep the linear model and every training setting fixed:
 
 ```bash
 PYTHONPATH=src python scripts/eval/cross_validate_grounding_candidate_selector.py \
   --eval-json /root/autodl-tmp/outputs/local_region_train_online_candidates_cuff_waist_clip_dinov2_spatial_cuff_garment_geometry_2338_v2.json \
   --regions cuff waist \
   --num-folds 5 \
-  --inner-folds 3 \
   --num-epochs 200 \
   --selector-architecture linear \
-  --selection-policy conservative_pairwise \
-  --threshold-policy nested_region \
-  --nested-thresholds 0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9 \
-  --nested-max-lost-hits 0 \
-  --nested-min-net-gain 1 \
+  --selection-policy listwise \
+  --listwise-loss soft_target \
+  --threshold-policy fixed \
   --learning-rate 0.01 \
   --weight-decay 0.01 \
   --seed 42 \
   --device cuda \
-  --output /root/autodl-tmp/outputs/local_region_clip_dinov2_spatial_cuff_garment_geometry_conservative_oof_2338_v2.json
+  --output /root/autodl-tmp/outputs/local_region_candidate_consensus_v5_listwise_oof_2338_v2.json \
+  > /root/autodl-tmp/outputs/candidate_consensus_v5_run.log 2>&1
+```
+
+Print only the comparison fields after the run:
+
+```bash
+python - <<'PY'
+import json
+
+path = "/root/autodl-tmp/outputs/local_region_candidate_consensus_v5_listwise_oof_2338_v2.json"
+p = json.load(open(path))
+oof = p["out_of_fold_summary"]
+print(json.dumps({
+    "feature_schema": p["candidate_feature_schema"],
+    "garment_geometry_records": p["num_records_with_online_garment_geometry"],
+    "baseline_hit": p["baseline_summary"]["manual_hit_at"],
+    "oof_hit": oof["manual_hit_at"],
+    "hit30_count": round(oof["manual_hit_at"]["0.3"] * oof["num_records"]),
+    "oof_by_region": {
+        region: values["manual_hit_at"]
+        for region, values in oof["by_region"].items()
+    },
+    "transitions": p["selector_diagnostics"]["hit_transition_counts"],
+}, ensure_ascii=False, indent=2))
+PY
 ```
 
 The listwise output must report `num_records_with_dinov2_embeddings == 2338`,
@@ -1380,9 +1408,8 @@ dimension, spatial components, or projection fingerprint. Legacy global
 artifacts without `feature_mode` are treated as `global`.
 The baseline contains 847 Hit@0.3 cases; the 60% target requires at least 1,403
 and the candidate oracle contains about 1,595. The completed spatial result is
-1,174 hits, so garment-relative geometry must recover 229 net hits. With the
-current waist result retained, cuff needs roughly Hit@0.3 `0.577`. If listwise
-OOF remains below 60%, move to a cuff-specific dense patch/text ranker rather
-than opening the manual benchmark or tuning selector depth. If listwise passes
-60% but conservative does not, threshold calibration and recovery routing are
-the bottleneck.
+1,174 hits and online garment geometry reaches 1,202, leaving 201. With the
+current waist result retained, cuff still needs roughly Hit@0.3 `0.572`. If v5
+remains below 60%, inspect gained/lost hits and per-source selection before
+changing model capacity. Do not open the manual benchmark or tune the MLP on
+this weak split.
