@@ -134,6 +134,18 @@ from scripts.eval.enrich_grounding_candidates_with_chinese_clip import contextua
 from scripts.eval.enrich_grounding_candidates_with_chinese_clip import record_text_prompts
 from scripts.eval.enrich_grounding_candidates_with_chinese_clip import relative_rank_scores
 from scripts.eval.enrich_grounding_candidates_with_chinese_clip import score_record_candidates
+from scripts.eval.enrich_grounding_candidates_with_dinov2 import (
+    deterministic_projection,
+)
+from scripts.eval.enrich_grounding_candidates_with_dinov2 import (
+    project_dinov2_features,
+)
+from scripts.eval.enrich_grounding_candidates_with_dinov2 import (
+    projection_fingerprint,
+)
+from scripts.eval.enrich_grounding_candidates_with_dinov2 import (
+    score_record_candidates as score_dinov2_record_candidates,
+)
 
 
 def test_manual_manifest_records_start_unlabeled(tmp_path):
@@ -643,6 +655,121 @@ def test_chinese_clip_enrichment_helpers_are_fixed_and_bounded():
         },
         "region_ensemble",
     ) == ["衣服上的拉链", "衣服上用于开合的拉链"]
+
+
+def test_dinov2_projection_is_deterministic_and_normalized():
+    first = deterministic_projection(
+        4,
+        output_dim=64,
+        seed=42,
+        device=torch.device("cpu"),
+    )
+    second = deterministic_projection(
+        4,
+        output_dim=64,
+        seed=42,
+        device=torch.device("cpu"),
+    )
+    different = deterministic_projection(
+        4,
+        output_dim=64,
+        seed=43,
+        device=torch.device("cpu"),
+    )
+    projected = project_dinov2_features(
+        torch.tensor(
+            [
+                [1.0, 0.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0, 0.0],
+            ]
+        ),
+        first,
+    )
+
+    assert torch.equal(first, second)
+    assert projection_fingerprint(first) == projection_fingerprint(second)
+    assert projection_fingerprint(first) != projection_fingerprint(different)
+    assert projected.shape == (2, 64)
+    assert torch.linalg.vector_norm(projected, dim=1).tolist() == pytest.approx(
+        [1.0, 1.0]
+    )
+
+
+def test_dinov2_enrichment_preserves_clip_scores_without_target_box(monkeypatch):
+    record = {
+        "image": "/tmp/example.jpg",
+        "query_text": "左边的袖口",
+        "target_region": "cuff",
+        "predicted_bbox": [20, 0, 30, 10],
+        "diagnostic_grounding_candidate": {
+            "detections": [
+                {"bbox": [0, 0, 10, 10], "score": 0.8, "prompt": "sleeve cuff"},
+            ]
+        },
+        "visual_candidate_scores": [
+            {
+                "bbox": [20, 0, 30, 10],
+                "tight_score": 0.2,
+                "context_score": 0.3,
+                "max_score": 0.3,
+                "mean_score": 0.25,
+                "tight_rank_score": 0.0,
+                "context_rank_score": 0.0,
+            }
+        ],
+    }
+    monkeypatch.setattr(
+        "scripts.eval.enrich_grounding_candidates_with_dinov2.encode_dinov2_images",
+        lambda *args, **kwargs: torch.tensor(
+            [
+                [1.0, 0.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0, 0.0],
+            ]
+        ),
+    )
+    projection = deterministic_projection(
+        4,
+        output_dim=64,
+        seed=42,
+        device=torch.device("cpu"),
+    )
+
+    scores = score_dinov2_record_candidates(
+        record,
+        Image.new("RGB", (100, 80)),
+        model=object(),
+        processor=object(),
+        projection=projection,
+        device=torch.device("cpu"),
+        context_scale=1.6,
+        image_batch_size=8,
+    )
+
+    assert len(scores) == 2
+    assert scores[0]["tight_score"] == pytest.approx(0.2)
+    assert len(scores[0]["dinov2_tight_embedding"]) == 64
+    assert len(scores[1]["dinov2_context_embedding"]) == 64
+    assert scores[0]["dinov2_tight_context_similarity"] == pytest.approx(1.0)
+
+    enriched_record = {
+        **record,
+        "target_bbox": [0, 0, 10, 10],
+        "visual_candidate_scores": scores,
+    }
+    enriched_features, _, candidates = candidate_examples(
+        enriched_record,
+        (100, 80),
+    )
+    legacy_features, _, _ = candidate_examples(
+        {**enriched_record, "visual_candidate_scores": []},
+        (100, 80),
+    )
+
+    assert enriched_features.shape == legacy_features.shape
+    assert len(candidates[0]["visual_dinov2_tight_embedding"]) == 64
+    assert not torch.equal(enriched_features, legacy_features)
 
 
 def test_image_grouped_folds_do_not_split_one_image():

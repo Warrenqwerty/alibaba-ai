@@ -1010,3 +1010,16 @@ swapped to the benchmark's garment/wearer-side convention for frontal and
 flat-lay images. Back views therefore remain noisy weak labels. Use `--vis-dir`
 and inspect the generated cuff/waist boxes before running GPU inference. Full
 AutoDL commands are in `docs/setup_autodl.md`.
+
+The first independent run contains 2,338 single-item weak records. Its current
+policy reaches weak-label Hit@0.3 `0.3623`, while the saved candidate pool has
+an oracle ceiling of `0.6822`. Geometry/source-only linear selection improves
+OOF by seven hits with no losses. Chinese-CLIP tight/context scalar features
+raise that to eleven gains with no losses, but this is still too small to
+unlock the frozen manual benchmark.
+
+The next PRD-aligned experiment attaches frozen DINOv2 tight-crop and
+1.6x-context embeddings to those same candidates. A deterministic,
+label-independent random projection stores 64 dimensions per crop. The
+enrichment path reports `target_bbox_used_for_features: false`; weak target
+boxes remain training labels only and never enter selector features.

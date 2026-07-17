@@ -1213,10 +1213,10 @@ present. If correct, repeat with `--max-records 2000` and change the output
 suffix to `_2000`.
 
 Train and calibrate on those external weak records, then evaluate once on the
-existing frozen manual candidate artifact. This step is CPU-only:
+existing frozen manual candidate artifact. The selector training supports CUDA:
 
 ```bash
-OMP_NUM_THREADS=4 MKL_NUM_THREADS=4 PYTHONPATH=src python \
+PYTHONPATH=src python \
   scripts/eval/train_external_grounding_candidate_selector.py \
   --train-eval-json /root/autodl-tmp/outputs/local_region_train_online_candidates_cuff_waist_2000.json \
   --test-eval-json /root/autodl-tmp/outputs/local_region_manual_eval_cross_model_candidates_audited.json \
@@ -1230,7 +1230,7 @@ OMP_NUM_THREADS=4 MKL_NUM_THREADS=4 PYTHONPATH=src python \
   --max-calibration-lost-hits 0 \
   --min-calibration-net-gain 1 \
   --seed 42 \
-  --device cpu \
+  --device cuda \
   --model-output /root/autodl-tmp/checkpoints/local_region_ranker/external_weak_cuff_waist.pt \
   --output /root/autodl-tmp/outputs/local_region_external_weak_selector_audited.json
 ```
@@ -1238,3 +1238,52 @@ OMP_NUM_THREADS=4 MKL_NUM_THREADS=4 PYTHONPATH=src python \
 The output must report `test_labels_used_for_training_or_calibration: false`
 and `train_test_image_overlap: 0`. The achieved result is only
 `frozen_test_summary`; weak-train and oracle summaries are diagnostics.
+
+Before opening the frozen manual artifact, enrich the independent weak
+candidate pool with frozen DINOv2 region embeddings. This command preserves
+existing Chinese-CLIP scalar scores and never reads the target bbox:
+
+```bash
+cd /root/projects/alibaba-ai
+git pull
+PYTHONPATH=src HF_ENDPOINT=https://hf-mirror.com python \
+  scripts/eval/enrich_grounding_candidates_with_dinov2.py \
+  --eval-json /root/autodl-tmp/outputs/local_region_train_online_candidates_cuff_waist_chinese_clip_2338_v2.json \
+  --regions cuff waist \
+  --model-name facebook/dinov2-base \
+  --context-scale 1.6 \
+  --image-batch-size 32 \
+  --projection-seed 42 \
+  --device cuda \
+  --output /root/autodl-tmp/outputs/local_region_train_online_candidates_cuff_waist_chinese_clip_dinov2_2338_v2.json
+```
+
+Require `num_scored_records == 2338`, `projection_dim == 64`, a non-empty
+`projection_fingerprint`, and `target_bbox_used_for_features == false`. Then
+run the same nested selector on CUDA, still using only the independent weak
+labels:
+
+```bash
+PYTHONPATH=src python scripts/eval/cross_validate_grounding_candidate_selector.py \
+  --eval-json /root/autodl-tmp/outputs/local_region_train_online_candidates_cuff_waist_chinese_clip_dinov2_2338_v2.json \
+  --regions cuff waist \
+  --num-folds 5 \
+  --inner-folds 3 \
+  --num-epochs 200 \
+  --selector-architecture linear \
+  --selection-policy conservative_pairwise \
+  --threshold-policy nested_region \
+  --nested-thresholds 0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9 \
+  --nested-max-lost-hits 0 \
+  --nested-min-net-gain 1 \
+  --learning-rate 0.01 \
+  --weight-decay 0.01 \
+  --seed 42 \
+  --device cuda \
+  --output /root/autodl-tmp/outputs/local_region_external_weak_selector_clip_dinov2_oof_linear_2338_v2.json
+```
+
+The selector output must report
+`num_records_with_dinov2_embeddings == 2338`. When train and frozen-manual
+artifacts are later used together, the external selector rejects mismatched
+DINOv2 model, context, projection seed, dimension, or projection fingerprint.

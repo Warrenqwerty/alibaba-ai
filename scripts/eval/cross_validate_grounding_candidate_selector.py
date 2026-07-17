@@ -38,6 +38,11 @@ VISUAL_SCORE_NAMES = (
     "tight_rank_score",
     "context_rank_score",
 )
+DINO_VECTOR_NAMES = (
+    "dinov2_tight_embedding",
+    "dinov2_context_embedding",
+)
+DINO_PROJECTION_DIM = 64
 
 
 def parse_args() -> argparse.Namespace:
@@ -153,6 +158,20 @@ def visual_scores_by_box(record: dict[str, Any]) -> dict[tuple[float, ...], dict
     }
 
 
+def record_has_complete_dinov2_embeddings(record: dict[str, Any]) -> bool:
+    candidates = selector_candidates(record)
+    if not candidates:
+        return False
+    return all(
+        all(
+            isinstance(candidate.get(f"visual_{name}"), list)
+            and len(candidate[f"visual_{name}"]) == DINO_PROJECTION_DIM
+            for name in DINO_VECTOR_NAMES
+        )
+        for candidate in candidates
+    )
+
+
 def selector_candidates(record: dict[str, Any]) -> list[dict[str, Any]]:
     candidates = []
     selected_box = record.get("predicted_bbox")
@@ -192,6 +211,17 @@ def selector_candidates(record: dict[str, Any]) -> list[dict[str, Any]]:
                     if visual.get(name) is not None
                 }
             )
+            updated.update(
+                {
+                    f"visual_{name}": [float(value) for value in visual[name]]
+                    for name in DINO_VECTOR_NAMES
+                    if visual.get(name) is not None
+                }
+            )
+            if visual.get("dinov2_tight_context_similarity") is not None:
+                updated["visual_dinov2_tight_context_similarity"] = float(
+                    visual["dinov2_tight_context_similarity"]
+                )
         enriched.append(updated)
     return enriched
 
@@ -281,6 +311,33 @@ def candidate_feature(
         float(candidate.get("visual_context_score") or 0.0)
         - float(candidate.get("visual_tight_score") or 0.0),
     ]
+    tight_dino = fixed_visual_vector(
+        candidate.get("visual_dinov2_tight_embedding"),
+        expected_dim=DINO_PROJECTION_DIM,
+        name="dinov2_tight_embedding",
+    )
+    context_dino = fixed_visual_vector(
+        candidate.get("visual_dinov2_context_embedding"),
+        expected_dim=DINO_PROJECTION_DIM,
+        name="dinov2_context_embedding",
+    )
+    has_dino = any(
+        candidate.get(f"visual_{name}") is not None for name in DINO_VECTOR_NAMES
+    )
+    dino = [
+        float(has_dino),
+        *tight_dino,
+        *context_dino,
+        *[
+            tight_value - context_value
+            for tight_value, context_value in zip(
+                tight_dino,
+                context_dino,
+                strict=True,
+            )
+        ],
+        float(candidate.get("visual_dinov2_tight_context_similarity") or 0.0),
+    ]
     numeric = [
         score,
         float(score_value is None),
@@ -292,6 +349,7 @@ def candidate_feature(
         *geometry,
         *agreement,
         *visual,
+        *dino,
     ]
     values = [
         *one_hot(region, DEFAULT_REGIONS),
@@ -302,6 +360,24 @@ def candidate_feature(
         *hash_text(candidate.get("prompt")),
     ]
     return torch.tensor(values, dtype=torch.float32)
+
+
+def fixed_visual_vector(
+    value: Any,
+    *,
+    expected_dim: int,
+    name: str,
+) -> list[float]:
+    """Return a fixed-size visual vector while keeping legacy artifacts valid."""
+    if value is None:
+        return [0.0] * expected_dim
+    if not isinstance(value, (list, tuple)):
+        raise ValueError(f"{name} must be a list or tuple")
+    if len(value) != expected_dim:
+        raise ValueError(
+            f"{name} must contain {expected_dim} values, got {len(value)}"
+        )
+    return [float(item) for item in value]
 
 
 def candidate_examples(
@@ -981,6 +1057,10 @@ def main() -> None:
         "num_records_with_visual_scores": sum(
             isinstance(record.get("visual_candidate_scores"), list)
             and bool(record["visual_candidate_scores"])
+            for record in selected_records
+        ),
+        "num_records_with_dinov2_embeddings": sum(
+            record_has_complete_dinov2_embeddings(record)
             for record in selected_records
         ),
         "baseline_summary": summarize_records(all_records),

@@ -1037,3 +1037,23 @@ left/right is image-side; the implementation swaps the cuff pair to
 garment/wearer side for frontal and flat-lay images. This is an explicit weak
 label approximation because back views have the opposite projection. A
 visualization spot-check is mandatory before the first large GPU run.
+
+### Independent Weak-Train Results And DINOv2 Follow-Up
+
+The first full external artifact has 2,338 records from 1,529 unique
+single-item train images. Candidate generation never reads the landmark target
+box. Against those weak labels, the current policy is Hit@0.3 `0.3623` and the
+candidate oracle is `0.6822` (`0.6493` cuff, `0.8743` waist).
+
+The conservative linear selector gains seven OOF hits without a loss. Adding
+Chinese-CLIP tight/context similarity and rank features raises the gain to
+eleven, again without a lost hit. The nonlinear MLP is less stable and is
+rejected. These gains show useful signal but are too small to justify opening
+the frozen manual benchmark.
+
+The next experiment adds frozen DINOv2 crop embeddings. Each candidate gets a
+tight crop and fixed 1.6x context crop. DINOv2 output is normalized and passed
+through a deterministic 64-dimensional random projection shared by train and
+test artifacts. This projection is label-independent; neither target bbox nor
+IoU is read during feature generation. Selection remains image-grouped OOF on
+DeepFashion2 train until the visual selector shows a material net gain.

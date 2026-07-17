@@ -29,6 +29,9 @@ from scripts.eval.cross_validate_grounding_candidate_selector import (
     parse_threshold_grid,
 )
 from scripts.eval.cross_validate_grounding_candidate_selector import (
+    record_has_complete_dinov2_embeddings,
+)
+from scripts.eval.cross_validate_grounding_candidate_selector import (
     select_conservative_candidate_record,
 )
 from scripts.eval.cross_validate_grounding_candidate_selector import (
@@ -41,6 +44,13 @@ from scripts.eval.evaluate_local_region_manual_labels import summarize_records
 
 
 DEFAULT_REGIONS = ("cuff", "waist")
+DINO_COMPATIBILITY_FIELDS = (
+    "model_name",
+    "context_scale",
+    "projection_dim",
+    "projection_seed",
+    "projection_fingerprint",
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -106,6 +116,58 @@ def validate_external_training_payload(payload: dict[str, Any]) -> None:
         raise ValueError(
             "External selector training records must all use landmark-only "
             f"targets; first invalid ids: {invalid[:3]}"
+        )
+
+
+def validate_dinov2_enrichment_compatibility(
+    train_payload: dict[str, Any],
+    test_payload: dict[str, Any],
+) -> None:
+    train_metadata = train_payload.get("dinov2_candidate_enrichment")
+    test_metadata = test_payload.get("dinov2_candidate_enrichment")
+    if train_metadata is None and test_metadata is None:
+        return
+    if not isinstance(train_metadata, dict) or not isinstance(test_metadata, dict):
+        raise ValueError(
+            "DINOv2 candidate enrichment must be present on both train and test."
+        )
+    for label, metadata in (("train", train_metadata), ("test", test_metadata)):
+        if metadata.get("target_bbox_used_for_features") is not False:
+            raise ValueError(
+                f"{label} DINOv2 enrichment must state "
+                "target_bbox_used_for_features=false."
+            )
+        if not metadata.get("projection_fingerprint"):
+            raise ValueError(f"{label} DINOv2 enrichment has no projection fingerprint.")
+    mismatches = [
+        field
+        for field in DINO_COMPATIBILITY_FIELDS
+        if train_metadata.get(field) != test_metadata.get(field)
+    ]
+    if mismatches:
+        raise ValueError(
+            "Train/test DINOv2 enrichment settings differ: "
+            + ", ".join(mismatches)
+        )
+
+
+def validate_dinov2_record_coverage(
+    payload: dict[str, Any],
+    records: list[dict[str, Any]],
+    *,
+    label: str,
+) -> None:
+    if payload.get("dinov2_candidate_enrichment") is None:
+        return
+    incomplete = [
+        record.get("id")
+        for record in records
+        if not record_has_complete_dinov2_embeddings(record)
+    ]
+    if incomplete:
+        raise ValueError(
+            f"{label} contains records without complete DINOv2 candidate "
+            f"embeddings; first ids: {incomplete[:3]}"
         )
 
 
@@ -250,6 +312,7 @@ def main() -> None:
     train_payload, all_train_records = load_eval_payload(args.train_eval_json)
     test_payload, all_test_records = load_eval_payload(args.test_eval_json)
     validate_external_training_payload(train_payload)
+    validate_dinov2_enrichment_compatibility(train_payload, test_payload)
     train_indices_in_payload = selected_record_indices(all_train_records, regions)
     test_indices_in_payload = selected_record_indices(all_test_records, regions)
     train_records = [all_train_records[index] for index in train_indices_in_payload]
@@ -258,6 +321,8 @@ def main() -> None:
         raise ValueError("No requested regions found in external training records")
     if not test_records:
         raise ValueError("No requested regions found in frozen test records")
+    validate_dinov2_record_coverage(train_payload, train_records, label="train")
+    validate_dinov2_record_coverage(test_payload, test_records, label="test")
     ensure_disjoint_images(train_records, test_records)
 
     train_examples = build_examples(train_records)
@@ -353,6 +418,14 @@ def main() -> None:
         "num_test_records_with_visual_scores": sum(
             bool(record.get("visual_candidate_scores")) for record in test_records
         ),
+        "num_train_records_with_dinov2_embeddings": sum(
+            record_has_complete_dinov2_embeddings(record)
+            for record in train_records
+        ),
+        "num_test_records_with_dinov2_embeddings": sum(
+            record_has_complete_dinov2_embeddings(record)
+            for record in test_records
+        ),
         "weak_train_baseline_summary": summarize_records(train_records),
         "frozen_test_baseline_summary": summarize_records(all_test_records),
         "frozen_test_summary": summarize_records(full_test_records),
@@ -364,6 +437,10 @@ def main() -> None:
         "visual_candidate_enrichment": {
             "train": train_payload.get("visual_candidate_enrichment"),
             "test": test_payload.get("visual_candidate_enrichment"),
+        },
+        "dinov2_candidate_enrichment": {
+            "train": train_payload.get("dinov2_candidate_enrichment"),
+            "test": test_payload.get("dinov2_candidate_enrichment"),
         },
         "records": full_test_records,
     }

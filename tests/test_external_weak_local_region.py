@@ -23,6 +23,8 @@ from scripts.data.build_online_local_region_weak_candidates import (
 from scripts.eval.train_external_grounding_candidate_selector import (
     ensure_disjoint_images,
     main as selector_main,
+    validate_dinov2_enrichment_compatibility,
+    validate_dinov2_record_coverage,
     validate_external_training_payload,
 )
 
@@ -209,6 +211,37 @@ def test_external_training_and_frozen_test_images_must_be_disjoint():
         )
 
 
+def dinov2_metadata(fingerprint="projection-a"):
+    return {
+        "model_name": "facebook/dinov2-base",
+        "context_scale": 1.6,
+        "projection_dim": 64,
+        "projection_seed": 42,
+        "projection_fingerprint": fingerprint,
+        "target_bbox_used_for_features": False,
+    }
+
+
+def test_external_selector_requires_matching_dinov2_projection_metadata():
+    metadata = dinov2_metadata()
+    validate_dinov2_enrichment_compatibility(
+        {"dinov2_candidate_enrichment": metadata},
+        {"dinov2_candidate_enrichment": dict(metadata)},
+    )
+    validate_dinov2_enrichment_compatibility({}, {})
+
+    with pytest.raises(ValueError, match="both train and test"):
+        validate_dinov2_enrichment_compatibility(
+            {"dinov2_candidate_enrichment": metadata},
+            {},
+        )
+    with pytest.raises(ValueError, match="projection_fingerprint"):
+        validate_dinov2_enrichment_compatibility(
+            {"dinov2_candidate_enrichment": metadata},
+            {"dinov2_candidate_enrichment": dinov2_metadata("projection-b")},
+        )
+
+
 def candidate_record(image_path, record_id, *, weak):
     record = {
         "id": record_id,
@@ -243,6 +276,31 @@ def candidate_record(image_path, record_id, *, weak):
             }
         )
     return record
+
+
+def test_external_selector_rejects_partial_dinov2_candidate_coverage(tmp_path):
+    image_path = tmp_path / "train.jpg"
+    record = candidate_record(image_path, "train-1", weak=True)
+    embedding = [0.0] * 64
+    record["visual_candidate_scores"] = [
+        {
+            "bbox": [20, 0, 30, 10],
+            "dinov2_tight_embedding": embedding,
+            "dinov2_context_embedding": embedding,
+        },
+        {
+            "bbox": [0, 0, 10, 10],
+            "dinov2_tight_embedding": embedding,
+            "dinov2_context_embedding": embedding,
+        },
+    ]
+    payload = {"dinov2_candidate_enrichment": dinov2_metadata()}
+
+    validate_dinov2_record_coverage(payload, [record], label="train")
+    record["visual_candidate_scores"].pop()
+
+    with pytest.raises(ValueError, match="complete DINOv2"):
+        validate_dinov2_record_coverage(payload, [record], label="train")
 
 
 def test_external_selector_main_trains_before_frozen_test(tmp_path, monkeypatch):
