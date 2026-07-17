@@ -989,3 +989,17 @@ step. The same conservative selector then receives those features and is
 evaluated with the unchanged image-grouped five-fold OOF protocol. This tests
 the PRD's CLIP/DINOv2-style visual-semantic direction without pretending that
 the earlier weak Chinese-CLIP localizer result was successful.
+
+The first visual-feature selector also remains at 85/161 OOF Hit@0.3
+(`0.5280`): 24 overrides recover four cases and lose six. Cuff has a positive
+net change of two, but pocket, waist, and zipper only lose existing hits. The
+visual features contain some useful signal, but the global MLP and fixed
+threshold do not generalize from this small manual set.
+
+The next experiment is a nested, region-gated linear recovery model. Reducing
+the MLP to logistic regression limits capacity. Within each outer training
+fold, three image-grouped inner folds generate OOF recovery probabilities and
+choose a threshold independently for each region. A region is disabled unless
+inner OOF shows at least one net Hit@0.3 gain and zero lost hits. The outer test
+fold remains untouched until final scoring, so neither region enablement nor
+threshold choice leaks from the reported predictions.

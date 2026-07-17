@@ -842,6 +842,41 @@ PYTHONPATH=src python scripts/eval/cross_validate_grounding_candidate_selector.p
 Require `num_records_with_visual_scores == 86`, and continue to use only the
 out-of-fold Hit@0.3 as the achieved result.
 
+The visual-feature MLP still fails the outer OOF test: Hit@0.3 is 85/161
+(`0.5280`). It makes 24 overrides, gains four hits, and loses six. All four
+gains occur on cuff; pocket, waist, and zipper only lose hits. Do not integrate
+this model or tune its fixed threshold on the outer predictions.
+
+The next validation reduces model capacity and moves all routing decisions
+inside the training data. A linear recovery classifier is used. For each outer
+fold, three inner image-grouped folds select a threshold separately per region;
+a region is enabled only when inner OOF gains at least one net hit and loses
+none:
+
+```bash
+OMP_NUM_THREADS=4 MKL_NUM_THREADS=4 PYTHONPATH=src \
+python scripts/eval/cross_validate_grounding_candidate_selector.py \
+  --eval-json /root/autodl-tmp/outputs/local_region_cross_model_candidates_chinese_clip_audited.json \
+  --regions cuff pocket pattern waist zipper \
+  --num-folds 5 \
+  --inner-folds 3 \
+  --num-epochs 200 \
+  --selector-architecture linear \
+  --selection-policy conservative_pairwise \
+  --threshold-policy nested_region \
+  --nested-thresholds 0.3,0.4,0.5,0.6,0.7,0.8,0.9 \
+  --nested-max-lost-hits 0 \
+  --nested-min-net-gain 1 \
+  --learning-rate 0.01 \
+  --weight-decay 0.01 \
+  --seed 42 \
+  --device cpu \
+  --output /root/autodl-tmp/outputs/local_region_candidate_selector_clip_nested_linear_5fold_audited.json
+```
+
+`nested_region_activation_counts` reports how consistently each region is
+enabled across outer folds. Only `out_of_fold_summary` is the achieved score.
+
 ### Archived Weak-Supervision Experiments
 
 These commands are kept for reproducibility, but they are no longer the main

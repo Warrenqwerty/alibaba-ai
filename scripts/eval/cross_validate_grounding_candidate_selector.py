@@ -55,6 +55,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--learning-rate", type=float, default=0.003)
     parser.add_argument("--weight-decay", type=float, default=0.01)
     parser.add_argument(
+        "--selector-architecture",
+        choices=("mlp", "linear"),
+        default="mlp",
+    )
+    parser.add_argument(
         "--selection-policy",
         choices=("listwise", "conservative_pairwise"),
         default="listwise",
@@ -65,6 +70,18 @@ def parse_args() -> argparse.Namespace:
         default=0.5,
         help="Minimum pairwise recovery probability required to replace current.",
     )
+    parser.add_argument(
+        "--threshold-policy",
+        choices=("fixed", "nested_region"),
+        default="fixed",
+    )
+    parser.add_argument("--inner-folds", type=int, default=3)
+    parser.add_argument(
+        "--nested-thresholds",
+        default="0.3,0.4,0.5,0.6,0.7,0.8,0.9",
+    )
+    parser.add_argument("--nested-max-lost-hits", type=int, default=0)
+    parser.add_argument("--nested-min-net-gain", type=int, default=1)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--output", required=True)
@@ -72,15 +89,25 @@ def parse_args() -> argparse.Namespace:
 
 
 class ManualCandidateSelector(nn.Module):
-    def __init__(self, input_dim: int, hidden_dim: int) -> None:
+    def __init__(
+        self,
+        input_dim: int,
+        hidden_dim: int,
+        architecture: str = "mlp",
+    ) -> None:
         super().__init__()
-        self.network = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim // 2),
-            nn.ReLU(),
-            nn.Linear(hidden_dim // 2, 1),
-        )
+        if architecture == "linear":
+            self.network = nn.Linear(input_dim, 1)
+        elif architecture == "mlp":
+            self.network = nn.Sequential(
+                nn.Linear(input_dim, hidden_dim),
+                nn.ReLU(),
+                nn.Linear(hidden_dim, hidden_dim // 2),
+                nn.ReLU(),
+                nn.Linear(hidden_dim // 2, 1),
+            )
+        else:
+            raise ValueError(f"Unsupported selector architecture: {architecture}")
 
     def forward(self, features: torch.Tensor) -> torch.Tensor:
         return self.network(features).squeeze(-1)
@@ -343,6 +370,17 @@ def image_grouped_folds(
     return folds
 
 
+def parse_threshold_grid(value: str) -> tuple[float, ...]:
+    thresholds = tuple(
+        sorted({float(item.strip()) for item in value.split(",") if item.strip()})
+    )
+    if not thresholds:
+        raise ValueError("At least one nested threshold is required")
+    if any(not 0.0 <= threshold <= 1.0 for threshold in thresholds):
+        raise ValueError("Nested thresholds must be between 0 and 1")
+    return thresholds
+
+
 def listwise_hit_loss(scores: torch.Tensor, ious: torch.Tensor) -> torch.Tensor:
     hits = ious >= 0.3
     if bool(hits.any()):
@@ -363,10 +401,11 @@ def train_selector(
     weight_decay: float,
     seed: int,
     device: torch.device,
+    architecture: str = "mlp",
 ) -> ManualCandidateSelector:
     torch.manual_seed(seed)
     input_dim = examples[train_indices[0]][0].shape[1]
-    model = ManualCandidateSelector(input_dim, hidden_dim).to(device)
+    model = ManualCandidateSelector(input_dim, hidden_dim, architecture).to(device)
     optimizer = torch.optim.AdamW(
         model.parameters(),
         lr=learning_rate,
@@ -430,10 +469,15 @@ def train_conservative_selector(
     weight_decay: float,
     seed: int,
     device: torch.device,
+    architecture: str = "mlp",
 ) -> ManualCandidateSelector:
     torch.manual_seed(seed)
     features, labels = pairwise_recovery_examples(examples, train_indices)
-    model = ManualCandidateSelector(features.shape[1], hidden_dim).to(device)
+    model = ManualCandidateSelector(
+        features.shape[1],
+        hidden_dim,
+        architecture,
+    ).to(device)
     optimizer = torch.optim.AdamW(
         model.parameters(),
         lr=learning_rate,
@@ -547,6 +591,178 @@ def select_conservative_candidate_record(
     return selected
 
 
+def keep_current_candidate_record(
+    record: dict[str, Any],
+    example: tuple[torch.Tensor, torch.Tensor, list[dict[str, Any]]],
+) -> dict[str, Any]:
+    _, ious, candidates = example
+    selected = dict(record)
+    if candidates and candidates[0].get("candidate_source") == "current":
+        current = candidates[0]
+        selected.update(
+            {
+                "predicted_bbox": [float(value) for value in current["bbox"]],
+                "manual_bbox_iou": float(ious[0].item()),
+                "selected_region": current.get("prompt"),
+                "selector_source": "current",
+                "selector_rank": current.get("candidate_rank"),
+                "selector_visual_tight_score": current.get("visual_tight_score"),
+                "selector_visual_context_score": current.get("visual_context_score"),
+            }
+        )
+    else:
+        selected["selector_source"] = "no_current"
+    selected["selector_override_probability"] = 0.0
+    selected["selector_overrode_current"] = False
+    return selected
+
+
+def transition_counts_at_threshold(
+    rows: list[dict[str, Any]],
+    threshold: float,
+) -> dict[str, int]:
+    counts: Counter[str] = Counter()
+    for row in rows:
+        current_iou = float(row["current_iou"])
+        alternative_iou = float(row["alternative_iou"])
+        use_alternative = float(row["probability"]) >= threshold
+        selected_iou = alternative_iou if use_alternative else current_iou
+        if use_alternative:
+            counts["num_overrides"] += 1
+        if current_iou < 0.3 <= selected_iou:
+            counts["gained_hit"] += 1
+        elif selected_iou < 0.3 <= current_iou:
+            counts["lost_hit"] += 1
+    counts["net_gain"] = counts["gained_hit"] - counts["lost_hit"]
+    return {
+        name: int(counts[name])
+        for name in ("num_overrides", "gained_hit", "lost_hit", "net_gain")
+    }
+
+
+def choose_nested_region_policies(
+    rows: list[dict[str, Any]],
+    *,
+    regions: set[str],
+    thresholds: tuple[float, ...],
+    max_lost_hits: int,
+    min_net_gain: int,
+) -> dict[str, dict[str, Any]]:
+    policies = {}
+    for region in sorted(regions):
+        region_rows = [row for row in rows if row["target_region"] == region]
+        viable = []
+        for threshold in thresholds:
+            counts = transition_counts_at_threshold(region_rows, threshold)
+            if (
+                counts["lost_hit"] <= max_lost_hits
+                and counts["net_gain"] >= min_net_gain
+            ):
+                viable.append((threshold, counts))
+        if viable:
+            threshold, counts = max(
+                viable,
+                key=lambda item: (
+                    item[1]["net_gain"],
+                    -item[1]["lost_hit"],
+                    -item[1]["num_overrides"],
+                    item[0],
+                ),
+            )
+            policies[region] = {
+                "enabled": True,
+                "threshold": threshold,
+                "num_inner_oof_records": len(region_rows),
+                **counts,
+            }
+        else:
+            policies[region] = {
+                "enabled": False,
+                "threshold": None,
+                "num_inner_oof_records": len(region_rows),
+                "num_overrides": 0,
+                "gained_hit": 0,
+                "lost_hit": 0,
+                "net_gain": 0,
+            }
+    return policies
+
+
+def calibrate_nested_region_policies(
+    examples: list[tuple[torch.Tensor, torch.Tensor, list[dict[str, Any]]]],
+    records: list[dict[str, Any]],
+    train_indices: list[int],
+    *,
+    regions: set[str],
+    thresholds: tuple[float, ...],
+    num_inner_folds: int,
+    max_lost_hits: int,
+    min_net_gain: int,
+    hidden_dim: int,
+    num_epochs: int,
+    learning_rate: float,
+    weight_decay: float,
+    architecture: str,
+    seed: int,
+    device: torch.device,
+) -> dict[str, dict[str, Any]]:
+    subset_records = [records[index] for index in train_indices]
+    unique_images = {str(record["image"]) for record in subset_records}
+    inner_fold_count = min(num_inner_folds, len(unique_images))
+    if inner_fold_count < 2:
+        raise ValueError("Nested calibration requires at least two training images")
+    inner_folds = image_grouped_folds(
+        subset_records,
+        num_folds=inner_fold_count,
+        seed=seed,
+    )
+    inner_rows = []
+    train_index_set = set(train_indices)
+    for inner_fold_index, local_test_indices in enumerate(inner_folds):
+        inner_test_indices = [train_indices[index] for index in local_test_indices]
+        inner_train_indices = sorted(train_index_set - set(inner_test_indices))
+        model = train_conservative_selector(
+            examples,
+            inner_train_indices,
+            hidden_dim=hidden_dim,
+            num_epochs=num_epochs,
+            learning_rate=learning_rate,
+            weight_decay=weight_decay,
+            seed=seed + inner_fold_index,
+            device=device,
+            architecture=architecture,
+        )
+        for index in inner_test_indices:
+            alternative = select_conservative_candidate_record(
+                records[index],
+                examples[index],
+                model,
+                device,
+                override_threshold=0.0,
+            )
+            if not alternative.get("selector_overrode_current"):
+                continue
+            inner_rows.append(
+                {
+                    "target_region": str(records[index].get("target_region") or ""),
+                    "probability": float(
+                        alternative.get("selector_override_probability") or 0.0
+                    ),
+                    "current_iou": float(records[index].get("manual_bbox_iou") or 0.0),
+                    "alternative_iou": float(
+                        alternative.get("manual_bbox_iou") or 0.0
+                    ),
+                }
+            )
+    return choose_nested_region_policies(
+        inner_rows,
+        regions=regions,
+        thresholds=thresholds,
+        max_lost_hits=max_lost_hits,
+        min_net_gain=min_net_gain,
+    )
+
+
 def selector_diagnostics(
     baseline_records: list[dict[str, Any]],
     selected_records: list[dict[str, Any]],
@@ -595,6 +811,13 @@ def selector_diagnostics(
 
 def main() -> None:
     args = parse_args()
+    if args.threshold_policy == "nested_region" and args.selection_policy != "conservative_pairwise":
+        raise ValueError("nested_region thresholds require conservative_pairwise selection")
+    if args.inner_folds < 2:
+        raise ValueError("--inner-folds must be at least 2")
+    if args.nested_max_lost_hits < 0:
+        raise ValueError("--nested-max-lost-hits cannot be negative")
+    nested_thresholds = parse_threshold_grid(args.nested_thresholds)
     payload = json.loads(Path(args.eval_json).read_text(encoding="utf-8"))
     all_records = payload.get("records")
     if not isinstance(all_records, list):
@@ -627,6 +850,25 @@ def main() -> None:
     all_indices = set(range(len(selected_records)))
     for fold_index, test_indices in enumerate(folds):
         train_indices = sorted(all_indices - set(test_indices))
+        region_policies = None
+        if args.threshold_policy == "nested_region":
+            region_policies = calibrate_nested_region_policies(
+                examples,
+                selected_records,
+                train_indices,
+                regions=regions,
+                thresholds=nested_thresholds,
+                num_inner_folds=args.inner_folds,
+                max_lost_hits=args.nested_max_lost_hits,
+                min_net_gain=args.nested_min_net_gain,
+                hidden_dim=args.hidden_dim,
+                num_epochs=args.num_epochs,
+                learning_rate=args.learning_rate,
+                weight_decay=args.weight_decay,
+                architecture=args.selector_architecture,
+                seed=args.seed + fold_index * 100,
+                device=device,
+            )
         train_function = (
             train_conservative_selector
             if args.selection_policy == "conservative_pairwise"
@@ -641,16 +883,36 @@ def main() -> None:
             weight_decay=args.weight_decay,
             seed=args.seed + fold_index,
             device=device,
+            architecture=args.selector_architecture,
         )
         fold_records = []
         for index in test_indices:
             if args.selection_policy == "conservative_pairwise":
-                selected = select_conservative_candidate_record(
-                    selected_records[index],
-                    examples[index],
-                    model,
-                    device,
-                    override_threshold=args.override_threshold,
+                region = str(selected_records[index].get("target_region") or "")
+                policy = region_policies.get(region) if region_policies else None
+                if policy is not None and not policy["enabled"]:
+                    selected = keep_current_candidate_record(
+                        selected_records[index],
+                        examples[index],
+                    )
+                else:
+                    threshold = (
+                        float(policy["threshold"])
+                        if policy is not None
+                        else args.override_threshold
+                    )
+                    selected = select_conservative_candidate_record(
+                        selected_records[index],
+                        examples[index],
+                        model,
+                        device,
+                        override_threshold=threshold,
+                    )
+                selected["selector_region_enabled"] = (
+                    bool(policy["enabled"]) if policy is not None else True
+                )
+                selected["selector_region_threshold"] = (
+                    policy["threshold"] if policy is not None else args.override_threshold
                 )
             else:
                 selected = select_candidate_record(
@@ -670,6 +932,7 @@ def main() -> None:
                 "num_test_records": len(test_indices),
                 "baseline_summary": summarize_records(fold_baseline_records),
                 "out_of_fold_summary": summarize_records(fold_records),
+                "nested_region_policies": region_policies,
             }
         )
     if any(record is None for record in oof_records):
@@ -684,6 +947,14 @@ def main() -> None:
         regions=regions,
         hit_threshold=0.3,
     )
+    nested_region_activation_counts: dict[str, Counter[str]] = defaultdict(Counter)
+    for fold in fold_summaries:
+        policies = fold.get("nested_region_policies")
+        if not isinstance(policies, dict):
+            continue
+        for region, policy in policies.items():
+            state = "enabled" if policy["enabled"] else "disabled"
+            nested_region_activation_counts[region][state] += 1
     result = {
         "eval_json": str(Path(args.eval_json)),
         "regions": args.regions,
@@ -692,8 +963,18 @@ def main() -> None:
         "hidden_dim": args.hidden_dim,
         "learning_rate": args.learning_rate,
         "weight_decay": args.weight_decay,
+        "selector_architecture": args.selector_architecture,
         "selection_policy": args.selection_policy,
         "override_threshold": args.override_threshold,
+        "threshold_policy": args.threshold_policy,
+        "inner_folds": args.inner_folds,
+        "nested_thresholds": list(nested_thresholds),
+        "nested_max_lost_hits": args.nested_max_lost_hits,
+        "nested_min_net_gain": args.nested_min_net_gain,
+        "nested_region_activation_counts": {
+            region: dict(counts)
+            for region, counts in sorted(nested_region_activation_counts.items())
+        },
         "seed": args.seed,
         "split_policy": "image_grouped_cross_validation",
         "visual_candidate_enrichment": payload.get("visual_candidate_enrichment"),

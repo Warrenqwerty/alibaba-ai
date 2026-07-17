@@ -1110,3 +1110,37 @@ python scripts/eval/cross_validate_grounding_candidate_selector.py \
 ```
 
 Before interpreting the metric, verify `num_records_with_visual_scores` is 86.
+
+Observed result with the fixed-threshold visual MLP: full OOF Hit@0.3 remains
+85/161 (`0.5280`). Its 24 overrides gain four hits and lose six. Cuff gains
+four and loses two, while pocket, waist, and zipper produce no gains. Reject
+this run and do not tune the threshold from its outer OOF records.
+
+Run the nested, region-gated linear selector on the existing enriched JSON; no
+GPU inference is repeated:
+
+```bash
+OMP_NUM_THREADS=4 MKL_NUM_THREADS=4 PYTHONPATH=src \
+python scripts/eval/cross_validate_grounding_candidate_selector.py \
+  --eval-json /root/autodl-tmp/outputs/local_region_cross_model_candidates_chinese_clip_audited.json \
+  --regions cuff pocket pattern waist zipper \
+  --num-folds 5 \
+  --inner-folds 3 \
+  --num-epochs 200 \
+  --selector-architecture linear \
+  --selection-policy conservative_pairwise \
+  --threshold-policy nested_region \
+  --nested-thresholds 0.3,0.4,0.5,0.6,0.7,0.8,0.9 \
+  --nested-max-lost-hits 0 \
+  --nested-min-net-gain 1 \
+  --learning-rate 0.01 \
+  --weight-decay 0.01 \
+  --seed 42 \
+  --device cpu \
+  --output /root/autodl-tmp/outputs/local_region_candidate_selector_clip_nested_linear_5fold_audited.json
+```
+
+For every outer fold, threshold selection sees only three-fold inner OOF
+predictions from the outer training images. A region remains on the current
+policy unless inner OOF has at least one net gain and zero lost hits. Inspect
+both `nested_region_activation_counts` and final `selector_diagnostics`.

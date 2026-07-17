@@ -112,14 +112,19 @@ from scripts.eval.evaluate_chinese_clip_manual_local_regions import (
     finalize_run as finalize_chinese_clip_manual_run,
 )
 from scripts.eval.cross_validate_grounding_candidate_selector import (
+    calibrate_nested_region_policies,
     candidate_examples,
+    choose_nested_region_policies,
     image_grouped_folds,
+    keep_current_candidate_record,
     pairwise_recovery_examples,
+    parse_threshold_grid,
     select_candidate_record,
     select_conservative_candidate_record,
     selector_candidates,
     train_conservative_selector,
     train_selector,
+    transition_counts_at_threshold,
     visual_scores_by_box,
 )
 from scripts.eval.enrich_grounding_candidates_with_chinese_clip import contextual_box
@@ -784,6 +789,136 @@ def test_conservative_selector_respects_override_threshold():
     assert kept["selector_overrode_current"] is False
     assert overridden["selector_source"] == "diagnostic_grounding"
     assert overridden["selector_overrode_current"] is True
+
+
+def test_nested_region_policy_enables_only_safe_inner_oof_gain():
+    rows = [
+        {
+            "target_region": "cuff",
+            "probability": 0.9,
+            "current_iou": 0.1,
+            "alternative_iou": 0.8,
+        },
+        {
+            "target_region": "cuff",
+            "probability": 0.8,
+            "current_iou": 0.8,
+            "alternative_iou": 0.1,
+        },
+        {
+            "target_region": "pocket",
+            "probability": 0.9,
+            "current_iou": 0.8,
+            "alternative_iou": 0.1,
+        },
+    ]
+
+    policies = choose_nested_region_policies(
+        rows,
+        regions={"cuff", "pocket"},
+        thresholds=(0.5, 0.85, 0.95),
+        max_lost_hits=0,
+        min_net_gain=1,
+    )
+
+    assert policies["cuff"] == {
+        "enabled": True,
+        "threshold": 0.85,
+        "num_inner_oof_records": 2,
+        "num_overrides": 1,
+        "gained_hit": 1,
+        "lost_hit": 0,
+        "net_gain": 1,
+    }
+    assert policies["pocket"]["enabled"] is False
+
+
+def test_nested_threshold_helpers_and_disabled_region_keep_current():
+    assert parse_threshold_grid("0.9,0.5,0.9") == (0.5, 0.9)
+    assert transition_counts_at_threshold(
+        [
+            {
+                "probability": 0.8,
+                "current_iou": 0.1,
+                "alternative_iou": 0.7,
+            },
+            {
+                "probability": 0.7,
+                "current_iou": 0.8,
+                "alternative_iou": 0.1,
+            },
+        ],
+        0.75,
+    ) == {
+        "num_overrides": 1,
+        "gained_hit": 1,
+        "lost_hit": 0,
+        "net_gain": 1,
+    }
+
+    record = {
+        "image": "example.jpg",
+        "query_text": "衣服上的拉链",
+        "target_region": "zipper",
+        "target_bbox": [0, 0, 10, 10],
+        "predicted_bbox": [20, 0, 30, 10],
+        "selected_region": "zipper",
+        "manual_bbox_iou": 0.0,
+        "diagnostic_grounding_candidate": {
+            "detections": [
+                {"bbox": [0, 0, 10, 10], "score": 0.8, "prompt": "zipper"},
+            ]
+        },
+    }
+    example = candidate_examples(record, (100, 80))
+    kept = keep_current_candidate_record(record, example)
+
+    assert kept["predicted_bbox"] == [20.0, 0.0, 30.0, 10.0]
+    assert kept["selector_source"] == "current"
+    assert kept["selector_overrode_current"] is False
+
+
+def test_nested_region_calibration_produces_inner_oof_policies():
+    records = [
+        {
+            "image": f"nested-{index}.jpg",
+            "query_text": "衣服上的拉链",
+            "target_region": "zipper",
+            "target_bbox": [0, 0, 10, 10],
+            "predicted_bbox": [20, 0, 30, 10],
+            "selected_region": "zipper",
+            "manual_bbox_iou": 0.0,
+            "diagnostic_grounding_candidate": {
+                "detections": [
+                    {"bbox": [0, 0, 10, 10], "score": 0.8, "prompt": "zipper"},
+                ]
+            },
+        }
+        for index in range(6)
+    ]
+    examples = [candidate_examples(record, (100, 80)) for record in records]
+
+    policies = calibrate_nested_region_policies(
+        examples,
+        records,
+        list(range(6)),
+        regions={"zipper"},
+        thresholds=(0.0,),
+        num_inner_folds=2,
+        max_lost_hits=0,
+        min_net_gain=1,
+        hidden_dim=8,
+        num_epochs=2,
+        learning_rate=0.003,
+        weight_decay=0.01,
+        architecture="linear",
+        seed=42,
+        device=torch.device("cpu"),
+    )
+
+    assert policies["zipper"]["enabled"] is True
+    assert policies["zipper"]["num_inner_oof_records"] == 6
+    assert policies["zipper"]["gained_hit"] == 6
 
 
 def test_manual_grounding_record_applies_validated_wearer_side_selection(tmp_path):
