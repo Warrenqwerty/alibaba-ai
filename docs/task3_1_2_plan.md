@@ -1126,3 +1126,20 @@ candidate oracle, left/right selected-box collision, and a side-compatible
 distinct-pair oracle. Manual/weak `target_bbox` is read only for these metric
 counts. Implement paired decoding only if recoverable wrong-side failures
 materially exceed currently correct hits that violate the simple side rule.
+
+Observed diagnostic: 9 wrong-side misses have a compatible-side hit candidate,
+but 19 current hits are on the nominally incompatible side, so hard filtering
+has negative expected value. Only 52/809 complete pairs select colliding boxes,
+so a distinct-box rule is also too weak. However, selected complete pairs
+contain 766 record hits (`550 + 216`) versus 953 for the side-compatible
+distinct-pair oracle (`630 + 323`), leaving 187 pair-level record hits.
+
+Proceed with a learned pair reranker only. For every outer fold, train the v5
+independent selector on the outer training records, normalize its candidate
+scores within each query, then train a low-dimensional linear relation model
+on complete left/right pairs from that same training fold. Pair features use
+relative selector scores, box overlap, garment-relative symmetry, vertical and
+size agreement, prompt side, visual scalar scores, and expert-pair identity.
+The test fold is jointly decoded without labels; unpaired cuff and waist
+records keep independent predictions. Report the number of pair-decoded
+records and the usual full OOF metrics.

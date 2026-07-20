@@ -1071,3 +1071,14 @@ as v4. Candidate-level consensus is therefore not the missing signal. Before
 adding a new ranker, run the cuff-side/pair diagnostic on the saved v5 JSON.
 It measures wrong-side recoveries, incompatible-side hit risk, left/right box
 collisions, and the side-distinct pair oracle without changing any prediction.
+
+The diagnostic rejects a hard side filter: only 9 wrong-side misses are
+recoverable, while 19 existing hits violate the simple side rule. Box
+deduplication is also insufficient because only 52 of 809 complete pairs
+collide. Learned pair decoding still has measurable headroom: selected pairs
+contain 766 record-level hits (`550` any-hit pairs plus `216` both-hit pairs),
+while the side-compatible distinct-pair oracle contains 953. The next
+experiment trains a low-dimensional linear pair reranker inside each outer
+training fold. It combines frozen independent relative scores with box
+symmetry, size, vertical alignment, side agreement, visual scalars, and expert
+pair identity; unpaired cuffs and waist records retain independent selection.

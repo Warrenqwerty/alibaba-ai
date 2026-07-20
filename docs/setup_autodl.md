@@ -1419,6 +1419,58 @@ The output is intentionally short. Compare
 both-hit pairs against `side_distinct_oracle_pairs_with_both_hits`. Do not add a
 hard side or paired decoder until these counts show positive headroom.
 
+Observed diagnostic: only 9 wrong-side misses are recoverable, while 19 current
+hits violate the simple side rule; do not enable hard side filtering. There are
+52 collisions among 809 complete pairs. Learned pair decoding has a larger
+diagnostic ceiling: current complete pairs contain 766 record hits and the
+side-compatible distinct-pair oracle contains 953.
+
+Run the training-fold-only linear pair reranker on CUDA. This reuses every
+frozen candidate feature and performs no additional model inference:
+
+```bash
+PYTHONPATH=src python scripts/eval/cross_validate_grounding_candidate_selector.py \
+  --eval-json /root/autodl-tmp/outputs/local_region_train_online_candidates_cuff_waist_clip_dinov2_spatial_cuff_garment_geometry_2338_v2.json \
+  --regions cuff waist \
+  --num-folds 5 \
+  --num-epochs 200 \
+  --selector-architecture linear \
+  --selection-policy listwise \
+  --listwise-loss soft_target \
+  --cuff-pair-decoding \
+  --threshold-policy fixed \
+  --learning-rate 0.01 \
+  --weight-decay 0.01 \
+  --seed 42 \
+  --device cuda \
+  --output /root/autodl-tmp/outputs/local_region_cuff_pair_reranker_v1_oof_2338_v2.json \
+  > /root/autodl-tmp/outputs/cuff_pair_reranker_v1_run.log 2>&1
+```
+
+Print only the required comparison:
+
+```bash
+python - <<'PY'
+import json
+
+path = "/root/autodl-tmp/outputs/local_region_cuff_pair_reranker_v1_oof_2338_v2.json"
+p = json.load(open(path))
+oof = p["out_of_fold_summary"]
+print(json.dumps({
+    "pair_schema": p["cuff_pair_feature_schema"],
+    "pair_decoded_records": p["num_pair_decoded_records"],
+    "baseline_hit": p["baseline_summary"]["manual_hit_at"],
+    "oof_hit": oof["manual_hit_at"],
+    "hit30_count": round(oof["manual_hit_at"]["0.3"] * oof["num_records"]),
+    "oof_by_region": {
+        region: values["manual_hit_at"]
+        for region, values in oof["by_region"].items()
+    },
+    "transitions": p["selector_diagnostics"]["hit_transition_counts"],
+}, ensure_ascii=False, indent=2))
+PY
+```
+
 The listwise output must report `num_records_with_dinov2_embeddings == 2338`,
 `num_records_with_dinov2_spatial_embeddings == 1996`, and
 `num_records_with_online_garment_geometry == 2338`. When train and

@@ -88,6 +88,14 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--cuff-pair-decoding",
+        action="store_true",
+        help=(
+            "Jointly rerank complete left/right cuff query pairs with a "
+            "training-fold-only linear relation model."
+        ),
+    )
+    parser.add_argument(
         "--override-threshold",
         type=float,
         default=0.5,
@@ -436,6 +444,18 @@ def prompt_wearer_side(prompt: str | None) -> str | None:
     if has_left == has_right:
         return None
     return "left" if has_left else "right"
+
+
+def record_cuff_side(record: dict[str, Any]) -> str | None:
+    side = query_wearer_side(str(record.get("query_text") or ""))
+    if side is not None:
+        return side
+    variant = str(record.get("weak_region_variant") or "")
+    if variant.startswith("left_"):
+        return "left"
+    if variant.startswith("right_"):
+        return "right"
+    return None
 
 
 def candidate_consensus_features(
@@ -817,6 +837,230 @@ def candidate_examples(
     return features, ious, candidates
 
 
+def cuff_pair_indices(
+    records: list[dict[str, Any]],
+    indices: list[int],
+) -> list[tuple[int, int]]:
+    grouped: dict[tuple[str, str], dict[str, list[int]]] = defaultdict(
+        lambda: defaultdict(list)
+    )
+    for index in indices:
+        record = records[index]
+        if str(record.get("target_region") or "") != "cuff":
+            continue
+        item_key = str(record.get("item_key") or "")
+        if not item_key:
+            continue
+        side = record_cuff_side(record)
+        if side not in {"left", "right"}:
+            continue
+        key = str(record.get("image") or ""), item_key
+        grouped[key][side].append(index)
+    pairs = []
+    for sides in grouped.values():
+        if len(sides.get("left", [])) == 1 and len(sides.get("right", [])) == 1:
+            pairs.append((sides["left"][0], sides["right"][0]))
+    return sorted(pairs)
+
+
+def pair_relation_feature(
+    left_record: dict[str, Any],
+    left_candidate: dict[str, Any],
+    right_record: dict[str, Any],
+    right_candidate: dict[str, Any],
+    *,
+    image_size: tuple[int, int],
+    left_relative_score: float,
+    right_relative_score: float,
+) -> torch.Tensor:
+    image_width, image_height = image_size
+    lx1, ly1, lx2, ly2 = [float(value) for value in left_candidate["bbox"]]
+    rx1, ry1, rx2, ry2 = [float(value) for value in right_candidate["bbox"]]
+    left_width = max(lx2 - lx1, 1.0)
+    left_height = max(ly2 - ly1, 1.0)
+    right_width = max(rx2 - rx1, 1.0)
+    right_height = max(ry2 - ry1, 1.0)
+    left_center_x = (lx1 + lx2) * 0.5
+    left_center_y = (ly1 + ly2) * 0.5
+    right_center_x = (rx1 + rx2) * 0.5
+    right_center_y = (ry1 + ry2) * 0.5
+
+    left_geometry, _ = garment_relative_features(
+        left_record,
+        left_candidate["bbox"],
+    )
+    right_geometry, _ = garment_relative_features(
+        right_record,
+        right_candidate["bbox"],
+    )
+    instance = online_garment_instance(left_record) or online_garment_instance(
+        right_record
+    )
+    if instance is None:
+        garment_pair = [0.0] * 5
+    else:
+        gx1, gy1, gx2, gy2 = [float(value) for value in instance["box"]]
+        garment_width = max(gx2 - gx1, 1.0)
+        garment_height = max(gy2 - gy1, 1.0)
+        garment_center_x = (gx1 + gx2) * 0.5
+        garment_pair = [
+            1.0,
+            bounded_ratio(
+                abs((left_center_x + right_center_x) * 0.5 - garment_center_x),
+                garment_width,
+            ),
+            bounded_ratio(abs(left_center_x - right_center_x), garment_width),
+            bounded_ratio(abs(left_center_y - right_center_y), garment_height),
+            float(left_center_x > right_center_x),
+        ]
+
+    left_source = str(left_candidate.get("candidate_source") or "current")
+    right_source = str(right_candidate.get("candidate_source") or "current")
+    left_model = candidate_model_name(left_record, left_source)
+    right_model = candidate_model_name(right_record, right_source)
+    source_pair = [
+        float(left_source == left_name and right_source == right_name)
+        for left_name in SOURCE_NAMES
+        for right_name in SOURCE_NAMES
+    ]
+    model_pair = [
+        float(left_model == left_name and right_model == right_name)
+        for left_name in MODEL_NAMES
+        for right_name in MODEL_NAMES
+    ]
+    left_prompt_side = prompt_wearer_side(left_candidate.get("prompt"))
+    right_prompt_side = prompt_wearer_side(right_candidate.get("prompt"))
+    left_rank = left_candidate.get("candidate_rank")
+    right_rank = right_candidate.get("candidate_rank")
+    left_visual = [
+        float(left_candidate.get(f"visual_{name}") or 0.0)
+        for name in VISUAL_SCORE_NAMES
+    ]
+    right_visual = [
+        float(right_candidate.get(f"visual_{name}") or 0.0)
+        for name in VISUAL_SCORE_NAMES
+    ]
+
+    values = [
+        left_relative_score,
+        right_relative_score,
+        left_relative_score + right_relative_score,
+        min(left_relative_score, right_relative_score),
+        abs(left_relative_score - right_relative_score),
+        box_iou(left_candidate["bbox"], right_candidate["bbox"]),
+        abs(left_center_x - right_center_x) / image_width,
+        abs(left_center_y - right_center_y) / image_height,
+        abs(math.log(left_width / right_width)),
+        abs(math.log(left_height / right_height)),
+        abs(
+            math.log(
+                (left_width * left_height) / (right_width * right_height)
+            )
+        ),
+        left_geometry[16],
+        left_geometry[17],
+        right_geometry[16],
+        right_geometry[17],
+        float(left_geometry[17] == 1.0 and right_geometry[17] == 1.0),
+        float(left_prompt_side == "left"),
+        float(right_prompt_side == "right"),
+        float(left_rank) / 5.0 if left_rank is not None else 0.0,
+        float(right_rank) / 5.0 if right_rank is not None else 0.0,
+        float(left_rank is None),
+        float(right_rank is None),
+        *garment_pair,
+        *left_visual,
+        *right_visual,
+        *[
+            abs(left_value - right_value)
+            for left_value, right_value in zip(
+                left_visual,
+                right_visual,
+                strict=True,
+            )
+        ],
+        *source_pair,
+        *model_pair,
+    ]
+    return torch.tensor(values, dtype=torch.float32)
+
+
+def normalized_candidate_scores(
+    model: ManualCandidateSelector,
+    features: torch.Tensor,
+    device: torch.device,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    with torch.no_grad():
+        raw_scores = model(features.to(device)).cpu()
+    return raw_scores, raw_scores - raw_scores.max()
+
+
+def build_cuff_pair_groups(
+    records: list[dict[str, Any]],
+    examples: list[tuple[torch.Tensor, torch.Tensor, list[dict[str, Any]]]],
+    indices: list[int],
+    *,
+    image_sizes: dict[str, tuple[int, int]],
+    base_model: ManualCandidateSelector,
+    device: torch.device,
+) -> list[dict[str, Any]]:
+    groups = []
+    for left_index, right_index in cuff_pair_indices(records, indices):
+        left_features, left_ious, left_candidates = examples[left_index]
+        right_features, right_ious, right_candidates = examples[right_index]
+        left_raw_scores, left_relative_scores = normalized_candidate_scores(
+            base_model,
+            left_features,
+            device,
+        )
+        right_raw_scores, right_relative_scores = normalized_candidate_scores(
+            base_model,
+            right_features,
+            device,
+        )
+        pair_features = []
+        pair_left_indices = []
+        pair_right_indices = []
+        pair_left_ious = []
+        pair_right_ious = []
+        image_size = image_sizes[str(records[left_index]["image"])]
+        for left_candidate_index, left_candidate in enumerate(left_candidates):
+            for right_candidate_index, right_candidate in enumerate(right_candidates):
+                pair_features.append(
+                    pair_relation_feature(
+                        records[left_index],
+                        left_candidate,
+                        records[right_index],
+                        right_candidate,
+                        image_size=image_size,
+                        left_relative_score=float(
+                            left_relative_scores[left_candidate_index]
+                        ),
+                        right_relative_score=float(
+                            right_relative_scores[right_candidate_index]
+                        ),
+                    )
+                )
+                pair_left_indices.append(left_candidate_index)
+                pair_right_indices.append(right_candidate_index)
+                pair_left_ious.append(float(left_ious[left_candidate_index]))
+                pair_right_ious.append(float(right_ious[right_candidate_index]))
+        groups.append(
+            {
+                "left_index": left_index,
+                "right_index": right_index,
+                "features": torch.stack(pair_features),
+                "left_candidate_indices": pair_left_indices,
+                "right_candidate_indices": pair_right_indices,
+                "left_ious": torch.tensor(pair_left_ious, dtype=torch.float32),
+                "right_ious": torch.tensor(pair_right_ious, dtype=torch.float32),
+                "left_raw_scores": left_raw_scores,
+                "right_raw_scores": right_raw_scores,
+            }
+        )
+    return groups
+
+
 def image_grouped_folds(
     records: list[dict[str, Any]],
     *,
@@ -888,6 +1132,22 @@ def listwise_hit_loss(
     raise ValueError(f"Unsupported listwise objective: {objective}")
 
 
+def cuff_pair_hit_loss(
+    scores: torch.Tensor,
+    left_ious: torch.Tensor,
+    right_ious: torch.Tensor,
+) -> torch.Tensor:
+    hit_counts = (left_ious >= 0.3).float() + (right_ious >= 0.3).float()
+    best_hit_count = float(hit_counts.max())
+    if best_hit_count > 0.0:
+        best_pairs = hit_counts == best_hit_count
+        target = best_pairs.float() * (0.5 + (left_ious + right_ious) * 0.5)
+        target = target / target.sum()
+    else:
+        target = torch.softmax((left_ious + right_ious) / 0.08, dim=0)
+    return -(target * torch.log_softmax(scores, dim=0)).sum()
+
+
 def train_selector(
     examples: list[tuple[torch.Tensor, torch.Tensor, list[dict[str, Any]]]],
     train_indices: list[int],
@@ -933,6 +1193,63 @@ def train_selector(
                 scores[group_slice],
                 all_ious[group_slice],
                 objective=listwise_loss,
+            )
+            for group_slice in group_slices
+        ]
+        loss = torch.stack(losses).mean()
+        loss.backward()
+        optimizer.step()
+    model.eval()
+    return model
+
+
+def train_cuff_pair_selector(
+    pair_groups: list[dict[str, Any]],
+    *,
+    hidden_dim: int,
+    num_epochs: int,
+    learning_rate: float,
+    weight_decay: float,
+    seed: int,
+    device: torch.device,
+) -> ManualCandidateSelector | None:
+    if not pair_groups:
+        return None
+    torch.manual_seed(seed)
+    input_dim = int(pair_groups[0]["features"].shape[1])
+    model = ManualCandidateSelector(input_dim, hidden_dim, "linear").to(device)
+    optimizer = torch.optim.AdamW(
+        model.parameters(),
+        lr=learning_rate,
+        weight_decay=weight_decay,
+    )
+    group_slices = []
+    offset = 0
+    for group in pair_groups:
+        next_offset = offset + len(group["features"])
+        group_slices.append(slice(offset, next_offset))
+        offset = next_offset
+    all_features = torch.cat(
+        [group["features"] for group in pair_groups],
+        dim=0,
+    ).to(device)
+    all_left_ious = torch.cat(
+        [group["left_ious"] for group in pair_groups],
+        dim=0,
+    ).to(device)
+    all_right_ious = torch.cat(
+        [group["right_ious"] for group in pair_groups],
+        dim=0,
+    ).to(device)
+    for _ in range(num_epochs):
+        model.train()
+        optimizer.zero_grad()
+        scores = model(all_features)
+        losses = [
+            cuff_pair_hit_loss(
+                scores[group_slice],
+                all_left_ious[group_slice],
+                all_right_ious[group_slice],
             )
             for group_slice in group_slices
         ]
@@ -1018,16 +1335,13 @@ def train_conservative_selector(
     return model
 
 
-def select_candidate_record(
+def selected_candidate_record(
     record: dict[str, Any],
     example: tuple[torch.Tensor, torch.Tensor, list[dict[str, Any]]],
-    model: ManualCandidateSelector,
-    device: torch.device,
+    scores: torch.Tensor,
+    selected_index: int,
 ) -> dict[str, Any]:
-    features, ious, candidates = example
-    with torch.no_grad():
-        scores = model(features.to(device)).cpu()
-    selected_index = int(torch.argmax(scores).item())
+    _, ious, candidates = example
     candidate = candidates[selected_index]
     selected = dict(record)
     selected.update(
@@ -1042,6 +1356,67 @@ def select_candidate_record(
             "selector_visual_context_score": candidate.get("visual_context_score"),
         }
     )
+    return selected
+
+
+def select_candidate_record(
+    record: dict[str, Any],
+    example: tuple[torch.Tensor, torch.Tensor, list[dict[str, Any]]],
+    model: ManualCandidateSelector,
+    device: torch.device,
+) -> dict[str, Any]:
+    features, _, _ = example
+    with torch.no_grad():
+        scores = model(features.to(device)).cpu()
+    selected_index = int(torch.argmax(scores).item())
+    return selected_candidate_record(record, example, scores, selected_index)
+
+
+def select_cuff_pair_records(
+    records: list[dict[str, Any]],
+    examples: list[tuple[torch.Tensor, torch.Tensor, list[dict[str, Any]]]],
+    pair_groups: list[dict[str, Any]],
+    pair_model: ManualCandidateSelector,
+    device: torch.device,
+) -> dict[int, dict[str, Any]]:
+    selected: dict[int, dict[str, Any]] = {}
+    for group in pair_groups:
+        with torch.no_grad():
+            pair_scores = pair_model(group["features"].to(device)).cpu()
+        pair_index = int(torch.argmax(pair_scores).item())
+        left_index = int(group["left_index"])
+        right_index = int(group["right_index"])
+        left_candidate_index = int(group["left_candidate_indices"][pair_index])
+        right_candidate_index = int(group["right_candidate_indices"][pair_index])
+        left_selected = selected_candidate_record(
+            records[left_index],
+            examples[left_index],
+            group["left_raw_scores"],
+            left_candidate_index,
+        )
+        right_selected = selected_candidate_record(
+            records[right_index],
+            examples[right_index],
+            group["right_raw_scores"],
+            right_candidate_index,
+        )
+        pair_score = float(pair_scores[pair_index])
+        left_selected.update(
+            {
+                "selector_pair_decoded": True,
+                "selector_pair_score": pair_score,
+                "selector_pair_partner_id": records[right_index].get("id"),
+            }
+        )
+        right_selected.update(
+            {
+                "selector_pair_decoded": True,
+                "selector_pair_score": pair_score,
+                "selector_pair_partner_id": records[left_index].get("id"),
+            }
+        )
+        selected[left_index] = left_selected
+        selected[right_index] = right_selected
     return selected
 
 
@@ -1327,6 +1702,8 @@ def main() -> None:
     args = parse_args()
     if args.threshold_policy == "nested_region" and args.selection_policy != "conservative_pairwise":
         raise ValueError("nested_region thresholds require conservative_pairwise selection")
+    if args.cuff_pair_decoding and args.selection_policy != "listwise":
+        raise ValueError("cuff pair decoding currently requires listwise selection")
     if args.inner_folds < 2:
         raise ValueError("--inner-folds must be at least 2")
     if args.nested_max_lost_hits < 0:
@@ -1405,7 +1782,38 @@ def main() -> None:
                 listwise_loss=args.listwise_loss,
                 **training_kwargs,
             )
-        fold_records = []
+        pair_train_groups: list[dict[str, Any]] = []
+        pair_test_groups: list[dict[str, Any]] = []
+        pair_model = None
+        if args.cuff_pair_decoding:
+            pair_train_groups = build_cuff_pair_groups(
+                selected_records,
+                examples,
+                train_indices,
+                image_sizes=image_sizes,
+                base_model=model,
+                device=device,
+            )
+            pair_model = train_cuff_pair_selector(
+                pair_train_groups,
+                hidden_dim=args.hidden_dim,
+                num_epochs=args.num_epochs,
+                learning_rate=args.learning_rate,
+                weight_decay=args.weight_decay,
+                seed=args.seed + fold_index + 10_000,
+                device=device,
+            )
+            if pair_model is not None:
+                pair_test_groups = build_cuff_pair_groups(
+                    selected_records,
+                    examples,
+                    test_indices,
+                    image_sizes=image_sizes,
+                    base_model=model,
+                    device=device,
+                )
+
+        fold_selected: dict[int, dict[str, Any]] = {}
         for index in test_indices:
             if args.selection_policy == "conservative_pairwise":
                 region = str(selected_records[index].get("target_region") or "")
@@ -1441,6 +1849,21 @@ def main() -> None:
                     model,
                     device,
                 )
+            fold_selected[index] = selected
+        pair_selected: dict[int, dict[str, Any]] = {}
+        if pair_model is not None:
+            pair_selected = select_cuff_pair_records(
+                selected_records,
+                examples,
+                pair_test_groups,
+                pair_model,
+                device,
+            )
+            fold_selected.update(pair_selected)
+
+        fold_records = []
+        for index in test_indices:
+            selected = fold_selected[index]
             selected["selector_fold"] = fold_index
             oof_records[index] = selected
             fold_records.append(selected)
@@ -1450,6 +1873,9 @@ def main() -> None:
                 "fold": fold_index,
                 "num_train_records": len(train_indices),
                 "num_test_records": len(test_indices),
+                "num_train_cuff_pairs": len(pair_train_groups),
+                "num_test_cuff_pairs": len(pair_test_groups),
+                "num_pair_decoded_records": len(pair_selected),
                 "baseline_summary": summarize_records(fold_baseline_records),
                 "out_of_fold_summary": summarize_records(fold_records),
                 "nested_region_policies": region_policies,
@@ -1486,6 +1912,16 @@ def main() -> None:
         "selector_architecture": args.selector_architecture,
         "selection_policy": args.selection_policy,
         "listwise_loss": args.listwise_loss,
+        "cuff_pair_decoding": args.cuff_pair_decoding,
+        "cuff_pair_feature_schema": (
+            "relative_scores_geometry_expert_pair_v1"
+            if args.cuff_pair_decoding
+            else None
+        ),
+        "num_pair_decoded_records": sum(
+            bool(record.get("selector_pair_decoded"))
+            for record in finalized_oof_records
+        ),
         "override_threshold": args.override_threshold,
         "threshold_policy": args.threshold_policy,
         "inner_folds": args.inner_folds,

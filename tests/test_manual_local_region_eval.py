@@ -124,11 +124,14 @@ from scripts.eval.cross_validate_grounding_candidate_selector import (
     candidate_examples,
     choose_nested_region_policies,
     condition_signals_on_region,
+    cuff_pair_hit_loss,
+    cuff_pair_indices,
     garment_relative_features,
     image_grouped_folds,
     keep_current_candidate_record,
     listwise_hit_loss,
     pairwise_recovery_examples,
+    pair_relation_feature,
     parse_threshold_grid,
     prompt_wearer_side,
     record_has_complete_dinov2_spatial_embeddings,
@@ -697,6 +700,104 @@ def test_cuff_pair_diagnostic_counts_recoverable_wrong_side_collision():
     assert pairs["selected_pair_box_collisions"] == 1
     assert pairs["selected_pairs_with_both_hits"] == 0
     assert pairs["side_distinct_oracle_pairs_with_both_hits"] == 1
+
+
+def test_cuff_pair_indices_require_same_image_item_and_unique_sides():
+    records = [
+        {
+            "image": "/tmp/a.jpg",
+            "item_key": "item-1",
+            "target_region": "cuff",
+            "weak_region_variant": "left_cuff",
+        },
+        {
+            "image": "/tmp/a.jpg",
+            "item_key": "item-1",
+            "target_region": "cuff",
+            "weak_region_variant": "right_cuff",
+        },
+        {
+            "image": "/tmp/a.jpg",
+            "item_key": "item-2",
+            "target_region": "cuff",
+            "weak_region_variant": "left_cuff",
+        },
+        {
+            "image": "/tmp/a.jpg",
+            "item_key": "item-1",
+            "target_region": "waist",
+            "weak_region_variant": "waist",
+        },
+    ]
+
+    assert cuff_pair_indices(records, list(range(len(records)))) == [(0, 1)]
+
+
+def test_cuff_pair_relation_features_do_not_use_target_boxes():
+    common = {
+        "image": "/tmp/a.jpg",
+        "item_key": "item-1",
+        "target_region": "cuff",
+        "online_garment_instance": {
+            "box": [0, 0, 100, 100],
+            "label_name": "top",
+        },
+        "grounding_model_name": "google/owlv2-large-patch14-ensemble",
+    }
+    left_candidate = {
+        "bbox": [70, 40, 90, 60],
+        "score": 0.8,
+        "prompt": "left cuff",
+        "candidate_source": "grounding",
+        "candidate_rank": 1,
+    }
+    right_candidate = {
+        "bbox": [10, 42, 30, 62],
+        "score": 0.7,
+        "prompt": "right cuff",
+        "candidate_source": "grounding",
+        "candidate_rank": 2,
+    }
+    first = pair_relation_feature(
+        {**common, "query_text": "左边的袖口", "target_bbox": [70, 40, 90, 60]},
+        left_candidate,
+        {**common, "query_text": "右边的袖口", "target_bbox": [10, 42, 30, 62]},
+        right_candidate,
+        image_size=(100, 100),
+        left_relative_score=-0.1,
+        right_relative_score=-0.2,
+    )
+    second = pair_relation_feature(
+        {**common, "query_text": "左边的袖口", "target_bbox": [0, 0, 5, 5]},
+        left_candidate,
+        {**common, "query_text": "右边的袖口", "target_bbox": [95, 95, 100, 100]},
+        right_candidate,
+        image_size=(100, 100),
+        left_relative_score=-0.1,
+        right_relative_score=-0.2,
+    )
+
+    assert first.ndim == 1
+    assert first.numel() > 40
+    assert torch.equal(first, second)
+
+
+def test_cuff_pair_hit_loss_prefers_two_hit_candidate_pair():
+    left_ious = torch.tensor([0.6, 0.6, 0.0])
+    right_ious = torch.tensor([0.7, 0.0, 0.7])
+
+    good_loss = cuff_pair_hit_loss(
+        torch.tensor([4.0, 0.0, 0.0]),
+        left_ious,
+        right_ious,
+    )
+    bad_loss = cuff_pair_hit_loss(
+        torch.tensor([0.0, 4.0, 0.0]),
+        left_ious,
+        right_ious,
+    )
+
+    assert good_loss < bad_loss
 
 
 def test_visual_candidate_scores_attach_by_bbox():
