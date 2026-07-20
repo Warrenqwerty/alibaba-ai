@@ -1399,6 +1399,26 @@ print(json.dumps({
 PY
 ```
 
+Observed v5 result: Hit@0.3 remains `0.5141` (1,202/2,338), cuff is `0.4709`,
+waist is `0.7661`, and Hit@0.5 is `0.1728`. The transition balance changes to
+477 gains and 122 losses but has no net improvement over v4. Do not tune more
+candidate-consensus features. Run the cuff-side/pair diagnostic on the saved
+v5 output instead; this is JSON-only analysis and performs no model inference:
+
+```bash
+PYTHONPATH=src python scripts/eval/analyze_cuff_pair_constraints.py \
+  --eval-json /root/autodl-tmp/outputs/local_region_candidate_consensus_v5_listwise_oof_2338_v2.json \
+  --hit-threshold 0.3 \
+  --pair-max-iou 0.5 \
+  --output /root/autodl-tmp/outputs/local_region_cuff_pair_constraint_diagnostic_v5.json
+```
+
+The output is intentionally short. Compare
+`wrong_side_misses_recoverable_on_compatible_side` against
+`selected_hits_on_incompatible_side`, then compare selected pair collisions and
+both-hit pairs against `side_distinct_oracle_pairs_with_both_hits`. Do not add a
+hard side or paired decoder until these counts show positive headroom.
+
 The listwise output must report `num_records_with_dinov2_embeddings == 2338`,
 `num_records_with_dinov2_spatial_embeddings == 1996`, and
 `num_records_with_online_garment_geometry == 2338`. When train and

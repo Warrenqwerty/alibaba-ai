@@ -1111,3 +1111,18 @@ and source/model/query-side conditioned structured signals. `target_bbox` is
 still used only to form training IoU labels. The same linear soft-target model
 and image-grouped five-fold split must be used so any change is attributable to
 candidate relations rather than capacity or loss tuning.
+
+The v5 OOF result does not improve the primary metric: Hit@0.3 remains
+`0.5141` (1,202/2,338). Cuff changes to `0.4709`, waist to `0.7661`, and
+Hit@0.5 to `0.1728`. Relative to the original online policy, v5 gains 477 hits
+but loses 122, the same net gain as v4's 464 gains and 109 losses. This rejects
+additional independent candidate-consensus feature engineering as the next
+step.
+
+The next checkpoint is a diagnostic, not a tuned policy. Group cuff records by
+`image + item_key`, recover garment/wearer side from the query or
+`weak_region_variant`, and measure selected-side mismatch, compatible-side
+candidate oracle, left/right selected-box collision, and a side-compatible
+distinct-pair oracle. Manual/weak `target_bbox` is read only for these metric
+counts. Implement paired decoding only if recoverable wrong-side failures
+materially exceed currently correct hits that violate the simple side rule.

@@ -1063,3 +1063,11 @@ target-independent cross-expert box agreement, overlap density, score and area
 percentiles, English/Chinese left-right prompt agreement, and source/model-side
 interactions. The controlled comparison keeps the linear soft-target model,
 fold split, seed, and all frozen visual features unchanged.
+
+The v5 consensus run remains at Hit@0.3 `0.5141` (1,202/2,338). Cuff is
+`0.4709`, waist is `0.7661`, and Hit@0.5 changes only to `0.1728`. It recovers
+477 baseline misses but loses 122 baseline hits, preserving the same net gain
+as v4. Candidate-level consensus is therefore not the missing signal. Before
+adding a new ranker, run the cuff-side/pair diagnostic on the saved v5 JSON.
+It measures wrong-side recoveries, incompatible-side hit risk, left/right box
+collisions, and the side-distinct pair oracle without changing any prediction.

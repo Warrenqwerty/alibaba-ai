@@ -110,6 +110,10 @@ from scripts.eval.analyze_grounding_wearer_side_selection import (
 )
 from scripts.eval.analyze_grounding_candidate_oracle import build_candidate_oracle
 from scripts.eval.analyze_grounding_candidate_oracle import best_manual_candidate
+from scripts.eval.analyze_cuff_pair_constraints import analyze_cuff_constraints
+from scripts.eval.analyze_cuff_pair_constraints import (
+    candidate_matches_wearer_side,
+)
 from scripts.eval.evaluate_chinese_clip_manual_local_regions import (
     empty_prediction_record,
     finalize_run as finalize_chinese_clip_manual_run,
@@ -642,6 +646,57 @@ def test_candidate_features_never_use_manual_target_bbox():
 
     assert torch.equal(first_features, second_features)
     assert not torch.equal(first_ious, second_ious)
+
+
+def test_cuff_pair_diagnostic_counts_recoverable_wrong_side_collision():
+    common = {
+        "image": "/tmp/cuff-pair.jpg",
+        "item_key": "item-1",
+        "target_region": "cuff",
+        "online_garment_instance": {
+            "box": [0, 0, 100, 100],
+            "label_name": "top",
+        },
+    }
+    left_record = {
+        **common,
+        "query_text": "左边的袖口",
+        "weak_region_variant": "left_cuff",
+        "target_bbox": [70, 40, 90, 60],
+        "predicted_bbox": [10, 40, 30, 60],
+        "detections": [
+            {"bbox": [70, 40, 90, 60], "score": 0.8, "prompt": "left cuff"},
+        ],
+    }
+    right_record = {
+        **common,
+        "query_text": "右边的袖口",
+        "weak_region_variant": "right_cuff",
+        "target_bbox": [10, 40, 30, 60],
+        "predicted_bbox": [10, 40, 30, 60],
+        "detections": [
+            {"bbox": [70, 40, 90, 60], "score": 0.7, "prompt": "right cuff"},
+        ],
+    }
+
+    result = analyze_cuff_constraints(
+        [left_record, right_record],
+        hit_threshold=0.3,
+        pair_max_iou=0.5,
+    )
+
+    selected = result["selected_and_side_candidate_summary"]
+    pairs = result["paired_cuff_summary"]
+    assert candidate_matches_wearer_side(left_record, [70, 40, 90, 60]) is True
+    assert candidate_matches_wearer_side(left_record, [10, 40, 30, 60]) is False
+    assert selected["selected_hits"] == 1
+    assert selected["full_candidate_oracle_hits"] == 2
+    assert selected["side_compatible_oracle_hits"] == 2
+    assert selected["wrong_side_misses_recoverable_on_compatible_side"] == 1
+    assert pairs["num_complete_pairs"] == 1
+    assert pairs["selected_pair_box_collisions"] == 1
+    assert pairs["selected_pairs_with_both_hits"] == 0
+    assert pairs["side_distinct_oracle_pairs_with_both_hits"] == 1
 
 
 def test_visual_candidate_scores_attach_by_bbox():
