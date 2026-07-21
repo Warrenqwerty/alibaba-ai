@@ -3,16 +3,13 @@ from __future__ import annotations
 import argparse
 import os
 import random
-from collections import defaultdict
 from pathlib import Path
-from typing import Any
 
 if not os.environ.get("OMP_NUM_THREADS", "").isdigit():
     os.environ["OMP_NUM_THREADS"] = "8"
 
 import numpy as np
 import torch
-import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
 from fashion_mm.data_loaders import build_fashionai_transform
@@ -22,6 +19,7 @@ from fashion_mm.data_loaders import infer_fashionai_schema
 from fashion_mm.data_loaders import read_fashionai_annotations
 from fashion_mm.data_loaders import split_records_by_image
 from fashion_mm.models.attributes import FashionAttributeClassifier
+from fashion_mm.models.attributes import run_attribute_epoch
 from fashion_mm.utils.config import load_config
 from fashion_mm.utils.config import load_yaml
 from fashion_mm.utils.logger import get_logger
@@ -81,8 +79,8 @@ def main() -> None:
     value_names = _load_value_names(args.label_map or dataset_config.get("label_map"))
     schema = infer_fashionai_schema(records, value_names=value_names)
 
-    validation_paths = (
-        args.validation_annotations or dataset_config.get("validation_annotations")
+    validation_paths = args.validation_annotations or dataset_config.get(
+        "validation_annotations"
     )
     if validation_paths:
         train_records = records
@@ -144,17 +142,20 @@ def main() -> None:
         checkpoint = torch.load(args.resume, map_location="cpu")
         resume_schema = checkpoint.get("schema")
         if resume_schema is not None and resume_schema != schema.to_dict():
-            raise ValueError("Resume checkpoint schema does not match current CSV schema.")
+            raise ValueError(
+                "Resume checkpoint schema does not match current CSV schema."
+            )
         model.load_state_dict(checkpoint["model_state_dict"])
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         start_epoch = int(checkpoint.get("epoch", 0))
         LOGGER.info("Resumed 3.1.3 checkpoint: %s", args.resume)
 
-    use_amp = bool(config["training"].get("mixed_precision", True)) and device.type == "cuda"
+    use_amp = (
+        bool(config["training"].get("mixed_precision", True)) and device.type == "cuda"
+    )
     scaler = torch.amp.GradScaler(device.type, enabled=use_amp)
     output_dir = Path(
-        args.output_dir
-        or Path(config["checkpoint_root"]) / "fashionai_attributes"
+        args.output_dir or Path(config["checkpoint_root"]) / "fashionai_attributes"
     )
     output_dir.mkdir(parents=True, exist_ok=True)
     best_accuracy = -1.0
@@ -167,7 +168,7 @@ def main() -> None:
     )
 
     for epoch in range(start_epoch, int(config["training"]["num_epochs"])):
-        train_metrics = run_epoch(
+        train_metrics = run_attribute_epoch(
             model,
             train_loader,
             device=device,
@@ -177,7 +178,7 @@ def main() -> None:
             log_interval=int(config["training"].get("log_interval", 100)),
         )
         validation_metrics = (
-            run_epoch(model, validation_loader, device=device)
+            run_attribute_epoch(model, validation_loader, device=device)
             if validation_loader is not None
             else train_metrics
         )
@@ -217,108 +218,6 @@ def main() -> None:
             best_accuracy = validation_metrics["strict_accuracy"]
             torch.save(checkpoint_payload, output_dir / "best.pt")
         LOGGER.info("Saved 3.1.3 checkpoint: %s", epoch_path)
-
-
-def run_epoch(
-    model: FashionAttributeClassifier,
-    loader: DataLoader,
-    *,
-    device: torch.device,
-    optimizer: torch.optim.Optimizer | None = None,
-    scaler: torch.amp.GradScaler | None = None,
-    label_smoothing: float = 0.0,
-    log_interval: int = 0,
-) -> dict[str, Any]:
-    training = optimizer is not None
-    model.train(training)
-    total_loss = 0.0
-    total_records = 0
-    strict_correct = 0
-    acceptable_correct = 0
-    by_attribute: dict[str, dict[str, int]] = defaultdict(
-        lambda: {"records": 0, "strict_correct": 0, "acceptable_correct": 0}
-    )
-
-    for step, batch in enumerate(loader, start=1):
-        images = batch["images"].to(device, non_blocking=True)
-        targets = batch["target_indices"].to(device, non_blocking=True)
-        attribute_names = batch["attribute_names"]
-        if training:
-            optimizer.zero_grad(set_to_none=True)
-
-        with torch.set_grad_enabled(training):
-            with torch.autocast(
-                device_type=device.type,
-                enabled=scaler is not None and scaler.is_enabled(),
-            ):
-                features = model.encode(images)
-                loss_sum = torch.zeros((), device=device)
-                batch_predictions = torch.empty_like(targets)
-                for attribute_name in sorted(set(attribute_names)):
-                    indices = [
-                        index
-                        for index, name in enumerate(attribute_names)
-                        if name == attribute_name
-                    ]
-                    index_tensor = torch.tensor(indices, device=device)
-                    logits = model.classify(features.index_select(0, index_tensor), attribute_name)
-                    group_targets = targets.index_select(0, index_tensor)
-                    loss_sum = loss_sum + F.cross_entropy(
-                        logits,
-                        group_targets,
-                        reduction="sum",
-                        label_smoothing=label_smoothing,
-                    )
-                    batch_predictions.index_copy_(0, index_tensor, logits.argmax(dim=-1))
-                loss = loss_sum / len(attribute_names)
-
-            if training:
-                if scaler is not None and scaler.is_enabled():
-                    scaler.scale(loss).backward()
-                    scaler.step(optimizer)
-                    scaler.update()
-                else:
-                    loss.backward()
-                    optimizer.step()
-
-        predictions = batch_predictions.detach().cpu().tolist()
-        target_values = targets.detach().cpu().tolist()
-        total_loss += float(loss.detach().cpu()) * len(attribute_names)
-        total_records += len(attribute_names)
-        for index, (attribute_name, prediction, target) in enumerate(
-            zip(attribute_names, predictions, target_values, strict=True)
-        ):
-            strict_hit = prediction == target
-            acceptable_hit = prediction in batch["acceptable_indices"][index]
-            strict_correct += int(strict_hit)
-            acceptable_correct += int(acceptable_hit)
-            metrics = by_attribute[attribute_name]
-            metrics["records"] += 1
-            metrics["strict_correct"] += int(strict_hit)
-            metrics["acceptable_correct"] += int(acceptable_hit)
-
-        if training and log_interval and step % log_interval == 0:
-            LOGGER.info(
-                "batch=%s loss=%.4f strict_accuracy=%.4f",
-                step,
-                total_loss / max(total_records, 1),
-                strict_correct / max(total_records, 1),
-            )
-
-    return {
-        "num_records": total_records,
-        "loss": total_loss / max(total_records, 1),
-        "strict_accuracy": strict_correct / max(total_records, 1),
-        "acceptable_accuracy": acceptable_correct / max(total_records, 1),
-        "by_attribute": {
-            name: {
-                **counts,
-                "strict_accuracy": counts["strict_correct"] / counts["records"],
-                "acceptable_accuracy": counts["acceptable_correct"] / counts["records"],
-            }
-            for name, counts in sorted(by_attribute.items())
-        },
-    }
 
 
 def _load_value_names(path: str | Path | None) -> dict[str, list[str]] | None:

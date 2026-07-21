@@ -1095,52 +1095,75 @@ head. The end-to-end wrapper composes:
 2. The frozen heuristic 3.1.2 local-region policy.
 3. Masked-region crop preprocessing and the 3.1.3 multi-head classifier.
 
-The FashionAI CSV schema is inferred instead of hard-coded. Each annotation
-row is expected to contain `image_path, attribute_name, y/m/n_vector`. Exactly
-one `y` is the strict target; `m` values are retained as acceptable ambiguous
-classes for diagnostics. Train/validation splitting is grouped by image so
-multiple attribute rows for the same product cannot leak across splits.
+The available supervised corpus is the labeled Round1 test A/B release agreed
+with the mentor. A has 10,080 rows, B has 15,042, and 5,206 annotations overlap
+with identical labels. The preparation command deduplicates them into 19,916
+unique records, then creates deterministic 80/10/10 train/validation/test
+splits stratified by `(attribute_name, strict y class)`. Stable relative image
+IDs guarantee that A/B copies cannot cross splits.
 
-First discover the downloaded AutoDL layout:
+Prepare the extracted AutoDL data:
 
 ```bash
 cd /root/projects/alibaba-ai
 git pull
 
-PYTHONPATH=src python scripts/data/inspect_fashionai_attributes.py \
-  --root /root/autodl-tmp/datasets/FashionAI
+PYTHONPATH=src python scripts/data/prepare_fashionai_round1_attributes.py \
+  --root /root/autodl-tmp/datasets/FashionAI \
+  --output-dir /root/autodl-tmp/outputs/fashionai_round1_stratified
 ```
 
-Then inspect the actual training CSV or CSVs returned by that command:
+The summary must report `num_unique_records: 19916`,
+`num_duplicate_records: 5206`, and zero for every `split_overlap_counts`
+entry. With seed 42, the split sizes are train `15,930`, validation `1,993`,
+and test `1,993`. Inspect the compact result without printing the full class
+table:
 
 ```bash
-PYTHONPATH=src python scripts/data/inspect_fashionai_attributes.py \
-  --root /root/autodl-tmp/datasets/FashionAI \
-  --annotations /absolute/path/to/train_labels.csv \
-  --image-root /root/autodl-tmp/datasets/FashionAI \
-  --validate-images \
-  --output /root/autodl-tmp/outputs/fashionai_attribute_schema.json
-```
+python - <<'PY'
+import json
 
-The output reports record count, unique images, inferred attribute heads,
-total class values, and ambiguous annotations. Do not start full training
-until the image paths validate and the inferred schema matches the dataset
-README.
+path = "/root/autodl-tmp/outputs/fashionai_round1_stratified/split_summary.json"
+payload = json.load(open(path, encoding="utf-8"))
+print({
+    "before_dedup": payload["num_records_before_deduplication"],
+    "duplicates": payload["num_duplicate_records"],
+    "unique": payload["num_unique_records"],
+    "overlaps": payload["split_overlap_counts"],
+    "split_sizes": {
+        name: split["num_records"]
+        for name, split in payload["splits"].items()
+    },
+})
+PY
+```
 
 Train the lightweight MobileNetV3 multi-head baseline on CUDA:
 
 ```bash
 PYTHONPATH=src python scripts/train/train_fashionai_attributes.py \
-  --annotations /absolute/path/to/train_labels.csv \
-  --image-root /root/autodl-tmp/datasets/FashionAI \
   --device cuda \
   --output-dir /root/autodl-tmp/checkpoints/fashionai_attributes
 ```
 
-If the FashionAI download includes human-readable value names, provide a YAML
-mapping with `attributes.<attribute_name>.values`. Without a label map, the
-pipeline emits stable `class_000`, `class_001`, ... labels plus class indices;
-it never invents semantic names that are absent from the data.
+The default dataset config reads only generated `train.csv` and
+`validation.csv`. It does not read `test.csv`. Human-readable values for all 8
+groups and 54 classes come from the included Round1 README label map.
+
+After model selection is finished, evaluate `best.pt` once on the held-out test
+split:
+
+```bash
+PYTHONPATH=src python scripts/eval/evaluate_fashionai_attributes.py \
+  --annotations /root/autodl-tmp/outputs/fashionai_round1_stratified/test.csv \
+  --checkpoint /root/autodl-tmp/checkpoints/fashionai_attributes/best.pt \
+  --device cuda \
+  --output /root/autodl-tmp/outputs/fashionai_attributes_test_eval.json
+```
+
+This reports strict top-1, ambiguity-aware top-1, per-attribute accuracy, and
+batched CUDA model latency. It remains separate from single-sample end-to-end
+pipeline latency.
 
 Run 3.1.3 directly with a target mask:
 

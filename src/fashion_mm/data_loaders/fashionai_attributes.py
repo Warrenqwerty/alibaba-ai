@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import math
+from collections import defaultdict
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 import torch
 from PIL import Image
@@ -28,6 +30,8 @@ class FashionAIAttributeRecord:
     label: str
     target_index: int
     probable_indices: tuple[int, ...]
+    image_id: str = ""
+    source_name: str = ""
 
     @property
     def num_classes(self) -> int:
@@ -36,6 +40,15 @@ class FashionAIAttributeRecord:
     @property
     def acceptable_indices(self) -> tuple[int, ...]:
         return (self.target_index, *self.probable_indices)
+
+    @property
+    def split_key(self) -> str:
+        """Stable image identity shared by equivalent dataset copies."""
+        return self.image_id or self.image_path.as_posix()
+
+    @property
+    def annotation_key(self) -> tuple[str, str]:
+        return self.split_key, self.attribute_name
 
 
 @dataclass(frozen=True)
@@ -119,7 +132,9 @@ def parse_fashionai_label(label: str) -> tuple[int, tuple[int, ...]]:
             f"FashionAI label {label!r} contains invalid states: {sorted(invalid_states)}"
         )
 
-    target_indices = tuple(index for index, state in enumerate(normalized) if state == "y")
+    target_indices = tuple(
+        index for index, state in enumerate(normalized) if state == "y"
+    )
     if len(target_indices) != 1:
         raise ValueError(
             f"FashionAI label {label!r} must contain exactly one 'y', "
@@ -138,6 +153,7 @@ def read_fashionai_annotations(
     validate_images: bool = False,
     skip_invalid: bool = False,
     max_records: int | None = None,
+    source_name: str = "",
 ) -> list[FashionAIAttributeRecord]:
     """Load FashionAI CSV rows without hard-coding attribute dimensions."""
     paths = _normalize_csv_paths(csv_paths)
@@ -171,6 +187,7 @@ def read_fashionai_annotations(
                         if raw_image_path.is_absolute() or root is None
                         else root / raw_image_path
                     )
+                    image_id = _normalized_image_id(raw_image_path)
                     if validate_images and not image_path.is_file():
                         raise FileNotFoundError(f"Image not found: {image_path}")
                 except (ValueError, FileNotFoundError):
@@ -185,6 +202,8 @@ def read_fashionai_annotations(
                         label=label,
                         target_index=target_index,
                         probable_indices=probable_indices,
+                        image_id=image_id,
+                        source_name=source_name,
                     )
                 )
                 if max_records is not None and len(records) >= max_records:
@@ -300,27 +319,99 @@ def split_records_by_image(
     validation_fraction: float,
     seed: int,
 ) -> tuple[list[FashionAIAttributeRecord], list[FashionAIAttributeRecord]]:
-    """Split by image path so one product cannot leak across attribute heads."""
+    """Compatibility wrapper for a stratified image-grouped train/val split."""
     if not 0.0 <= validation_fraction < 1.0:
         raise ValueError("validation_fraction must be in [0, 1).")
-    unique_images = sorted({str(record.image_path) for record in records})
+    unique_images = sorted({record.split_key for record in records})
     if validation_fraction == 0.0 or len(unique_images) < 2:
         return list(records), []
 
-    ordered = sorted(
-        unique_images,
-        key=lambda value: hashlib.sha256(f"{seed}:{value}".encode()).hexdigest(),
+    splits = stratified_split_records(
+        records,
+        split_fractions={
+            "train": 1.0 - validation_fraction,
+            "validation": validation_fraction,
+        },
+        seed=seed,
     )
-    validation_count = round(len(ordered) * validation_fraction)
-    validation_count = min(max(validation_count, 1), len(ordered) - 1)
-    validation_images = set(ordered[:validation_count])
-    train_records = [
-        record for record in records if str(record.image_path) not in validation_images
-    ]
-    validation_records = [
-        record for record in records if str(record.image_path) in validation_images
-    ]
-    return train_records, validation_records
+    return splits["train"], splits["validation"]
+
+
+def deduplicate_fashionai_records(
+    records: Sequence[FashionAIAttributeRecord],
+) -> tuple[list[FashionAIAttributeRecord], int]:
+    """Remove repeated source rows while rejecting conflicting human labels."""
+    unique: dict[tuple[str, str], FashionAIAttributeRecord] = {}
+    duplicate_count = 0
+    for record in records:
+        previous = unique.get(record.annotation_key)
+        if previous is None:
+            unique[record.annotation_key] = record
+            continue
+        if previous.label != record.label:
+            raise ValueError(
+                "Conflicting FashionAI labels for "
+                f"{record.annotation_key}: {previous.label!r} from "
+                f"{previous.source_name or previous.image_path} and "
+                f"{record.label!r} from {record.source_name or record.image_path}."
+            )
+        duplicate_count += 1
+    return list(unique.values()), duplicate_count
+
+
+def stratified_split_records(
+    records: Sequence[FashionAIAttributeRecord],
+    *,
+    split_fractions: Mapping[str, float],
+    seed: int,
+) -> dict[str, list[FashionAIAttributeRecord]]:
+    """Deterministically stratify image groups by attribute and strict class.
+
+    A product image is assigned as one unit. For the official Round1 attribute
+    files each image has one row, so the stratum is exactly
+    ``(attribute_name, target_index)``. The composite representation also keeps
+    the function safe for future files containing multiple heads per image.
+    """
+    if not records:
+        raise ValueError("Cannot split an empty FashionAI record list.")
+    fractions = _validate_split_fractions(split_fractions)
+
+    records_by_image: dict[str, list[FashionAIAttributeRecord]] = defaultdict(list)
+    for record in records:
+        records_by_image[record.split_key].append(record)
+
+    images_by_stratum: dict[tuple[tuple[str, int], ...], list[str]] = defaultdict(list)
+    for image_id, image_records in records_by_image.items():
+        stratum = tuple(
+            sorted(
+                (record.attribute_name, record.target_index) for record in image_records
+            )
+        )
+        images_by_stratum[stratum].append(image_id)
+
+    image_to_split: dict[str, str] = {}
+    for stratum, image_ids in sorted(images_by_stratum.items()):
+        ordered = sorted(
+            image_ids,
+            key=lambda value: hashlib.sha256(
+                f"{seed}:{stratum}:{value}".encode()
+            ).hexdigest(),
+        )
+        allocation = _allocate_split_counts(
+            len(ordered),
+            fractions,
+            tie_breaker=f"{seed}:{stratum}",
+        )
+        offset = 0
+        for split_name, count in allocation.items():
+            for image_id in ordered[offset : offset + count]:
+                image_to_split[image_id] = split_name
+            offset += count
+
+    splits = {name: [] for name in fractions}
+    for record in records:
+        splits[image_to_split[record.split_key]].append(record)
+    return splits
 
 
 def discover_fashionai_csvs(root: str | Path) -> list[Path]:
@@ -328,7 +419,9 @@ def discover_fashionai_csvs(root: str | Path) -> list[Path]:
     root_path = Path(root)
     if not root_path.is_dir():
         raise NotADirectoryError(f"FashionAI root not found: {root_path}")
-    return sorted(path for path in root_path.rglob("*.csv") if not path.name.startswith("._"))
+    return sorted(
+        path for path in root_path.rglob("*.csv") if not path.name.startswith("._")
+    )
 
 
 def _normalize_csv_paths(
@@ -353,3 +446,59 @@ def _looks_like_header(row: Sequence[str]) -> bool:
         or second in {"attribute", "attribute_name", "attrkey", "attr_key"}
         or third in {"label", "attrvalues", "attr_values", "attribute_value"}
     )
+
+
+def _normalized_image_id(raw_image_path: Path) -> str:
+    value = raw_image_path.as_posix()
+    while value.startswith("./"):
+        value = value[2:]
+    return value
+
+
+def _validate_split_fractions(
+    split_fractions: Mapping[str, float],
+) -> dict[str, float]:
+    if not split_fractions:
+        raise ValueError("At least one split fraction is required.")
+    fractions = {str(name): float(value) for name, value in split_fractions.items()}
+    if any(not name for name in fractions):
+        raise ValueError("Split names cannot be empty.")
+    if any(value <= 0.0 for value in fractions.values()):
+        raise ValueError("Every split fraction must be greater than zero.")
+    if not math.isclose(sum(fractions.values()), 1.0, abs_tol=1e-8):
+        raise ValueError("Split fractions must sum to 1.0.")
+    return fractions
+
+
+def _allocate_split_counts(
+    num_records: int,
+    fractions: Mapping[str, float],
+    *,
+    tie_breaker: str,
+) -> dict[str, int]:
+    raw_counts = {name: num_records * value for name, value in fractions.items()}
+    counts = {name: math.floor(value) for name, value in raw_counts.items()}
+    remainder = num_records - sum(counts.values())
+    priority = sorted(
+        fractions,
+        key=lambda name: (
+            raw_counts[name] - counts[name],
+            fractions[name],
+            hashlib.sha256(f"{tie_breaker}:{name}".encode()).hexdigest(),
+        ),
+        reverse=True,
+    )
+    for name in priority[:remainder]:
+        counts[name] += 1
+
+    positive_splits = list(fractions)
+    if num_records >= len(positive_splits):
+        empty_splits = [name for name in positive_splits if counts[name] == 0]
+        for empty_name in empty_splits:
+            donor = max(
+                (name for name in positive_splits if counts[name] > 1),
+                key=lambda name: (counts[name] - raw_counts[name], counts[name]),
+            )
+            counts[donor] -= 1
+            counts[empty_name] += 1
+    return counts

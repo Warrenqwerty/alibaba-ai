@@ -1,6 +1,7 @@
 from fashion_mm.data_loaders.deepfashion2 import DeepFashion2Dataset
 from fashion_mm.data_loaders.fashionai_attributes import build_fashionai_transform
 from fashion_mm.data_loaders.fashionai_attributes import collate_fashionai_attributes
+from fashion_mm.data_loaders.fashionai_attributes import deduplicate_fashionai_records
 from fashion_mm.data_loaders.fashionai_attributes import discover_fashionai_csvs
 from fashion_mm.data_loaders.fashionai_attributes import FashionAIAttributeDataset
 from fashion_mm.data_loaders.fashionai_attributes import FashionAIAttributeDefinition
@@ -10,7 +11,11 @@ from fashion_mm.data_loaders.fashionai_attributes import infer_fashionai_schema
 from fashion_mm.data_loaders.fashionai_attributes import parse_fashionai_label
 from fashion_mm.data_loaders.fashionai_attributes import read_fashionai_annotations
 from fashion_mm.data_loaders.fashionai_attributes import split_records_by_image
-from fashion_mm.data_loaders.local_region_queries import iter_local_region_candidate_records
+from fashion_mm.data_loaders.fashionai_attributes import stratified_split_records
+from fashion_mm.data_loaders.fashionai_round1 import prepare_fashionai_round1_splits
+from fashion_mm.data_loaders.local_region_queries import (
+    iter_local_region_candidate_records,
+)
 from fashion_mm.data_loaders.local_region_queries import iter_local_region_query_records
 from fashion_mm.data_loaders.local_region_queries import LocalRegionCandidateRecord
 from fashion_mm.data_loaders.local_region_queries import LocalRegionQueryDataset
@@ -25,6 +30,7 @@ __all__ = [
     "FashionAIAttributeSchema",
     "build_fashionai_transform",
     "collate_fashionai_attributes",
+    "deduplicate_fashionai_records",
     "discover_fashionai_csvs",
     "infer_fashionai_schema",
     "iter_local_region_candidate_records",
@@ -33,7 +39,9 @@ __all__ = [
     "LocalRegionQueryDataset",
     "LocalRegionQueryRecord",
     "parse_fashionai_label",
+    "prepare_fashionai_round1_splits",
     "read_fashionai_annotations",
     "split_records_by_image",
+    "stratified_split_records",
     "build_balanced_sampler",
 ]

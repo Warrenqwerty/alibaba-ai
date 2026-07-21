@@ -1485,3 +1485,38 @@ current waist result retained, cuff still needs roughly Hit@0.3 `0.572`. If v5
 remains below 60%, inspect gained/lost hits and per-source selection before
 changing model capacity. Do not open the manual benchmark or tune the MLP on
 this weak split.
+
+## Prepare FashionAI Round1 for 3.1.3
+
+The 3.1.3 baseline uses the mentor-approved labeled Round1 test A/B files.
+After extraction, prepare one deduplicated, stratified corpus:
+
+```bash
+cd /root/projects/alibaba-ai
+git pull
+
+PYTHONPATH=src python scripts/data/prepare_fashionai_round1_attributes.py \
+  --root /root/autodl-tmp/datasets/FashionAI \
+  --output-dir /root/autodl-tmp/outputs/fashionai_round1_stratified
+```
+
+The expected integrity fields are 25,122 rows before deduplication, 5,206
+matching duplicates, 19,916 unique records, split sizes 15,930/1,993/1,993,
+and zero overlap between all split pairs. Train on CUDA using the default
+config, which reads only train and validation:
+
+```bash
+PYTHONPATH=src python scripts/train/train_fashionai_attributes.py \
+  --device cuda \
+  --output-dir /root/autodl-tmp/checkpoints/fashionai_attributes
+```
+
+After model selection, evaluate the untouched test split once:
+
+```bash
+PYTHONPATH=src python scripts/eval/evaluate_fashionai_attributes.py \
+  --annotations /root/autodl-tmp/outputs/fashionai_round1_stratified/test.csv \
+  --checkpoint /root/autodl-tmp/checkpoints/fashionai_attributes/best.pt \
+  --device cuda \
+  --output /root/autodl-tmp/outputs/fashionai_attributes_test_eval.json
+```

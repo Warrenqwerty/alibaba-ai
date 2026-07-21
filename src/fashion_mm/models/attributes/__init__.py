@@ -6,6 +6,7 @@ from fashion_mm.models.attributes.preprocessing import prepare_masked_region
 from fashion_mm.models.attributes.result import AttributeExtractionResult
 from fashion_mm.models.attributes.result import AttributeValuePrediction
 from fashion_mm.models.attributes.result import FineGrainedAttributePrediction
+from fashion_mm.models.attributes.training import run_attribute_epoch
 
 __all__ = [
     "AttributeExtractionResult",
@@ -16,4 +17,5 @@ __all__ = [
     "MaskedRegionCrop",
     "load_region_mask",
     "prepare_masked_region",
+    "run_attribute_epoch",
 ]

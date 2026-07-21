@@ -6,19 +6,24 @@ import numpy as np
 import pytest
 import torch
 from PIL import Image
+from torch.utils.data import DataLoader
 
 from fashion_mm.data_loaders import build_fashionai_transform
 from fashion_mm.data_loaders import collate_fashionai_attributes
+from fashion_mm.data_loaders import deduplicate_fashionai_records
 from fashion_mm.data_loaders import FashionAIAttributeDataset
 from fashion_mm.data_loaders import FashionAIAttributeDefinition
 from fashion_mm.data_loaders import FashionAIAttributeSchema
 from fashion_mm.data_loaders import infer_fashionai_schema
 from fashion_mm.data_loaders import parse_fashionai_label
+from fashion_mm.data_loaders import prepare_fashionai_round1_splits
 from fashion_mm.data_loaders import read_fashionai_annotations
 from fashion_mm.data_loaders import split_records_by_image
+from fashion_mm.data_loaders import stratified_split_records
 from fashion_mm.models.attributes import FashionAttributeClassifier
 from fashion_mm.models.attributes import FashionAttributePredictor
 from fashion_mm.models.attributes import prepare_masked_region
+from fashion_mm.models.attributes import run_attribute_epoch
 from fashion_mm.models.instance_segmentation import FashionInstance
 from fashion_mm.models.instance_segmentation import SegmentationResult
 from fashion_mm.pipelines import FashionVisualPipeline
@@ -94,6 +99,154 @@ def test_fashionai_split_keeps_all_heads_for_one_image_together(tmp_path):
     assert train_images.isdisjoint(validation_images)
 
 
+def test_fashionai_round_sources_deduplicate_by_relative_image_id(tmp_path):
+    source_a = tmp_path / "a"
+    source_b = tmp_path / "b"
+    source_a.mkdir()
+    source_b.mkdir()
+    for root, color in ((source_a, "white"), (source_b, "gray")):
+        (root / "Images" / "collar").mkdir(parents=True)
+        Image.new("RGB", (8, 8), color).save(root / "Images" / "collar" / "shared.jpg")
+    csv_a = tmp_path / "a.csv"
+    csv_b = tmp_path / "b.csv"
+    row = "Images/collar/shared.jpg,collar_design_labels,nyn\n"
+    csv_a.write_text(row, encoding="utf-8")
+    csv_b.write_text(row, encoding="utf-8")
+
+    records_a = read_fashionai_annotations(csv_a, image_root=source_a, source_name="a")
+    records_b = read_fashionai_annotations(csv_b, image_root=source_b, source_name="b")
+    records, duplicate_count = deduplicate_fashionai_records([*records_a, *records_b])
+
+    assert duplicate_count == 1
+    assert len(records) == 1
+    assert records[0].source_name == "a"
+    assert records[0].split_key == "Images/collar/shared.jpg"
+
+
+def test_fashionai_round_sources_reject_conflicting_overlap(tmp_path):
+    csv_a = tmp_path / "a.csv"
+    csv_b = tmp_path / "b.csv"
+    csv_a.write_text("same.jpg,a_labels,yn\n", encoding="utf-8")
+    csv_b.write_text("same.jpg,a_labels,ny\n", encoding="utf-8")
+    records_a = read_fashionai_annotations(csv_a, source_name="a")
+    records_b = read_fashionai_annotations(csv_b, source_name="b")
+
+    with pytest.raises(ValueError, match="Conflicting FashionAI labels"):
+        deduplicate_fashionai_records([*records_a, *records_b])
+
+
+def test_fashionai_three_way_split_is_deterministic_and_stratified(tmp_path):
+    rows = []
+    for attribute_name, labels in {
+        "collar_labels": ("yn", "ny"),
+        "sleeve_labels": ("ynn", "nyn"),
+    }.items():
+        for label in labels:
+            for index in range(20):
+                rows.append(
+                    f"{attribute_name}_{label}_{index}.jpg,{attribute_name},{label}"
+                )
+    csv_path = tmp_path / "labels.csv"
+    csv_path.write_text("\n".join(rows), encoding="utf-8")
+    records = read_fashionai_annotations(csv_path)
+
+    first = stratified_split_records(
+        records,
+        split_fractions={"train": 0.8, "validation": 0.1, "test": 0.1},
+        seed=42,
+    )
+    second = stratified_split_records(
+        records,
+        split_fractions={"train": 0.8, "validation": 0.1, "test": 0.1},
+        seed=42,
+    )
+
+    assert {name: len(split) for name, split in first.items()} == {
+        "train": 64,
+        "validation": 8,
+        "test": 8,
+    }
+    assert {
+        name: [record.split_key for record in split] for name, split in first.items()
+    } == {
+        name: [record.split_key for record in split] for name, split in second.items()
+    }
+    split_keys = {
+        name: {record.split_key for record in split} for name, split in first.items()
+    }
+    assert split_keys["train"].isdisjoint(split_keys["validation"])
+    assert split_keys["train"].isdisjoint(split_keys["test"])
+    assert split_keys["validation"].isdisjoint(split_keys["test"])
+    for split_name, expected_per_stratum in {
+        "train": 16,
+        "validation": 2,
+        "test": 2,
+    }.items():
+        counts = {}
+        for record in first[split_name]:
+            key = record.attribute_name, record.target_index
+            counts[key] = counts.get(key, 0) + 1
+        assert set(counts.values()) == {expected_per_stratum}
+
+
+def test_prepare_fashionai_round1_splits_writes_leak_free_manifests(tmp_path):
+    source_a = tmp_path / "round_a"
+    source_b = tmp_path / "round_b"
+    for source in (source_a, source_b):
+        (source / "Images" / "collar").mkdir(parents=True)
+        (source / "Tests").mkdir()
+
+    rows_a = []
+    rows_b = []
+    for index in range(30):
+        image_name = f"Images/collar/{index:03d}.jpg"
+        label = "yn" if index % 2 == 0 else "ny"
+        Image.new("RGB", (8, 8), "white").save(source_a / image_name)
+        rows_a.append(f"{image_name},collar_labels,{label}")
+        if index >= 10:
+            Image.new("RGB", (8, 8), "gray").save(source_b / image_name)
+            rows_b.append(f"{image_name},collar_labels,{label}")
+    for index in range(30, 40):
+        image_name = f"Images/collar/{index:03d}.jpg"
+        label = "yn" if index % 2 == 0 else "ny"
+        Image.new("RGB", (8, 8), "gray").save(source_b / image_name)
+        rows_b.append(f"{image_name},collar_labels,{label}")
+
+    answer_a = source_a / "Tests" / "answer_a.csv"
+    answer_b = source_b / "Tests" / "answer_b.csv"
+    answer_a.write_text("\n".join(rows_a), encoding="utf-8")
+    answer_b.write_text("\n".join(rows_b), encoding="utf-8")
+    output_dir = tmp_path / "splits"
+
+    payload = prepare_fashionai_round1_splits(
+        source_a_root=source_a,
+        source_b_root=source_b,
+        answer_a=answer_a,
+        answer_b=answer_b,
+        output_dir=output_dir,
+        split_fractions={"train": 0.8, "validation": 0.1, "test": 0.1},
+        seed=42,
+        label_map=None,
+        validate_images=True,
+    )
+
+    assert payload["num_records_before_deduplication"] == 60
+    assert payload["num_duplicate_records"] == 20
+    assert payload["num_unique_records"] == 40
+    assert payload["split_overlap_counts"] == {
+        "train_validation": 0,
+        "train_test": 0,
+        "validation_test": 0,
+    }
+    assert {
+        name: split["num_records"] for name, split in payload["splits"].items()
+    } == {"train": 32, "validation": 4, "test": 4}
+    assert (output_dir / "train.csv").is_file()
+    assert (output_dir / "validation.csv").is_file()
+    assert (output_dir / "test.csv").is_file()
+    assert (output_dir / "split_summary.json").is_file()
+
+
 def test_masked_region_crop_uses_tight_padded_mask_box():
     image = np.full((12, 16, 3), 255, dtype=np.uint8)
     image[4:9, 5:11] = (255, 0, 0)
@@ -113,8 +266,7 @@ def test_attribute_dataset_and_collate_support_heterogeneous_heads(tmp_path):
     Image.new("RGB", (16, 16), "black").save(tmp_path / "b.jpg")
     csv_path = tmp_path / "labels.csv"
     csv_path.write_text(
-        "a.jpg,a_labels,yn\n"
-        "b.jpg,b_labels,nyn\n",
+        "a.jpg,a_labels,yn\n" "b.jpg,b_labels,nyn\n",
         encoding="utf-8",
     )
     records = read_fashionai_annotations(csv_path, image_root=tmp_path)
@@ -139,6 +291,38 @@ def test_multi_head_attribute_model_outputs_schema_shapes():
 
     assert outputs["collar_design_labels"].shape == (2, 3)
     assert outputs["sleeve_length_labels"].shape == (2, 4)
+
+
+def test_attribute_evaluation_reports_per_head_metrics_and_latency(tmp_path):
+    Image.new("RGB", (16, 16), "white").save(tmp_path / "a.jpg")
+    Image.new("RGB", (16, 16), "black").save(tmp_path / "b.jpg")
+    csv_path = tmp_path / "labels.csv"
+    csv_path.write_text(
+        "a.jpg,collar_design_labels,ynn\n" "b.jpg,sleeve_length_labels,nynn\n",
+        encoding="utf-8",
+    )
+    records = read_fashionai_annotations(csv_path, image_root=tmp_path)
+    dataset = FashionAIAttributeDataset(
+        records, build_fashionai_transform(32, train=False)
+    )
+    loader = DataLoader(
+        dataset,
+        batch_size=2,
+        collate_fn=collate_fashionai_attributes,
+    )
+    model = FashionAttributeClassifier(
+        _test_schema(), backbone_name="tiny_cnn", pretrained=False
+    )
+
+    metrics = run_attribute_epoch(model, loader, device=torch.device("cpu"))
+
+    assert metrics["num_records"] == 2
+    assert set(metrics["by_attribute"]) == {
+        "collar_design_labels",
+        "sleeve_length_labels",
+    }
+    assert metrics["model_inference_time_ms"] >= 0.0
+    assert metrics["avg_model_inference_time_ms"] >= 0.0
 
 
 def test_attribute_predictor_runs_mask_to_structured_predictions(tmp_path):

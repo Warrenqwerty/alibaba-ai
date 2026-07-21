@@ -1,0 +1,78 @@
+attributes:
+  skirt_length_labels:
+    values:
+      - Invisible
+      - Short Length
+      - Knee Length
+      - Midi Length
+      - Ankle Length
+      - Floor Length
+
+  coat_length_labels:
+    values:
+      - Invisible
+      - High Waist Length
+      - Regular Length
+      - Long Length
+      - Micro Length
+      - Knee Length
+      - Midi Length
+      - Ankle and Floor Length
+
+  collar_design_labels:
+    values:
+      - Invisible
+      - Shirt Collar
+      - Peter Pan
+      - Puritan Collar
+      - Rib Collar
+
+  lapel_design_labels:
+    values:
+      - Invisible
+      - Notched
+      - Collarless
+      - Shawl Collar
+      - Plus Size Shawl
+
+  neck_design_labels:
+    values:
+      - Invisible
+      - Turtle Neck
+      - Ruffle Semi-High Collar
+      - Low Turtle Neck
+      - Draped Collar
+
+  neckline_design_labels:
+    values:
+      - Invisible
+      - Strapless Neck
+      - Deep V Neckline
+      - Straight Neck
+      - V Neckline
+      - Square Neckline
+      - Off Shoulder
+      - Round Neckline
+      - Sweetheart Neck
+      - One Shoulder Neckline
+
+  pant_length_labels:
+    values:
+      - Invisible
+      - Short Pant
+      - Mid Length
+      - Three-Quarter Length
+      - Cropped Pant
+      - Full Length
+
+  sleeve_length_labels:
+    values:
+      - Invisible
+      - Sleeveless
+      - Cup Sleeves
+      - Short Sleeves
+      - Elbow Sleeves
+      - Three-Quarter Sleeves
+      - Wrist Length
+      - Long Sleeves
+      - Extra Long Sleeves
