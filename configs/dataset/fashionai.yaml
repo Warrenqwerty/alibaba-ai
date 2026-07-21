@@ -1,0 +1,11 @@
+dataset: "fashionai_attributes"
+
+fashionai_attributes:
+  # Keep these empty until the downloaded dataset layout is inspected on AutoDL.
+  # The training CLI also accepts one or more explicit --annotations paths.
+  train_annotations: []
+  validation_annotations: []
+  label_map: null
+  validation_fraction: 0.1
+  validate_images: true
+  skip_invalid_annotations: false

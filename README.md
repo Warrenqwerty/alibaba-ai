@@ -12,8 +12,9 @@ Current target:
 
 - 3.1.1 Fashion instance segmentation
 - 3.1.2 Language-guided local-region localization
+- 3.1.3 Fine-grained attribute extraction from a target-region mask
 - Input: RGB fashion image
-- Output: clothing instance masks, local-region masks, bounding boxes, category labels
+- Output: clothing instances, local-region masks, and attribute labels with confidence
 - Classes: top, pants, skirt, outerwear, dress, shoes, bag, accessory
 - Target: single-image latency <= 50 ms, mask IoU >= 0.85
 
@@ -1082,3 +1083,95 @@ experiment trains a low-dimensional linear pair reranker inside each outer
 training fold. It combines frozen independent relative scores with box
 symmetry, size, vertical alignment, side agreement, visual scalars, and expert
 pair identity; unpaired cuffs and waist records retain independent selection.
+
+## 3.1.3 Working Pipeline
+
+The first 3.1.3 milestone is a working, testable path rather than a claimed
+88% model. It accepts an RGB image plus a target-region mask and returns one
+label, confidence, and alternatives for each requested FashionAI attribute
+head. The end-to-end wrapper composes:
+
+1. 3.1.1 clothing instance segmentation.
+2. The frozen heuristic 3.1.2 local-region policy.
+3. Masked-region crop preprocessing and the 3.1.3 multi-head classifier.
+
+The FashionAI CSV schema is inferred instead of hard-coded. Each annotation
+row is expected to contain `image_path, attribute_name, y/m/n_vector`. Exactly
+one `y` is the strict target; `m` values are retained as acceptable ambiguous
+classes for diagnostics. Train/validation splitting is grouped by image so
+multiple attribute rows for the same product cannot leak across splits.
+
+First discover the downloaded AutoDL layout:
+
+```bash
+cd /root/projects/alibaba-ai
+git pull
+
+PYTHONPATH=src python scripts/data/inspect_fashionai_attributes.py \
+  --root /root/autodl-tmp/datasets/FashionAI
+```
+
+Then inspect the actual training CSV or CSVs returned by that command:
+
+```bash
+PYTHONPATH=src python scripts/data/inspect_fashionai_attributes.py \
+  --root /root/autodl-tmp/datasets/FashionAI \
+  --annotations /absolute/path/to/train_labels.csv \
+  --image-root /root/autodl-tmp/datasets/FashionAI \
+  --validate-images \
+  --output /root/autodl-tmp/outputs/fashionai_attribute_schema.json
+```
+
+The output reports record count, unique images, inferred attribute heads,
+total class values, and ambiguous annotations. Do not start full training
+until the image paths validate and the inferred schema matches the dataset
+README.
+
+Train the lightweight MobileNetV3 multi-head baseline on CUDA:
+
+```bash
+PYTHONPATH=src python scripts/train/train_fashionai_attributes.py \
+  --annotations /absolute/path/to/train_labels.csv \
+  --image-root /root/autodl-tmp/datasets/FashionAI \
+  --device cuda \
+  --output-dir /root/autodl-tmp/checkpoints/fashionai_attributes
+```
+
+If the FashionAI download includes human-readable value names, provide a YAML
+mapping with `attributes.<attribute_name>.values`. Without a label map, the
+pipeline emits stable `class_000`, `class_001`, ... labels plus class indices;
+it never invents semantic names that are absent from the data.
+
+Run 3.1.3 directly with a target mask:
+
+```bash
+PYTHONPATH=src python scripts/inference/predict_fine_grained_attributes.py \
+  product.jpg \
+  --mask target_region.png \
+  --checkpoint /root/autodl-tmp/checkpoints/fashionai_attributes/best.pt \
+  --device cuda \
+  --output /root/autodl-tmp/outputs/fashionai_attributes_sample.json
+```
+
+Run the complete visual pipeline:
+
+```bash
+PYTHONPATH=src python scripts/inference/predict_fashion_visual_pipeline.py \
+  product.jpg "这件衣服的领口" \
+  --segmentation-checkpoint \
+    /root/autodl-tmp/checkpoints/deepfashion2_6class_hard_mining/instance_segmentation/epoch_001.pt \
+  --attribute-checkpoint \
+    /root/autodl-tmp/checkpoints/fashionai_attributes/best.pt \
+  --device cuda \
+  --output /root/autodl-tmp/outputs/fashion_visual_pipeline_sample.json \
+  --mask-output /root/autodl-tmp/outputs/fashion_visual_pipeline_region.png \
+  --vis-output /root/autodl-tmp/outputs/fashion_visual_pipeline_vis.jpg
+```
+
+Current limitation: FashionAI labels are image/attribute labels, while the PRD
+inference contract uses a local-region mask. The first model is therefore a
+pipeline baseline, not proof of the 88% target. After the pipeline smoke test,
+the next evaluation must separate strict top-1 accuracy, ambiguity-aware
+accuracy, masked-region latency, and per-attribute performance. Region-aware
+training crops or predicted FashionAI garment masks should be introduced only
+after the baseline is measured.
