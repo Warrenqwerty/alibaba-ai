@@ -18,6 +18,7 @@ from fashion_mm.data_loaders import FashionAIAttributeDataset
 from fashion_mm.data_loaders import infer_fashionai_schema
 from fashion_mm.data_loaders import read_fashionai_annotations
 from fashion_mm.data_loaders import split_records_by_image
+from fashion_mm.models.attributes import build_attribute_optimizer
 from fashion_mm.models.attributes import FashionAttributeClassifier
 from fashion_mm.models.attributes import run_attribute_epoch
 from fashion_mm.utils.config import load_config
@@ -143,9 +144,14 @@ def main() -> None:
         pretrained=bool(config["model"].get("pretrained", True)),
         dropout=float(config["model"].get("dropout", 0.2)),
     ).to(device)
-    optimizer = torch.optim.AdamW(
-        model.parameters(),
-        lr=float(config["training"]["learning_rate"]),
+    learning_rate = float(config["training"]["learning_rate"])
+    backbone_learning_rate = float(
+        config["training"].get("backbone_learning_rate", learning_rate)
+    )
+    optimizer = build_attribute_optimizer(
+        model,
+        learning_rate=learning_rate,
+        backbone_learning_rate=backbone_learning_rate,
         weight_decay=float(config["training"].get("weight_decay", 0.0001)),
     )
     start_epoch = 0
@@ -171,12 +177,15 @@ def main() -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     best_accuracy = -1.0
     LOGGER.info(
-        "FashionAI records: train=%s validation=%s heads=%s values=%s input_mode=%s",
+        "FashionAI records: train=%s validation=%s heads=%s values=%s "
+        "input_mode=%s backbone_lr=%g head_lr=%g",
         len(train_records),
         len(validation_records),
         len(schema.definitions),
         sum(definition.num_classes for definition in schema.definitions),
         input_mode,
+        backbone_learning_rate,
+        learning_rate,
     )
 
     for epoch in range(start_epoch, int(config["training"]["num_epochs"])):

@@ -1203,8 +1203,26 @@ PYTHONPATH=src python scripts/train/train_fashionai_attributes.py \
 
 The checkpoint records `input_mode: full_frame`, so validation, standalone
 mask inference, and later evaluation automatically use matching white-padded
-square preprocessing. Select this experiment using validation only; do not
-evaluate the held-out test split unless it becomes the final selected model.
+square preprocessing. The observed best checkpoint was epoch 5 with validation
+strict accuracy `0.6106`, only `0.0020` above the crop baseline. Full-frame
+input improved skirt length by `0.0517` but reduced sleeve length by `0.0472`,
+so it is retained as an ablation rather than a universal replacement.
+
+The second validation-only experiment keeps the original crop input and lowers
+only the pretrained backbone learning rate. The attribute heads remain at
+`3e-4` while the backbone uses `3e-5`:
+
+```bash
+PYTHONPATH=src python scripts/train/train_fashionai_attributes.py \
+  --model-config configs/model/fashionai_attributes_low_backbone_lr.yaml \
+  --device cuda \
+  --output-dir \
+    /root/autodl-tmp/checkpoints/fashionai_attributes_low_backbone_lr \
+  > /root/autodl-tmp/outputs/fashionai_attributes_low_backbone_lr.log 2>&1
+```
+
+Select experiments using validation only; do not evaluate the held-out test
+split until a final model has been chosen.
 
 Run 3.1.3 directly with a target mask:
 

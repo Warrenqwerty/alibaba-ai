@@ -1,0 +1,31 @@
+task: "fashionai_fine_grained_attributes_low_backbone_lr"
+
+model:
+  name: "multi_head_attribute_classifier"
+  backbone: "mobilenet_v3_small"
+  pretrained: true
+  image_size: 224
+  input_mode: "crop"
+  dropout: 0.2
+
+training:
+  batch_size: 128
+  num_workers: 8
+  learning_rate: 0.0003
+  backbone_learning_rate: 0.00003
+  weight_decay: 0.0001
+  num_epochs: 10
+  label_smoothing: 0.05
+  mixed_precision: true
+  log_interval: 100
+  seed: 42
+
+inference:
+  device: "cuda"
+  top_k: 3
+  confidence_threshold: 0.0
+  mask_padding_fraction: 0.08
+
+performance_target:
+  min_accuracy: 0.88
+  max_latency_ms: 20

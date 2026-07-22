@@ -1560,3 +1560,25 @@ The first log record must contain `train=15930`, `validation=1993`, and
 `input_mode=full_frame`. Compare the best checkpoint's overall and per-head
 validation metrics against the crop baseline (`0.6086` strict accuracy). Do
 not consult `test.csv` during this comparison.
+
+The full-frame run peaked at epoch 5 with validation strict accuracy `0.6106`
+and acceptable accuracy `0.6182`. It improved coat, collar, neck, neckline,
+pant, and skirt heads, but regressed lapel by `0.0287` and sleeve by `0.0472`.
+The `0.0020` overall gain is not enough to replace the crop baseline.
+
+Run the next isolated experiment with crop preprocessing restored. Only the
+pretrained backbone learning rate changes from `3e-4` to `3e-5`; the heads and
+all other settings remain fixed:
+
+```bash
+PYTHONPATH=src python scripts/train/train_fashionai_attributes.py \
+  --model-config configs/model/fashionai_attributes_low_backbone_lr.yaml \
+  --device cuda \
+  --output-dir \
+    /root/autodl-tmp/checkpoints/fashionai_attributes_low_backbone_lr \
+  > /root/autodl-tmp/outputs/fashionai_attributes_low_backbone_lr.log 2>&1
+```
+
+The first log record must contain `input_mode=crop`, `backbone_lr=3e-05`, and
+`head_lr=0.0003`. Compare its selected checkpoint against the original crop
+baseline using validation metrics only.

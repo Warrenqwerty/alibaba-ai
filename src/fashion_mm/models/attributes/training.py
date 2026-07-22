@@ -15,6 +15,51 @@ from fashion_mm.utils.logger import get_logger
 LOGGER = get_logger(__name__)
 
 
+def build_attribute_optimizer(
+    model: FashionAttributeClassifier,
+    *,
+    learning_rate: float,
+    weight_decay: float,
+    backbone_learning_rate: float | None = None,
+) -> torch.optim.AdamW:
+    """Build AdamW with an optional lower rate for the pretrained backbone."""
+    if learning_rate <= 0.0:
+        raise ValueError("learning_rate must be positive.")
+    if backbone_learning_rate is not None and backbone_learning_rate <= 0.0:
+        raise ValueError("backbone_learning_rate must be positive when provided.")
+    if weight_decay < 0.0:
+        raise ValueError("weight_decay cannot be negative.")
+
+    effective_backbone_rate = (
+        backbone_learning_rate
+        if backbone_learning_rate is not None
+        else learning_rate
+    )
+    if effective_backbone_rate == learning_rate:
+        return torch.optim.AdamW(
+            model.parameters(),
+            lr=learning_rate,
+            weight_decay=weight_decay,
+        )
+
+    return torch.optim.AdamW(
+        [
+            {
+                "name": "backbone",
+                "params": model.backbone.parameters(),
+                "lr": effective_backbone_rate,
+            },
+            {
+                "name": "heads",
+                "params": model.heads.parameters(),
+                "lr": learning_rate,
+            },
+        ],
+        lr=learning_rate,
+        weight_decay=weight_decay,
+    )
+
+
 def run_attribute_epoch(
     model: FashionAttributeClassifier,
     loader: DataLoader,

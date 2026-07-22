@@ -22,6 +22,7 @@ from fashion_mm.data_loaders import split_records_by_image
 from fashion_mm.data_loaders import stratified_split_records
 from fashion_mm.models.attributes import FashionAttributeClassifier
 from fashion_mm.models.attributes import FashionAttributePredictor
+from fashion_mm.models.attributes import build_attribute_optimizer
 from fashion_mm.models.attributes import prepare_masked_region
 from fashion_mm.models.attributes import run_attribute_epoch
 from fashion_mm.models.instance_segmentation import FashionInstance
@@ -322,6 +323,37 @@ def test_multi_head_attribute_model_outputs_schema_shapes():
 
     assert outputs["collar_design_labels"].shape == (2, 3)
     assert outputs["sleeve_length_labels"].shape == (2, 4)
+
+
+def test_attribute_optimizer_supports_separate_backbone_learning_rate():
+    model = FashionAttributeClassifier(
+        _test_schema(), backbone_name="tiny_cnn", pretrained=False
+    )
+
+    legacy = build_attribute_optimizer(
+        model,
+        learning_rate=3e-4,
+        weight_decay=1e-4,
+    )
+    differential = build_attribute_optimizer(
+        model,
+        learning_rate=3e-4,
+        backbone_learning_rate=3e-5,
+        weight_decay=1e-4,
+    )
+
+    assert len(legacy.param_groups) == 1
+    assert [group["name"] for group in differential.param_groups] == [
+        "backbone",
+        "heads",
+    ]
+    assert [group["lr"] for group in differential.param_groups] == [3e-5, 3e-4]
+    grouped_parameters = {
+        id(parameter)
+        for group in differential.param_groups
+        for parameter in group["params"]
+    }
+    assert grouped_parameters == {id(parameter) for parameter in model.parameters()}
 
 
 def test_attribute_evaluation_reports_per_head_metrics_and_latency(tmp_path):

@@ -138,7 +138,7 @@ software path operational.
   satisfy the later 88% quality target. Future tuning must use the fixed
   validation split rather than repeatedly consulting the test split.
 
-## Next Controlled Experiment
+## Controlled Accuracy Experiments
 
 The training class distributions are not severely skewed: the largest class
 within each head represents only `0.1492` to `0.2824` of its records. The more
@@ -146,10 +146,19 @@ immediate issue is the `0.2112` train/validation gap and an augmentation policy
 that can crop away the exact garment regions needed for neckline, sleeve, and
 length labels.
 
-Train `configs/model/fashionai_attributes_full_frame.yaml` as the first
-validation-only ablation. It replaces crop-based geometry with centered white
-padding plus square resize while retaining MobileNetV3-small, image size 224,
-optimizer settings, seed 42, 10 epochs, and the same manifests. The input mode
-is stored in each checkpoint and reused automatically by evaluation and
-inference. Compare against validation strict accuracy `0.6086`; keep the test
-split closed until a final model is selected.
+The first validation-only ablation used
+`configs/model/fashionai_attributes_full_frame.yaml`. It replaced crop-based
+geometry with centered white padding plus square resize while retaining every
+other setting. It peaked at epoch 5 with strict accuracy `0.6106`, a `0.0020`
+gain. The per-head result was mixed: skirt length gained `0.0517`, while sleeve
+length lost `0.0472` and lapel design lost `0.0287`. Keep this checkpoint as
+evidence that global length heads benefit from full-frame context, but do not
+promote it as the default model.
+
+The next experiment uses
+`configs/model/fashionai_attributes_low_backbone_lr.yaml`. It restores the
+baseline crop input and changes only the pretrained backbone learning rate from
+`3e-4` to `3e-5`; attribute heads remain at `3e-4`. The legacy config continues
+to build one optimizer parameter group, while this experiment uses explicit
+backbone and head groups. Compare its selected checkpoint against validation
+strict accuracy `0.6086`, and keep the test split closed.
