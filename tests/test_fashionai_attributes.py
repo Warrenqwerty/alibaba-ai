@@ -27,6 +27,8 @@ from fashion_mm.models.attributes import run_attribute_epoch
 from fashion_mm.models.instance_segmentation import FashionInstance
 from fashion_mm.models.instance_segmentation import SegmentationResult
 from fashion_mm.pipelines import FashionVisualPipeline
+from fashion_mm.utils.latency import percentile
+from fashion_mm.utils.latency import summarize_timings
 
 
 def test_parse_fashionai_label_preserves_probable_classes():
@@ -429,6 +431,24 @@ def test_fashion_visual_pipeline_runs_all_three_prd_stages(tmp_path):
     assert payload["local_region"]["query"]["region"] == "neckline"
     assert payload["local_region"]["region"]["box"] is not None
     assert len(payload["attribute_extraction"]["attributes"]) == 2
+
+
+def test_attribute_latency_summary_uses_interpolated_p95():
+    timings = [1.0, 2.0, 3.0, 4.0]
+
+    assert percentile(timings, 0.0) == 1.0
+    assert percentile(timings, 1.0) == 4.0
+    assert summarize_timings(timings) == {
+        "mean": 2.5,
+        "median": 2.5,
+        "p95": 3.85,
+        "max": 4.0,
+    }
+
+
+def test_attribute_latency_summary_rejects_empty_values():
+    with pytest.raises(ValueError, match="empty timing sequence"):
+        summarize_timings([])
 
 
 def _test_schema() -> FashionAIAttributeSchema:

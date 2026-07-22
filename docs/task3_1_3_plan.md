@@ -83,6 +83,8 @@ group plus strict class.
 - Verify `best.pt` can load without downloading another backbone.
 - Run standalone mask inference and the complete visual pipeline on one image.
 - Confirm JSON, mask, visualization, and latency fields are present.
+- Benchmark one resident predictor after warmup and report wall-time p95, not
+  the first-call CUDA startup time.
 
 ### Gate C: Model quality
 
@@ -119,3 +121,19 @@ The first milestone is complete when a real AutoDL command produces:
 
 The 88% PRD metric is a later quality gate, not a prerequisite for calling the
 software path operational.
+
+## 2026-07-22 AutoDL Baseline
+
+- Training used 15,930 stratified records and validation used 1,993 records.
+- Validation strict accuracy peaked at `0.6086` on epoch 8.
+- The untouched 1,993-record test split reached strict accuracy `0.6071` and
+  ambiguity-aware accuracy `0.6147`.
+- Per-head strict accuracy ranged from `0.4965` for `neck_design_labels` to
+  `0.6943` for `pant_length_labels`.
+- The standalone image-plus-mask result matched the integrated
+  3.1.1 -> 3.1.2 -> 3.1.3 result exactly for the requested heads.
+- On RTX 5090, 10 warmup runs plus 30 measured runs produced wall-time p95
+  `15.945 ms`, max `18.955 ms`, and model-only mean `2.484 ms` for all 8 heads.
+- The baseline satisfies the 20 ms steady-state extraction target but does not
+  satisfy the later 88% quality target. Future tuning must use the fixed
+  validation split rather than repeatedly consulting the test split.

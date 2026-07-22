@@ -1521,3 +1521,24 @@ PYTHONPATH=src python scripts/eval/evaluate_fashionai_attributes.py \
   --device cuda \
   --output /root/autodl-tmp/outputs/fashionai_attributes_test_eval.json
 ```
+
+Measure warm single-image extraction latency with one resident predictor. This
+includes loading the image and mask, preprocessing, all attribute heads, and
+decoding in the wall-time result:
+
+```bash
+PYTHONPATH=src python scripts/eval/benchmark_fashionai_attribute_latency.py \
+  /root/autodl-tmp/datasets/DeepFashion2/validation/image/000001.jpg \
+  --mask /root/autodl-tmp/outputs/fashion_visual_pipeline_region.png \
+  --checkpoint /root/autodl-tmp/checkpoints/fashionai_attributes/best.pt \
+  --device cuda \
+  --warmup-runs 10 \
+  --runs 30 \
+  --target-ms 20 \
+  --output /root/autodl-tmp/outputs/fashionai_attributes_latency.json
+```
+
+The 2026-07-22 RTX 5090 baseline measured wall-time p95 `15.945 ms`, maximum
+`18.955 ms`, and model-only mean `2.484 ms`, so both p95 and the observed
+maximum passed the 20 ms target. A fresh process can be much slower on its
+first CUDA call and must not be presented as steady-state extraction latency.

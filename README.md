@@ -1169,6 +1169,26 @@ This reports strict top-1, ambiguity-aware top-1, per-attribute accuracy, and
 batched CUDA model latency. It remains separate from single-sample end-to-end
 pipeline latency.
 
+Benchmark the resident model on the image-plus-mask contract after CUDA warmup:
+
+```bash
+PYTHONPATH=src python scripts/eval/benchmark_fashionai_attribute_latency.py \
+  /root/autodl-tmp/datasets/DeepFashion2/validation/image/000001.jpg \
+  --mask /root/autodl-tmp/outputs/fashion_visual_pipeline_region.png \
+  --checkpoint /root/autodl-tmp/checkpoints/fashionai_attributes/best.pt \
+  --device cuda \
+  --warmup-runs 10 \
+  --runs 30 \
+  --target-ms 20 \
+  --output /root/autodl-tmp/outputs/fashionai_attributes_latency.json
+```
+
+The benchmark keeps one predictor resident and includes file loading, masked
+crop preprocessing, model execution, and decoding in `wall_total_ms`. On the
+AutoDL RTX 5090 baseline, all 8 heads reached wall-time p95 `15.945 ms` and max
+`18.955 ms`; model-only mean was `2.484 ms`. Cold process startup is reported
+separately from this steady-state service metric.
+
 Run 3.1.3 directly with a target mask:
 
 ```bash
