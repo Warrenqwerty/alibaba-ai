@@ -160,5 +160,14 @@ The next experiment uses
 baseline crop input and changes only the pretrained backbone learning rate from
 `3e-4` to `3e-5`; attribute heads remain at `3e-4`. The legacy config continues
 to build one optimizer parameter group, while this experiment uses explicit
-backbone and head groups. Compare its selected checkpoint against validation
-strict accuracy `0.6086`, and keep the test split closed.
+backbone and head groups. It reached only `0.5610` validation strict accuracy
+at epoch 10, `0.0476` below baseline, and is rejected as underfit within the
+fixed training budget.
+
+The third experiment uses `configs/model/fashionai_attributes_cosine.yaml`.
+It restores the baseline's shared `3e-4` learning rate and changes only its
+epoch-level schedule, applying cosine decay to `3e-6` over 10 epochs. This
+tests whether fast early transfer plus a gentler late update avoids the fixed
+rate model's post-epoch-8 validation decline. Scheduler state is checkpointed
+and restored explicitly. Compare its selected checkpoint against `0.6086`
+using validation only, and keep the test split closed.

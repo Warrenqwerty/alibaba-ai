@@ -19,6 +19,7 @@ from fashion_mm.data_loaders import infer_fashionai_schema
 from fashion_mm.data_loaders import read_fashionai_annotations
 from fashion_mm.data_loaders import split_records_by_image
 from fashion_mm.models.attributes import build_attribute_optimizer
+from fashion_mm.models.attributes import build_attribute_scheduler
 from fashion_mm.models.attributes import FashionAttributeClassifier
 from fashion_mm.models.attributes import run_attribute_epoch
 from fashion_mm.utils.config import load_config
@@ -154,6 +155,12 @@ def main() -> None:
         backbone_learning_rate=backbone_learning_rate,
         weight_decay=float(config["training"].get("weight_decay", 0.0001)),
     )
+    num_epochs = int(config["training"]["num_epochs"])
+    scheduler = build_attribute_scheduler(
+        optimizer,
+        scheduler_config=config["training"].get("scheduler"),
+        num_epochs=num_epochs,
+    )
     start_epoch = 0
     if args.resume:
         checkpoint = torch.load(args.resume, map_location="cpu")
@@ -165,6 +172,13 @@ def main() -> None:
         model.load_state_dict(checkpoint["model_state_dict"])
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         start_epoch = int(checkpoint.get("epoch", 0))
+        if scheduler is not None:
+            scheduler_state = checkpoint.get("scheduler_state_dict")
+            if scheduler_state is None:
+                raise ValueError(
+                    "Resume checkpoint does not contain scheduler state."
+                )
+            scheduler.load_state_dict(scheduler_state)
         LOGGER.info("Resumed 3.1.3 checkpoint: %s", args.resume)
 
     use_amp = (
@@ -178,7 +192,7 @@ def main() -> None:
     best_accuracy = -1.0
     LOGGER.info(
         "FashionAI records: train=%s validation=%s heads=%s values=%s "
-        "input_mode=%s backbone_lr=%g head_lr=%g",
+        "input_mode=%s backbone_lr=%g head_lr=%g scheduler=%s",
         len(train_records),
         len(validation_records),
         len(schema.definitions),
@@ -186,9 +200,13 @@ def main() -> None:
         input_mode,
         backbone_learning_rate,
         learning_rate,
+        type(scheduler).__name__ if scheduler is not None else "none",
     )
 
-    for epoch in range(start_epoch, int(config["training"]["num_epochs"])):
+    for epoch in range(start_epoch, num_epochs):
+        epoch_learning_rates = [
+            float(group["lr"]) for group in optimizer.param_groups
+        ]
         train_metrics = run_attribute_epoch(
             model,
             train_loader,
@@ -204,18 +222,26 @@ def main() -> None:
             else train_metrics
         )
         LOGGER.info(
-            "epoch=%s train_loss=%.4f train_acc=%.4f val_acc=%.4f val_acceptable=%.4f",
+            "epoch=%s train_loss=%.4f train_acc=%.4f val_acc=%.4f "
+            "val_acceptable=%.4f learning_rates=%s",
             epoch + 1,
             train_metrics["loss"],
             train_metrics["strict_accuracy"],
             validation_metrics["strict_accuracy"],
             validation_metrics["acceptable_accuracy"],
+            ",".join(f"{rate:.6g}" for rate in epoch_learning_rates),
         )
+
+        if scheduler is not None:
+            scheduler.step()
 
         checkpoint_payload = {
             "epoch": epoch + 1,
             "model_state_dict": model.state_dict(),
             "optimizer_state_dict": optimizer.state_dict(),
+            "scheduler_state_dict": (
+                scheduler.state_dict() if scheduler is not None else None
+            ),
             "schema": schema.to_dict(),
             "model_config": {
                 "backbone": model.backbone_name,

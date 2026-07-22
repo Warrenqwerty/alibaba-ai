@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Mapping
 from time import perf_counter
 from typing import Any
 
@@ -58,6 +59,41 @@ def build_attribute_optimizer(
         lr=learning_rate,
         weight_decay=weight_decay,
     )
+
+
+def build_attribute_scheduler(
+    optimizer: torch.optim.Optimizer,
+    *,
+    scheduler_config: Mapping[str, Any] | None,
+    num_epochs: int,
+) -> torch.optim.lr_scheduler.LRScheduler | None:
+    """Build an optional epoch-level learning-rate scheduler."""
+    if scheduler_config is None:
+        return None
+    if not isinstance(scheduler_config, Mapping):
+        raise ValueError("scheduler configuration must be a mapping.")
+    if not scheduler_config:
+        return None
+    name = str(scheduler_config.get("name", "none")).strip().lower()
+    if name in {"", "none"}:
+        return None
+    if num_epochs <= 0:
+        raise ValueError("num_epochs must be positive when using a scheduler.")
+    if name == "cosine":
+        minimum_rate = float(scheduler_config.get("min_learning_rate", 0.0))
+        if minimum_rate < 0.0:
+            raise ValueError("min_learning_rate cannot be negative.")
+        initial_rates = [float(group["lr"]) for group in optimizer.param_groups]
+        if minimum_rate >= min(initial_rates):
+            raise ValueError(
+                "min_learning_rate must be below every optimizer learning rate."
+            )
+        return torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer,
+            T_max=num_epochs,
+            eta_min=minimum_rate,
+        )
+    raise ValueError(f"Unsupported attribute scheduler: {name!r}.")
 
 
 def run_attribute_epoch(

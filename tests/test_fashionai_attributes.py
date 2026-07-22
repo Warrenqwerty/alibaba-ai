@@ -23,6 +23,7 @@ from fashion_mm.data_loaders import stratified_split_records
 from fashion_mm.models.attributes import FashionAttributeClassifier
 from fashion_mm.models.attributes import FashionAttributePredictor
 from fashion_mm.models.attributes import build_attribute_optimizer
+from fashion_mm.models.attributes import build_attribute_scheduler
 from fashion_mm.models.attributes import prepare_masked_region
 from fashion_mm.models.attributes import run_attribute_epoch
 from fashion_mm.models.instance_segmentation import FashionInstance
@@ -354,6 +355,62 @@ def test_attribute_optimizer_supports_separate_backbone_learning_rate():
         for parameter in group["params"]
     }
     assert grouped_parameters == {id(parameter) for parameter in model.parameters()}
+
+
+def test_attribute_scheduler_supports_opt_in_cosine_decay():
+    model = FashionAttributeClassifier(
+        _test_schema(), backbone_name="tiny_cnn", pretrained=False
+    )
+    optimizer = build_attribute_optimizer(
+        model,
+        learning_rate=3e-4,
+        weight_decay=1e-4,
+    )
+
+    disabled = build_attribute_scheduler(
+        optimizer,
+        scheduler_config=None,
+        num_epochs=10,
+    )
+    cosine = build_attribute_scheduler(
+        optimizer,
+        scheduler_config={"name": "cosine", "min_learning_rate": 3e-6},
+        num_epochs=10,
+    )
+
+    assert disabled is None
+    assert isinstance(cosine, torch.optim.lr_scheduler.CosineAnnealingLR)
+    assert cosine.T_max == 10
+    assert cosine.eta_min == 3e-6
+    for _ in range(10):
+        optimizer.step()
+        cosine.step()
+    assert optimizer.param_groups[0]["lr"] == pytest.approx(3e-6)
+
+
+def test_attribute_scheduler_rejects_unknown_name():
+    model = FashionAttributeClassifier(
+        _test_schema(), backbone_name="tiny_cnn", pretrained=False
+    )
+    optimizer = build_attribute_optimizer(
+        model,
+        learning_rate=3e-4,
+        weight_decay=1e-4,
+    )
+
+    with pytest.raises(ValueError, match="Unsupported attribute scheduler"):
+        build_attribute_scheduler(
+            optimizer,
+            scheduler_config={"name": "mystery"},
+            num_epochs=10,
+        )
+
+    with pytest.raises(ValueError, match="must be a mapping"):
+        build_attribute_scheduler(
+            optimizer,
+            scheduler_config="cosine",  # type: ignore[arg-type]
+            num_epochs=10,
+        )
 
 
 def test_attribute_evaluation_reports_per_head_metrics_and_latency(tmp_path):

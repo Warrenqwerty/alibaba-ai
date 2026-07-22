@@ -7,12 +7,14 @@ from fashion_mm.models.attributes.result import AttributeExtractionResult
 from fashion_mm.models.attributes.result import AttributeValuePrediction
 from fashion_mm.models.attributes.result import FineGrainedAttributePrediction
 from fashion_mm.models.attributes.training import build_attribute_optimizer
+from fashion_mm.models.attributes.training import build_attribute_scheduler
 from fashion_mm.models.attributes.training import run_attribute_epoch
 
 __all__ = [
     "AttributeExtractionResult",
     "AttributeValuePrediction",
     "build_attribute_optimizer",
+    "build_attribute_scheduler",
     "FashionAttributeClassifier",
     "FashionAttributePredictor",
     "FineGrainedAttributePrediction",

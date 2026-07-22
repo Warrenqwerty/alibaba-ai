@@ -1222,7 +1222,23 @@ PYTHONPATH=src python scripts/train/train_fashionai_attributes.py \
 ```
 
 Select experiments using validation only; do not evaluate the held-out test
-split until a final model has been chosen.
+split until a final model has been chosen. The low-backbone-rate run reached
+only `0.5610` validation strict accuracy at epoch 10, `0.0476` below baseline,
+so it is rejected as underfit within the fixed budget.
+
+The third experiment restores one `3e-4` optimizer rate and applies cosine
+decay to `3e-6` over the same 10 epochs:
+
+```bash
+PYTHONPATH=src python scripts/train/train_fashionai_attributes.py \
+  --model-config configs/model/fashionai_attributes_cosine.yaml \
+  --device cuda \
+  --output-dir /root/autodl-tmp/checkpoints/fashionai_attributes_cosine \
+  > /root/autodl-tmp/outputs/fashionai_attributes_cosine.log 2>&1
+```
+
+Scheduler state is saved in every checkpoint so a resumed run preserves its
+learning-rate trajectory.
 
 Run 3.1.3 directly with a target mask:
 

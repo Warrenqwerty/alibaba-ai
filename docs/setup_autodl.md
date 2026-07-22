@@ -1582,3 +1582,23 @@ PYTHONPATH=src python scripts/train/train_fashionai_attributes.py \
 The first log record must contain `input_mode=crop`, `backbone_lr=3e-05`, and
 `head_lr=0.0003`. Compare its selected checkpoint against the original crop
 baseline using validation metrics only.
+
+The low-backbone-rate run was still improving at epoch 10 but reached only
+`0.5610` validation strict accuracy, `0.0476` below baseline. At a comparable
+training accuracy it also trailed the baseline, so do not extend or evaluate
+this checkpoint on the test split.
+
+Run the third controlled experiment with the baseline `3e-4` optimizer rate
+restored and cosine decay to `3e-6` over the same 10 epochs:
+
+```bash
+PYTHONPATH=src python scripts/train/train_fashionai_attributes.py \
+  --model-config configs/model/fashionai_attributes_cosine.yaml \
+  --device cuda \
+  --output-dir /root/autodl-tmp/checkpoints/fashionai_attributes_cosine \
+  > /root/autodl-tmp/outputs/fashionai_attributes_cosine.log 2>&1
+```
+
+The first log record must contain `backbone_lr=0.0003`, `head_lr=0.0003`, and
+`scheduler=CosineAnnealingLR`. Epoch records include the rate used for that
+epoch, and every checkpoint stores scheduler state for exact resume behavior.
