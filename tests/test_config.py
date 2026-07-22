@@ -97,6 +97,21 @@ def test_fashionai_resnet18_cosine_config_changes_only_scheduler():
     assert candidate["performance_target"] == baseline["performance_target"]
 
 
+def test_fashionai_resnet50_cosine_config_changes_only_backbone():
+    baseline = load_config(
+        ROOT / "configs/model/fashionai_attributes_resnet18_cosine.yaml"
+    )
+    candidate = load_config(
+        ROOT / "configs/model/fashionai_attributes_resnet50_cosine.yaml"
+    )
+
+    expected_model = {**baseline["model"], "backbone": "resnet50"}
+    assert candidate["model"] == expected_model
+    assert candidate["training"] == baseline["training"]
+    assert candidate["inference"] == baseline["inference"]
+    assert candidate["performance_target"] == baseline["performance_target"]
+
+
 def test_local_paths_config_points_to_repo_data_dir():
     config = load_config(ROOT / "configs/paths.yaml")
 

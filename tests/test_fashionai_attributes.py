@@ -326,9 +326,10 @@ def test_multi_head_attribute_model_outputs_schema_shapes():
     assert outputs["sleeve_length_labels"].shape == (2, 4)
 
 
-def test_resnet18_attribute_model_outputs_schema_shapes():
+@pytest.mark.parametrize("backbone_name", ["resnet18", "resnet50"])
+def test_resnet_attribute_model_outputs_schema_shapes(backbone_name: str):
     model = FashionAttributeClassifier(
-        _test_schema(), backbone_name="resnet18", pretrained=False
+        _test_schema(), backbone_name=backbone_name, pretrained=False
     ).eval()
 
     with torch.inference_mode():

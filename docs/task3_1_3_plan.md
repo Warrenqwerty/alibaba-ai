@@ -212,3 +212,19 @@ winning ResNet-18 architecture and every data, preprocessing, optimizer, seed,
 and budget setting, adding only the previously verified cosine schedule from
 `3e-4` to `3e-6`. Select it against the fixed-rate ResNet-18 result of `0.6884`
 using validation only.
+
+ResNet-18 with cosine decay peaked at epoch 9 with validation strict accuracy
+`0.7105` and ambiguity-aware accuracy `0.7220`. It improved every head over the
+fixed-rate checkpoint, led by neck design (`+0.0571`) and skirt length
+(`+0.0474`). Its train/validation strict gap is `0.2711`, so overfitting remains
+an explicit limitation. The formal RTX 5090 benchmark measured wall-time p95
+`13.960 ms`, maximum `19.627 ms`, and model-only mean `1.512 ms`; both latency
+checks pass.
+
+The sixth experiment uses
+`configs/model/fashionai_attributes_resnet50_cosine.yaml`. It changes only the
+backbone from ResNet-18 to ResNet-50 while retaining the winning cosine
+schedule and all data, preprocessing, optimizer, seed, and budget settings.
+The extra capacity is eligible only if validation strict accuracy exceeds
+`0.7105` and the selected checkpoint independently passes the 20 ms resident
+image-plus-mask latency gate. Keep `test.csv` closed during this comparison.

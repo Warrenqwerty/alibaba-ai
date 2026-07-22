@@ -4,8 +4,10 @@ import torch
 from torch import nn
 from torchvision.models import MobileNet_V3_Small_Weights
 from torchvision.models import ResNet18_Weights
+from torchvision.models import ResNet50_Weights
 from torchvision.models import mobilenet_v3_small
 from torchvision.models import resnet18
+from torchvision.models import resnet50
 
 from fashion_mm.data_loaders.fashionai_attributes import FashionAIAttributeSchema
 
@@ -75,6 +77,13 @@ def _build_backbone(
     if backbone_name == "resnet18":
         weights = ResNet18_Weights.DEFAULT if pretrained else None
         backbone = resnet18(weights=weights)
+        feature_dim = int(backbone.fc.in_features)
+        backbone.fc = nn.Identity()
+        return backbone, feature_dim
+
+    if backbone_name == "resnet50":
+        weights = ResNet50_Weights.DEFAULT if pretrained else None
+        backbone = resnet50(weights=weights)
         feature_dim = int(backbone.fc.in_features)
         backbone.fc = nn.Identity()
         return backbone, feature_dim

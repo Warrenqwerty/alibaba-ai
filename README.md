@@ -1280,6 +1280,28 @@ The first log record must show equal backbone and head rates of `0.0003` and
 `scheduler=CosineAnnealingLR`. Compare its selected checkpoint with `0.6884`
 on validation only.
 
+ResNet-18 with cosine decay peaked at epoch 9 with validation strict accuracy
+`0.7105` and ambiguity-aware accuracy `0.7220`, improving the fixed-rate model
+by `0.0221`. All eight heads improved. Its formal latency benchmark reached
+wall-time p95 `13.960 ms`, max `19.627 ms`, and model-only mean `1.512 ms`, so
+both latency checks pass. It is the current eligible validation champion, with
+the held-out test split still closed.
+
+The remaining latency margin supports one controlled capacity experiment.
+Keep the winning schedule and change only ResNet-18 to ResNet-50:
+
+```bash
+PYTHONPATH=src python scripts/train/train_fashionai_attributes.py \
+  --model-config configs/model/fashionai_attributes_resnet50_cosine.yaml \
+  --device cuda \
+  --output-dir \
+    /root/autodl-tmp/checkpoints/fashionai_attributes_resnet50_cosine \
+  > /root/autodl-tmp/outputs/fashionai_attributes_resnet50_cosine.log 2>&1
+```
+
+Select this run against `0.7105` using validation only. If it wins, it must
+pass the same resident image-plus-mask latency benchmark before promotion.
+
 Run 3.1.3 directly with a target mask:
 
 ```bash

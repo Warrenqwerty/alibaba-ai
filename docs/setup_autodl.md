@@ -1647,3 +1647,26 @@ PYTHONPATH=src python scripts/train/train_fashionai_attributes.py \
 The first log record must contain `backbone_lr=0.0003`,
 `head_lr=0.0003`, and `scheduler=CosineAnnealingLR`. Compare the selected
 checkpoint against `0.6884` using validation only and keep `test.csv` closed.
+
+The ResNet-18 cosine run peaked at epoch 9 with validation strict accuracy
+`0.7105` and acceptable accuracy `0.7220`, improving all eight heads over the
+fixed-rate checkpoint. Its formal resident benchmark measured wall-time p95
+`13.960 ms`, maximum `19.627 ms`, and model-only mean `1.512 ms`; both latency
+checks passed.
+
+Use the remaining latency margin for one isolated capacity comparison. This
+changes only ResNet-18 to ResNet-50 while retaining the cosine schedule and all
+other settings:
+
+```bash
+PYTHONPATH=src python scripts/train/train_fashionai_attributes.py \
+  --model-config configs/model/fashionai_attributes_resnet50_cosine.yaml \
+  --device cuda \
+  --output-dir \
+    /root/autodl-tmp/checkpoints/fashionai_attributes_resnet50_cosine \
+  > /root/autodl-tmp/outputs/fashionai_attributes_resnet50_cosine.log 2>&1
+```
+
+Compare the selected checkpoint against `0.7105` on validation only. If it
+wins, run the formal latency benchmark before promotion. Do not evaluate
+`test.csv` during model selection.
