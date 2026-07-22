@@ -171,3 +171,16 @@ tests whether fast early transfer plus a gentler late update avoids the fixed
 rate model's post-epoch-8 validation decline. Scheduler state is checkpointed
 and restored explicitly. Compare its selected checkpoint against `0.6086`
 using validation only, and keep the test split closed.
+
+The cosine model peaked at epoch 9 with validation strict accuracy `0.6101`.
+Selecting full-frame for coat/neck/pant/skirt, cosine for
+collar/lapel/neckline, and crop for sleeve yields a per-head validation oracle
+of `0.6287`. This is useful evidence that heads prefer different visual
+context, but a three-checkpoint router is deferred because it adds model memory
+and repeated encodings while remaining far below the quality target.
+
+The fourth experiment uses `configs/model/fashionai_attributes_resnet18.yaml`.
+It changes only the backbone from MobileNetV3-small to ResNet-18 and retains the
+baseline crop, fixed `3e-4` learning rate, seed, and 10-epoch budget. Select it
+on validation first; only a winning checkpoint proceeds to a separate
+steady-state latency benchmark.

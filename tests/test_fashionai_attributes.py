@@ -326,6 +326,18 @@ def test_multi_head_attribute_model_outputs_schema_shapes():
     assert outputs["sleeve_length_labels"].shape == (2, 4)
 
 
+def test_resnet18_attribute_model_outputs_schema_shapes():
+    model = FashionAttributeClassifier(
+        _test_schema(), backbone_name="resnet18", pretrained=False
+    ).eval()
+
+    with torch.inference_mode():
+        outputs = model(torch.zeros((1, 3, 64, 64)))
+
+    assert outputs["collar_design_labels"].shape == (1, 3)
+    assert outputs["sleeve_length_labels"].shape == (1, 4)
+
+
 def test_attribute_optimizer_supports_separate_backbone_learning_rate():
     model = FashionAttributeClassifier(
         _test_schema(), backbone_name="tiny_cnn", pretrained=False

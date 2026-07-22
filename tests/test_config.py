@@ -63,6 +63,19 @@ def test_deepfashion2_config_uses_only_available_dataset_classes():
     }
 
 
+def test_fashionai_resnet18_config_changes_only_backbone():
+    baseline = load_config(ROOT / "configs/model/fashionai_attributes.yaml")
+    candidate = load_config(
+        ROOT / "configs/model/fashionai_attributes_resnet18.yaml"
+    )
+
+    expected_model = {**baseline["model"], "backbone": "resnet18"}
+    assert candidate["model"] == expected_model
+    assert candidate["training"] == baseline["training"]
+    assert candidate["inference"] == baseline["inference"]
+    assert candidate["performance_target"] == baseline["performance_target"]
+
+
 def test_local_paths_config_points_to_repo_data_dir():
     config = load_config(ROOT / "configs/paths.yaml")
 

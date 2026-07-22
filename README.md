@@ -1238,7 +1238,22 @@ PYTHONPATH=src python scripts/train/train_fashionai_attributes.py \
 ```
 
 Scheduler state is saved in every checkpoint so a resumed run preserves its
-learning-rate trajectory.
+learning-rate trajectory. The cosine run peaked at epoch 9 with validation
+strict accuracy `0.6101`, effectively tied with the crop and full-frame runs.
+
+Choosing the best existing checkpoint independently for each head gives a
+validation-only oracle of `0.6287`, but requires three resident models and
+multiple encodings. Keep it as a diagnostic rather than violating the latency
+contract. The next single-model experiment changes only the backbone to
+ResNet-18:
+
+```bash
+PYTHONPATH=src python scripts/train/train_fashionai_attributes.py \
+  --model-config configs/model/fashionai_attributes_resnet18.yaml \
+  --device cuda \
+  --output-dir /root/autodl-tmp/checkpoints/fashionai_attributes_resnet18 \
+  > /root/autodl-tmp/outputs/fashionai_attributes_resnet18.log 2>&1
+```
 
 Run 3.1.3 directly with a target mask:
 

@@ -1602,3 +1602,23 @@ PYTHONPATH=src python scripts/train/train_fashionai_attributes.py \
 The first log record must contain `backbone_lr=0.0003`, `head_lr=0.0003`, and
 `scheduler=CosineAnnealingLR`. Epoch records include the rate used for that
 epoch, and every checkpoint stores scheduler state for exact resume behavior.
+
+The cosine run peaked at epoch 9 with strict accuracy `0.6101` and acceptable
+accuracy `0.6157`. A per-head choice among crop, full-frame, and cosine reaches
+a validation oracle of `0.6287`, but needs all three checkpoints and is not an
+acceptable latency-sensitive deployment path.
+
+Run a single-model backbone comparison next. This config changes only
+MobileNetV3-small to ResNet-18; preprocessing, optimizer, seed, epochs, and
+manifests remain identical to the baseline:
+
+```bash
+PYTHONPATH=src python scripts/train/train_fashionai_attributes.py \
+  --model-config configs/model/fashionai_attributes_resnet18.yaml \
+  --device cuda \
+  --output-dir /root/autodl-tmp/checkpoints/fashionai_attributes_resnet18 \
+  > /root/autodl-tmp/outputs/fashionai_attributes_resnet18.log 2>&1
+```
+
+Select it using validation metrics first. If it wins, benchmark its resident
+image-plus-mask latency before considering it eligible for final selection.
