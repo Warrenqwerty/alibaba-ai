@@ -1255,6 +1255,31 @@ PYTHONPATH=src python scripts/train/train_fashionai_attributes.py \
   > /root/autodl-tmp/outputs/fashionai_attributes_resnet18.log 2>&1
 ```
 
+ResNet-18 peaked at epoch 6 with validation strict accuracy `0.6884` and
+ambiguity-aware accuracy `0.6974`, improving the MobileNetV3-small baseline by
+`0.0798`. It improved all eight heads; the largest gains were neckline design
+(`+0.1265`) and sleeve length (`+0.1268`). Its resident image-plus-mask
+benchmark also passed the deployment gate with wall-time p95 `15.043 ms`, max
+`16.705 ms`, and model-only mean `1.584 ms`. ResNet-18 is therefore the current
+eligible validation champion, although it remains below the later 88% quality
+target. Keep the held-out test split closed while tuning continues.
+
+The next controlled run retains the winning ResNet-18 model and changes only
+the learning-rate schedule to cosine decay:
+
+```bash
+PYTHONPATH=src python scripts/train/train_fashionai_attributes.py \
+  --model-config configs/model/fashionai_attributes_resnet18_cosine.yaml \
+  --device cuda \
+  --output-dir \
+    /root/autodl-tmp/checkpoints/fashionai_attributes_resnet18_cosine \
+  > /root/autodl-tmp/outputs/fashionai_attributes_resnet18_cosine.log 2>&1
+```
+
+The first log record must show equal backbone and head rates of `0.0003` and
+`scheduler=CosineAnnealingLR`. Compare its selected checkpoint with `0.6884`
+on validation only.
+
 Run 3.1.3 directly with a target mask:
 
 ```bash

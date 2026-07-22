@@ -184,3 +184,31 @@ It changes only the backbone from MobileNetV3-small to ResNet-18 and retains the
 baseline crop, fixed `3e-4` learning rate, seed, and 10-epoch budget. Select it
 on validation first; only a winning checkpoint proceeds to a separate
 steady-state latency benchmark.
+
+ResNet-18 peaked at epoch 6 with validation strict accuracy `0.6884` and
+ambiguity-aware accuracy `0.6974`, a strict gain of `0.0798` over the
+MobileNetV3-small baseline. Every head improved:
+
+| Attribute head | MobileNetV3 | ResNet-18 | Delta |
+| --- | ---: | ---: | ---: |
+| coat length | 0.6760 | 0.7003 | +0.0244 |
+| collar design | 0.5619 | 0.6381 | +0.0762 |
+| lapel design | 0.5862 | 0.6839 | +0.0977 |
+| neck design | 0.5286 | 0.6143 | +0.0857 |
+| neckline design | 0.5418 | 0.6683 | +0.1265 |
+| pant length | 0.6927 | 0.7135 | +0.0208 |
+| skirt length | 0.6681 | 0.6983 | +0.0302 |
+| sleeve length | 0.6195 | 0.7463 | +0.1268 |
+
+The formal resident image-plus-mask benchmark measured wall-time p95
+`15.043 ms`, maximum `16.705 ms`, and model-only mean `1.584 ms` on RTX 5090.
+Both p95 and observed maximum pass the 20 ms gate, making ResNet-18 the current
+eligible validation champion. The held-out test split remains closed, and the
+model does not yet satisfy the later 88% quality target.
+
+The fifth experiment uses
+`configs/model/fashionai_attributes_resnet18_cosine.yaml`. It retains the
+winning ResNet-18 architecture and every data, preprocessing, optimizer, seed,
+and budget setting, adding only the previously verified cosine schedule from
+`3e-4` to `3e-6`. Select it against the fixed-rate ResNet-18 result of `0.6884`
+using validation only.
