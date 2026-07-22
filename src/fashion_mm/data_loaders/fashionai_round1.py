@@ -96,6 +96,11 @@ def prepare_fashionai_round1_splits(
             name: _summarize_records(split_records)
             for name, split_records in splits.items()
         },
+        "stratification_audit": _summarize_strata_balance(
+            combined_records,
+            splits,
+            split_fractions,
+        ),
         "schema": schema.to_dict(),
     }
     summary_path = output_dir / "split_summary.json"
@@ -148,6 +153,63 @@ def _summarize_records(
             bool(record.probable_indices) for record in records
         ),
     }
+
+
+def _summarize_strata_balance(
+    records: list[FashionAIAttributeRecord],
+    splits: dict[str, list[FashionAIAttributeRecord]],
+    split_fractions: dict[str, float],
+) -> dict[str, Any]:
+    """Summarize split balance for each `(attribute_name, strict y class)` stratum."""
+    total_counts = Counter(_stratum_key(record) for record in records)
+    split_counts = {
+        split_name: Counter(_stratum_key(record) for record in split_records)
+        for split_name, split_records in splits.items()
+    }
+
+    strata = {}
+    max_fraction_error = 0.0
+    for stratum in sorted(total_counts):
+        total = total_counts[stratum]
+        counts = {
+            split_name: split_counts[split_name].get(stratum, 0)
+            for split_name in splits
+        }
+        fractions = {
+            split_name: counts[split_name] / total
+            for split_name in splits
+        }
+        fraction_errors = {
+            split_name: fractions[split_name] - split_fractions[split_name]
+            for split_name in splits
+        }
+        max_fraction_error = max(
+            max_fraction_error,
+            *(abs(value) for value in fraction_errors.values()),
+        )
+        strata[stratum] = {
+            "total": total,
+            "counts": counts,
+            "fractions": {
+                split_name: round(value, 6)
+                for split_name, value in fractions.items()
+            },
+            "fraction_errors": {
+                split_name: round(value, 6)
+                for split_name, value in fraction_errors.items()
+            },
+        }
+
+    return {
+        "stratification_key": "attribute_name + strict_y_class",
+        "num_strata": len(strata),
+        "max_absolute_fraction_error": round(max_fraction_error, 6),
+        "strata": strata,
+    }
+
+
+def _stratum_key(record: FashionAIAttributeRecord) -> str:
+    return f"{record.attribute_name}::{record.target_index}"
 
 
 def _load_value_names(path: Path | None) -> dict[str, list[str]] | None:

@@ -1130,6 +1130,10 @@ print({
     "duplicates": payload["num_duplicate_records"],
     "unique": payload["num_unique_records"],
     "overlaps": payload["split_overlap_counts"],
+    "num_strata": payload["stratification_audit"]["num_strata"],
+    "max_stratum_fraction_error": payload["stratification_audit"][
+        "max_absolute_fraction_error"
+    ],
     "split_sizes": {
         name: split["num_records"]
         for name, split in payload["splits"].items()

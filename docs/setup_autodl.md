@@ -1502,8 +1502,9 @@ PYTHONPATH=src python scripts/data/prepare_fashionai_round1_attributes.py \
 
 The expected integrity fields are 25,122 rows before deduplication, 5,206
 matching duplicates, 19,916 unique records, split sizes 15,930/1,993/1,993,
-and zero overlap between all split pairs. Train on CUDA using the default
-config, which reads only train and validation:
+zero overlap between all split pairs, and a `stratification_audit` table with
+per-attribute/per-class train/validation/test counts. Train on CUDA using the
+default config, which reads only train and validation:
 
 ```bash
 PYTHONPATH=src python scripts/train/train_fashionai_attributes.py \

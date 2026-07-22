@@ -241,6 +241,16 @@ def test_prepare_fashionai_round1_splits_writes_leak_free_manifests(tmp_path):
     assert {
         name: split["num_records"] for name, split in payload["splits"].items()
     } == {"train": 32, "validation": 4, "test": 4}
+    assert payload["stratification_audit"]["stratification_key"] == (
+        "attribute_name + strict_y_class"
+    )
+    assert payload["stratification_audit"]["num_strata"] == 2
+    assert payload["stratification_audit"]["strata"]["collar_labels::0"][
+        "counts"
+    ] == {"train": 16, "validation": 2, "test": 2}
+    assert payload["stratification_audit"]["strata"]["collar_labels::1"][
+        "counts"
+    ] == {"train": 16, "validation": 2, "test": 2}
     assert (output_dir / "train.csv").is_file()
     assert (output_dir / "validation.csv").is_file()
     assert (output_dir / "test.csv").is_file()

@@ -71,6 +71,9 @@ group plus strict class.
 - Reject conflicting labels before deduplication.
 - Generate leak-free stratified train/validation/test manifests.
 - Verify all split-pair overlap counts are zero.
+- Inspect `split_summary.json["stratification_audit"]` to confirm every
+  `(attribute group, strict y class)` stratum has explicit train/validation/test
+  counts and bounded fraction error.
 - Use the 8-group/54-value semantic label map transcribed from the dataset
   README.
 
