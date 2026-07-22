@@ -103,12 +103,23 @@ def main() -> None:
         )
 
     image_size = int(config["model"].get("image_size", 224))
+    input_mode = str(config["model"].get("input_mode", "crop"))
     train_dataset = FashionAIAttributeDataset(
-        train_records, build_fashionai_transform(image_size, train=True)
+        train_records,
+        build_fashionai_transform(
+            image_size,
+            train=True,
+            input_mode=input_mode,
+        ),
     )
     validation_dataset = (
         FashionAIAttributeDataset(
-            validation_records, build_fashionai_transform(image_size, train=False)
+            validation_records,
+            build_fashionai_transform(
+                image_size,
+                train=False,
+                input_mode=input_mode,
+            ),
         )
         if validation_records
         else None
@@ -160,11 +171,12 @@ def main() -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     best_accuracy = -1.0
     LOGGER.info(
-        "FashionAI records: train=%s validation=%s heads=%s values=%s",
+        "FashionAI records: train=%s validation=%s heads=%s values=%s input_mode=%s",
         len(train_records),
         len(validation_records),
         len(schema.definitions),
         sum(definition.num_classes for definition in schema.definitions),
+        input_mode,
     )
 
     for epoch in range(start_epoch, int(config["training"]["num_epochs"])):
@@ -199,6 +211,7 @@ def main() -> None:
             "model_config": {
                 "backbone": model.backbone_name,
                 "image_size": image_size,
+                "input_mode": input_mode,
                 "dropout": float(config["model"].get("dropout", 0.2)),
                 "top_k": int(config["inference"].get("top_k", 3)),
                 "confidence_threshold": float(

@@ -1185,9 +1185,26 @@ PYTHONPATH=src python scripts/eval/benchmark_fashionai_attribute_latency.py \
 
 The benchmark keeps one predictor resident and includes file loading, masked
 crop preprocessing, model execution, and decoding in `wall_total_ms`. On the
-AutoDL RTX 5090 baseline, all 8 heads reached wall-time p95 `15.945 ms` and max
-`18.955 ms`; model-only mean was `2.484 ms`. Cold process startup is reported
+AutoDL RTX 5090 baseline, all 8 heads reached wall-time p95 `15.578 ms` and max
+`19.098 ms`; model-only mean was `2.439 ms`. Cold process startup is reported
 separately from this steady-state service metric.
+
+The first validation-only accuracy experiment preserves the complete garment
+instead of applying the baseline's aggressive random resized crop. Every other
+training setting and the stratified manifests remain fixed:
+
+```bash
+PYTHONPATH=src python scripts/train/train_fashionai_attributes.py \
+  --model-config configs/model/fashionai_attributes_full_frame.yaml \
+  --device cuda \
+  --output-dir /root/autodl-tmp/checkpoints/fashionai_attributes_full_frame \
+  > /root/autodl-tmp/outputs/fashionai_attributes_full_frame.log 2>&1
+```
+
+The checkpoint records `input_mode: full_frame`, so validation, standalone
+mask inference, and later evaluation automatically use matching white-padded
+square preprocessing. Select this experiment using validation only; do not
+evaluate the held-out test split unless it becomes the final selected model.
 
 Run 3.1.3 directly with a target mask:
 

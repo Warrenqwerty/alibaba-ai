@@ -133,7 +133,23 @@ software path operational.
 - The standalone image-plus-mask result matched the integrated
   3.1.1 -> 3.1.2 -> 3.1.3 result exactly for the requested heads.
 - On RTX 5090, 10 warmup runs plus 30 measured runs produced wall-time p95
-  `15.945 ms`, max `18.955 ms`, and model-only mean `2.484 ms` for all 8 heads.
+  `15.578 ms`, max `19.098 ms`, and model-only mean `2.439 ms` for all 8 heads.
 - The baseline satisfies the 20 ms steady-state extraction target but does not
   satisfy the later 88% quality target. Future tuning must use the fixed
   validation split rather than repeatedly consulting the test split.
+
+## Next Controlled Experiment
+
+The training class distributions are not severely skewed: the largest class
+within each head represents only `0.1492` to `0.2824` of its records. The more
+immediate issue is the `0.2112` train/validation gap and an augmentation policy
+that can crop away the exact garment regions needed for neckline, sleeve, and
+length labels.
+
+Train `configs/model/fashionai_attributes_full_frame.yaml` as the first
+validation-only ablation. It replaces crop-based geometry with centered white
+padding plus square resize while retaining MobileNetV3-small, image size 224,
+optimizer settings, seed 42, 10 epochs, and the same manifests. The input mode
+is stored in each checkpoint and reused automatically by evaluation and
+inference. Compare against validation strict accuracy `0.6086`; keep the test
+split closed until a final model is selected.

@@ -45,6 +45,7 @@ class FashionAttributePredictor:
         self.schema = FashionAIAttributeSchema.from_dict(checkpoint["schema"])
         model_config = checkpoint.get("model_config", {})
         self.image_size = int(model_config.get("image_size", 224))
+        self.input_mode = str(model_config.get("input_mode", "crop"))
         self.padding_fraction = float(model_config.get("mask_padding_fraction", 0.08))
         self.confidence_threshold = float(
             confidence_threshold
@@ -60,7 +61,11 @@ class FashionAttributePredictor:
         )
         self.model.load_state_dict(checkpoint["model_state_dict"])
         self.model.to(self.device).eval()
-        self.transform = build_fashionai_transform(self.image_size, train=False)
+        self.transform = build_fashionai_transform(
+            self.image_size,
+            train=False,
+            input_mode=self.input_mode,
+        )
         self.backend = f"fashionai_multi_head_{self.model.backbone_name}"
         LOGGER.info("Loaded 3.1.3 attribute checkpoint: %s", self.checkpoint_path)
 

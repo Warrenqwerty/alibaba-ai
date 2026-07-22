@@ -1,11 +1,11 @@
-task: "fashionai_fine_grained_attributes"
+task: "fashionai_fine_grained_attributes_full_frame"
 
 model:
   name: "multi_head_attribute_classifier"
   backbone: "mobilenet_v3_small"
   pretrained: true
   image_size: 224
-  input_mode: "crop"
+  input_mode: "full_frame"
   dropout: 0.2
 
 training:

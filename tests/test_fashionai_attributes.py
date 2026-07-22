@@ -73,6 +73,25 @@ def test_fashionai_csv_infers_dynamic_attribute_schema(tmp_path):
     assert records[1].acceptable_indices == (2, 3)
 
 
+def test_full_frame_transform_preserves_non_square_image_content():
+    image = Image.new("RGB", (8, 4), "black")
+
+    tensor = build_fashionai_transform(
+        8,
+        train=False,
+        input_mode="full_frame",
+    )(image)
+
+    assert tensor.shape == (3, 8, 8)
+    assert torch.all(tensor[:, 0, 0] > 1.0)
+    assert torch.all(tensor[:, 4, 4] < -1.0)
+
+
+def test_fashionai_transform_rejects_unknown_input_mode():
+    with pytest.raises(ValueError, match="Unknown FashionAI input mode"):
+        build_fashionai_transform(32, train=False, input_mode="unknown")
+
+
 def test_fashionai_split_keeps_all_heads_for_one_image_together(tmp_path):
     image_root = tmp_path / "images"
     image_root.mkdir()
@@ -350,6 +369,7 @@ def test_attribute_predictor_runs_mask_to_structured_predictions(tmp_path):
             "model_config": {
                 "backbone": "tiny_cnn",
                 "image_size": 32,
+                "input_mode": "full_frame",
                 "dropout": 0.2,
                 "top_k": 2,
                 "confidence_threshold": 0.0,
@@ -367,6 +387,7 @@ def test_attribute_predictor_runs_mask_to_structured_predictions(tmp_path):
     result = predictor.predict(image_path, mask)
     payload = result.to_dict()
 
+    assert predictor.input_mode == "full_frame"
     assert result.status == "ok"
     assert result.region_box == (6, 4, 19, 16)
     assert len(result.predictions) == 2

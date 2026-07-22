@@ -10,13 +10,14 @@ from pathlib import Path
 from typing import Any, Mapping
 
 import torch
-from PIL import Image
+from PIL import Image, ImageOps
 from torch.utils.data import Dataset
 from torchvision import transforms
 from torchvision.transforms import InterpolationMode
 
 
 FASHIONAI_LABEL_STATES = frozenset({"y", "m", "n"})
+FASHIONAI_INPUT_MODES = frozenset({"crop", "full_frame"})
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_STD = (0.229, 0.224, 0.225)
 
@@ -286,9 +287,39 @@ def collate_fashionai_attributes(samples: Sequence[dict[str, Any]]) -> dict[str,
     }
 
 
-def build_fashionai_transform(image_size: int, *, train: bool) -> Callable:
+def build_fashionai_transform(
+    image_size: int,
+    *,
+    train: bool,
+    input_mode: str = "crop",
+) -> Callable:
     """Build ImageNet-compatible augmentation for the shared backbone."""
-    if train:
+    if input_mode not in FASHIONAI_INPUT_MODES:
+        raise ValueError(
+            f"Unknown FashionAI input mode {input_mode!r}; "
+            f"expected one of {sorted(FASHIONAI_INPUT_MODES)}."
+        )
+
+    if input_mode == "full_frame":
+        spatial = [
+            transforms.Lambda(_pad_to_square),
+            transforms.Resize(
+                (image_size, image_size),
+                interpolation=InterpolationMode.BILINEAR,
+            ),
+        ]
+        if train:
+            spatial.extend(
+                [
+                    transforms.RandomHorizontalFlip(),
+                    transforms.ColorJitter(
+                        brightness=0.12,
+                        contrast=0.12,
+                        saturation=0.08,
+                    ),
+                ]
+            )
+    elif train:
         spatial = [
             transforms.RandomResizedCrop(
                 image_size,
@@ -311,6 +342,21 @@ def build_fashionai_transform(image_size: int, *, train: bool) -> Callable:
             transforms.Normalize(IMAGENET_MEAN, IMAGENET_STD),
         ]
     )
+
+
+def _pad_to_square(image: Image.Image) -> Image.Image:
+    """Center a complete RGB image on a white square canvas."""
+    width, height = image.size
+    side = max(width, height)
+    horizontal = side - width
+    vertical = side - height
+    border = (
+        horizontal // 2,
+        vertical // 2,
+        horizontal - horizontal // 2,
+        vertical - vertical // 2,
+    )
+    return ImageOps.expand(image, border=border, fill=(255, 255, 255))
 
 
 def split_records_by_image(

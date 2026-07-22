@@ -1538,7 +1538,25 @@ PYTHONPATH=src python scripts/eval/benchmark_fashionai_attribute_latency.py \
   --output /root/autodl-tmp/outputs/fashionai_attributes_latency.json
 ```
 
-The 2026-07-22 RTX 5090 baseline measured wall-time p95 `15.945 ms`, maximum
-`18.955 ms`, and model-only mean `2.484 ms`, so both p95 and the observed
+The 2026-07-22 RTX 5090 baseline measured wall-time p95 `15.578 ms`, maximum
+`19.098 ms`, and model-only mean `2.439 ms`, so both p95 and the observed
 maximum passed the 20 ms target. A fresh process can be much slower on its
 first CUDA call and must not be presented as steady-state extraction latency.
+
+The class distribution audit shows only moderate imbalance, while the selected
+epoch has a `0.2112` train/validation accuracy gap. Run the first controlled
+accuracy ablation with full-frame preprocessing. This changes only input
+geometry; it keeps the split, model, optimizer, seed, and epoch count fixed:
+
+```bash
+PYTHONPATH=src python scripts/train/train_fashionai_attributes.py \
+  --model-config configs/model/fashionai_attributes_full_frame.yaml \
+  --device cuda \
+  --output-dir /root/autodl-tmp/checkpoints/fashionai_attributes_full_frame \
+  > /root/autodl-tmp/outputs/fashionai_attributes_full_frame.log 2>&1
+```
+
+The first log record must contain `train=15930`, `validation=1993`, and
+`input_mode=full_frame`. Compare the best checkpoint's overall and per-head
+validation metrics against the crop baseline (`0.6086` strict accuracy). Do
+not consult `test.csv` during this comparison.

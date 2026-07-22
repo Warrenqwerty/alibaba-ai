@@ -66,9 +66,14 @@ def main() -> None:
     )
     _validate_records_against_schema(records, schema)
     image_size = int(model_config.get("image_size", 224))
+    input_mode = str(model_config.get("input_mode", "crop"))
     dataset = FashionAIAttributeDataset(
         records,
-        build_fashionai_transform(image_size, train=False),
+        build_fashionai_transform(
+            image_size,
+            train=False,
+            input_mode=input_mode,
+        ),
     )
     loader = DataLoader(
         dataset,
