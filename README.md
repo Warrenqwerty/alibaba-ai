@@ -1302,6 +1302,31 @@ PYTHONPATH=src python scripts/train/train_fashionai_attributes.py \
 Select this run against `0.7105` using validation only. If it wins, it must
 pass the same resident image-plus-mask latency benchmark before promotion.
 
+ResNet-50 with cosine decay peaked at the final epoch 10 with validation
+strict accuracy `0.7802` and ambiguity-aware accuracy `0.7873`, improving
+ResNet-18 cosine by `0.0697`. Every head improved. Its resident benchmark
+reached wall-time p95 `14.344 ms`, max `16.757 ms`, and model-only mean
+`2.798 ms`, passing both latency checks and making it the current eligible
+validation champion.
+
+Because validation was still improving at the training boundary, run one
+final horizon ablation. This changes only the cosine horizon and epoch budget
+from 10 to 15:
+
+```bash
+PYTHONPATH=src python scripts/train/train_fashionai_attributes.py \
+  --model-config \
+    configs/model/fashionai_attributes_resnet50_cosine_15ep.yaml \
+  --device cuda \
+  --output-dir \
+    /root/autodl-tmp/checkpoints/fashionai_attributes_resnet50_cosine_15ep \
+  > /root/autodl-tmp/outputs/fashionai_attributes_resnet50_cosine_15ep.log 2>&1
+```
+
+Run this experiment from pretrained initialization; do not resume the 10-epoch
+checkpoint because its scheduler state has a different horizon. Select against
+`0.7802` on validation only, then freeze model selection.
+
 Run 3.1.3 directly with a target mask:
 
 ```bash

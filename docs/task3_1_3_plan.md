@@ -228,3 +228,19 @@ schedule and all data, preprocessing, optimizer, seed, and budget settings.
 The extra capacity is eligible only if validation strict accuracy exceeds
 `0.7105` and the selected checkpoint independently passes the 20 ms resident
 image-plus-mask latency gate. Keep `test.csv` closed during this comparison.
+
+ResNet-50 cosine peaked at the final epoch 10 with validation strict accuracy
+`0.7802` and ambiguity-aware accuracy `0.7873`, a strict gain of `0.0697` over
+ResNet-18 cosine. All eight heads improved; the largest gains were lapel design
+(`+0.1207`) and collar design (`+0.1143`). Its train/validation gap was
+`0.2133`. The formal RTX 5090 benchmark measured wall-time p95 `14.344 ms`,
+maximum `16.757 ms`, and model-only mean `2.798 ms`, so both latency checks
+pass.
+
+The seventh and final model-selection experiment uses
+`configs/model/fashionai_attributes_resnet50_cosine_15ep.yaml`. It changes only
+`num_epochs` from 10 to 15; because the scheduler derives its cosine horizon
+from that value, this must be a fresh run rather than a resume from the
+10-epoch scheduler state. Compare against `0.7802` using validation only. After
+this ablation, freeze model selection and evaluate only the selected checkpoint
+on `test.csv`.

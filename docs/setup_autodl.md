@@ -1670,3 +1670,27 @@ PYTHONPATH=src python scripts/train/train_fashionai_attributes.py \
 Compare the selected checkpoint against `0.7105` on validation only. If it
 wins, run the formal latency benchmark before promotion. Do not evaluate
 `test.csv` during model selection.
+
+The ResNet-50 cosine run peaked at the final epoch 10 with validation strict
+accuracy `0.7802` and acceptable accuracy `0.7873`, improving every head over
+ResNet-18 cosine. Its formal resident benchmark measured wall-time p95
+`14.344 ms`, maximum `16.757 ms`, and model-only mean `2.798 ms`; both latency
+checks passed.
+
+Run one final horizon ablation because validation was still improving at epoch
+10. This changes only the epoch count and cosine horizon from 10 to 15:
+
+```bash
+PYTHONPATH=src python scripts/train/train_fashionai_attributes.py \
+  --model-config \
+    configs/model/fashionai_attributes_resnet50_cosine_15ep.yaml \
+  --device cuda \
+  --output-dir \
+    /root/autodl-tmp/checkpoints/fashionai_attributes_resnet50_cosine_15ep \
+  > /root/autodl-tmp/outputs/fashionai_attributes_resnet50_cosine_15ep.log 2>&1
+```
+
+Start this as a fresh run. Do not pass `--resume`, because the 10-epoch
+checkpoint contains scheduler state for a different cosine horizon. Compare
+the selected checkpoint against `0.7802` on validation only; keep `test.csv`
+closed until this final comparison is complete.
