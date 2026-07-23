@@ -7,11 +7,13 @@
 - Scope: 14 broad groups and 200+ values in the final product taxonomy.
 - Target: attribute accuracy at least 88% and extraction latency at most 20 ms.
 
-The PRD target is broader than the available Round1 FashionAI files. After
-review with the mentor, the working dataset is limited to the labeled
+The first working baseline was limited to the labeled
 `round1_fashionAI_attributes_test_a` and `test_b` releases. Their README and
-answer CSVs define 8 attribute groups and 54 values. Results from this baseline
-must not be described as a 14-group/200-value benchmark.
+answer CSVs define 8 attribute groups and 54 values. The PRD, however, names
+the larger FashionAI-Attributes corpus (about 82,000 images), so the Round1
+subset is evidence for the software path rather than the final quality
+benchmark. Results from either corpus must not be described as a
+14-group/200-value benchmark.
 
 ## Round1 Dataset Policy
 
@@ -62,6 +64,12 @@ group plus strict class.
 - Data inspection, CUDA training, standalone inference, and full-pipeline CLIs.
 - Round1 A/B deduplication, stratified split manifests, and held-out CUDA test
   evaluation.
+- Multi-release discovery, content-hash deduplication, and deterministic
+  stratified manifests for the larger extracted FashionAI training corpus.
+- Official FashionAI per-head AP, macro mAP, and BasicPrecision in addition to
+  strict and ambiguity-aware top-1 accuracy.
+- Optional attribute-specific spatial/channel attention with checkpoint and
+  inference compatibility.
 
 ## Validation Order
 
@@ -89,11 +97,12 @@ group plus strict class.
 ### Gate C: Model quality
 
 - Train only on the generated train split with stratified validation.
-- Report strict top-1, ambiguity-aware top-1, per-head accuracy, and latency.
+- Report strict top-1, ambiguity-aware top-1, official FashionAI mAP,
+  BasicPrecision, per-head metrics, and latency.
 - Report final quality once on the untouched test split.
 - Do not collapse all heads into one overall number when class balance differs.
-- Keep the official FashionAI evaluation convention separate from the PRD's
-  simple accuracy target.
+- Keep official FashionAI mAP separate from the PRD's simple 88% accuracy
+  target. A high mAP does not convert a lower strict accuracy into an 88% pass.
 
 ### Gate D: Region-domain alignment
 
@@ -111,7 +120,7 @@ must stay fixed.
 
 ## Current Definition of Done
 
-The first milestone is complete when a real AutoDL command produces:
+The software milestone requires a real AutoDL command to produce:
 
 1. a validated Round1 split summary with zero train/validation/test overlap;
 2. a trained `best.pt` checkpoint;
@@ -119,8 +128,10 @@ The first milestone is complete when a real AutoDL command produces:
 4. complete 3.1.1 -> 3.1.2 -> 3.1.3 JSON plus saved region mask;
 5. held-out test accuracy and CUDA latency without silent CPU fallback.
 
-The 88% PRD metric is a later quality gate, not a prerequisite for calling the
-software path operational.
+Task 3.1.3 itself is complete only when one frozen checkpoint reaches at least
+`0.88` accuracy on an untouched, mentor-approved FashionAI holdout and at most
+`20 ms` resident image-plus-mask extraction latency. Operational readiness
+alone is not final acceptance.
 
 ## 2026-07-22 AutoDL Baseline
 
@@ -135,7 +146,7 @@ software path operational.
 - On RTX 5090, 10 warmup runs plus 30 measured runs produced wall-time p95
   `15.578 ms`, max `19.098 ms`, and model-only mean `2.439 ms` for all 8 heads.
 - The baseline satisfies the 20 ms steady-state extraction target but does not
-  satisfy the later 88% quality target. Future tuning must use the fixed
+  satisfy the 88% quality target. Future tuning must use the fixed
   validation split rather than repeatedly consulting the test split.
 
 ## Controlled Accuracy Experiments
@@ -204,7 +215,7 @@ The formal resident image-plus-mask benchmark measured wall-time p95
 `15.043 ms`, maximum `16.705 ms`, and model-only mean `1.584 ms` on RTX 5090.
 Both p95 and observed maximum pass the 20 ms gate, making ResNet-18 the current
 eligible validation champion. The held-out test split remains closed, and the
-model does not yet satisfy the later 88% quality target.
+model does not yet satisfy the 88% quality target.
 
 The fifth experiment uses
 `configs/model/fashionai_attributes_resnet18_cosine.yaml`. It retains the
@@ -237,7 +248,7 @@ ResNet-18 cosine. All eight heads improved; the largest gains were lapel design
 maximum `16.757 ms`, and model-only mean `2.798 ms`, so both latency checks
 pass.
 
-The seventh and final model-selection experiment uses
+The seventh Round1 model-selection experiment uses
 `configs/model/fashionai_attributes_resnet50_cosine_15ep.yaml`. It changes only
 `num_epochs` from 10 to 15; because the scheduler derives its cosine horizon
 from that value, this must be a fresh run rather than a resume from the
@@ -245,7 +256,7 @@ from that value, this must be a fresh run rather than a resume from the
 this ablation, freeze model selection and evaluate only the selected checkpoint
 on `test.csv`.
 
-## 2026-07-23 Final Result
+## 2026-07-23 Best Round1 Result
 
 The 15-epoch run selected epoch 13 using the predefined overall validation
 strict metric. Validation strict accuracy was `0.7852`, ambiguity-aware
@@ -279,9 +290,77 @@ labels for all four requested neckline heads. The complete pipeline took
 `478.673 ms`; this includes segmentation and localization and is intentionally
 reported separately from the 3.1.3 steady-state latency gate.
 
-The operational definition of done is satisfied. The final strict test result
-is still `0.0993` below the PRD's 88% quality target, so that gate remains open.
-FashionAI's image-level supervision also does not establish semantic accuracy
-for mask-conditioned DeepFashion2 regions. Future quality work requires new
-region-aligned labels or a separately approved benchmark; the frozen test set
-must not be used for further tuning.
+The software path is operational, but task 3.1.3 is not complete. The strict
+test result is still `0.0993` below the PRD's 88% quality target. The Round1
+test labels have now been viewed, so that split is frozen as historical
+evidence and must not guide another model decision.
+
+## Reopened 88% Quality Plan
+
+The highest-leverage gap is data coverage. The Round1 experiment trained on
+only 15,930 records, while the PRD names a substantially larger FashionAI
+corpus. The next work therefore changes data before adding more model capacity:
+
+1. Inventory all extracted `Annotations/label.csv` files from the FashionAI
+   training releases.
+2. Merge those sources, hash image contents, reject conflicting duplicate
+   labels, and create a new 80/10/10 split stratified by
+   `(attribute_name, strict y class)`.
+3. Seal the newly generated `test.csv`. Use only `validation.csv` for every
+   remaining architecture and training decision.
+4. Train the existing ResNet-50 cosine 15-epoch model on the larger corpus.
+   This is the controlled data-only comparison.
+5. If validation strict accuracy remains below `0.88`, train the
+   attribute-attention ResNet-50 candidate on the exact same manifests.
+6. Select one checkpoint using validation strict accuracy, while also
+   recording ambiguity-aware accuracy, official mAP, BasicPrecision, per-head
+   results, and the generalization gap.
+7. Benchmark the selected checkpoint against the 20 ms gate. Only after model
+   selection and latency pass are frozen may it be evaluated once on the new
+   test split.
+
+Discover extracted sources:
+
+```bash
+PYTHONPATH=src python scripts/data/prepare_fashionai_full_attributes.py \
+  --root /root/autodl-tmp/datasets/FashionAI \
+  --list-sources
+```
+
+Prepare the new content-safe stratified manifests:
+
+```bash
+PYTHONPATH=src python scripts/data/prepare_fashionai_full_attributes.py \
+  --root /root/autodl-tmp/datasets/FashionAI \
+  --output-dir /root/autodl-tmp/outputs/fashionai_full_stratified
+```
+
+Run the data-only ResNet-50 control:
+
+```bash
+PYTHONPATH=src python scripts/train/train_fashionai_attributes.py \
+  --dataset-config configs/dataset/fashionai_full.yaml \
+  --model-config \
+    configs/model/fashionai_attributes_resnet50_cosine_15ep.yaml \
+  --device cuda \
+  --output-dir \
+    /root/autodl-tmp/checkpoints/fashionai_full_resnet50_15ep \
+  > /root/autodl-tmp/outputs/fashionai_full_resnet50_15ep.log 2>&1
+```
+
+If the control remains below target, run the isolated attention comparison:
+
+```bash
+PYTHONPATH=src python scripts/train/train_fashionai_attributes.py \
+  --dataset-config configs/dataset/fashionai_full.yaml \
+  --model-config \
+    configs/model/fashionai_attributes_resnet50_attention_15ep.yaml \
+  --device cuda \
+  --output-dir \
+    /root/autodl-tmp/checkpoints/fashionai_full_resnet50_attention_15ep \
+  > /root/autodl-tmp/outputs/fashionai_full_resnet50_attention_15ep.log 2>&1
+```
+
+The first run after this commit is source inventory, not training. Corpus size,
+class coverage, and zero split overlap must be verified before spending GPU
+time.

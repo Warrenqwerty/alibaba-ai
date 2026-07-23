@@ -11,12 +11,14 @@ from torch.utils.data import DataLoader
 from fashion_mm.data_loaders import build_fashionai_transform
 from fashion_mm.data_loaders import collate_fashionai_attributes
 from fashion_mm.data_loaders import deduplicate_fashionai_records
+from fashion_mm.data_loaders import discover_fashionai_training_sources
 from fashion_mm.data_loaders import FashionAIAttributeDataset
 from fashion_mm.data_loaders import FashionAIAttributeDefinition
 from fashion_mm.data_loaders import FashionAIAttributeSchema
 from fashion_mm.data_loaders import infer_fashionai_schema
 from fashion_mm.data_loaders import parse_fashionai_label
 from fashion_mm.data_loaders import prepare_fashionai_round1_splits
+from fashion_mm.data_loaders import prepare_fashionai_source_splits
 from fashion_mm.data_loaders import read_fashionai_annotations
 from fashion_mm.data_loaders import split_records_by_image
 from fashion_mm.data_loaders import stratified_split_records
@@ -24,6 +26,8 @@ from fashion_mm.models.attributes import FashionAttributeClassifier
 from fashion_mm.models.attributes import FashionAttributePredictor
 from fashion_mm.models.attributes import build_attribute_optimizer
 from fashion_mm.models.attributes import build_attribute_scheduler
+from fashion_mm.models.attributes import fashionai_official_average_precision
+from fashion_mm.models.attributes import fashionai_official_basic_precision
 from fashion_mm.models.attributes import prepare_masked_region
 from fashion_mm.models.attributes import run_attribute_epoch
 from fashion_mm.models.instance_segmentation import FashionInstance
@@ -280,6 +284,67 @@ def test_prepare_fashionai_round1_splits_writes_leak_free_manifests(tmp_path):
     assert (output_dir / "split_summary.json").is_file()
 
 
+def test_prepare_full_fashionai_sources_deduplicates_image_content(tmp_path):
+    source_a = tmp_path / "train1"
+    source_b = tmp_path / "train2"
+    for source in (source_a, source_b):
+        (source / "Images").mkdir(parents=True)
+        (source / "Annotations").mkdir()
+
+    rows_a = []
+    for index in range(8):
+        image_name = f"Images/a_{index:02d}.jpg"
+        Image.new(
+            "RGB",
+            (10, 10),
+            (index * 20, index * 10, index * 5),
+        ).save(source_a / image_name)
+        label = "yn" if index % 2 == 0 else "ny"
+        rows_a.append(f"{image_name},collar_labels,{label}")
+
+    rows_b = []
+    for index in range(2):
+        source_image = source_a / f"Images/a_{index:02d}.jpg"
+        image_name = f"Images/duplicate_{index:02d}.jpg"
+        (source_b / image_name).write_bytes(source_image.read_bytes())
+        label = "yn" if index % 2 == 0 else "ny"
+        rows_b.append(f"{image_name},collar_labels,{label}")
+    for index in range(8, 14):
+        image_name = f"Images/b_{index:02d}.jpg"
+        Image.new(
+            "RGB",
+            (10, 10),
+            (index * 12, index * 7, index * 3),
+        ).save(source_b / image_name)
+        label = "yn" if index % 2 == 0 else "ny"
+        rows_b.append(f"{image_name},collar_labels,{label}")
+
+    annotations_a = source_a / "Annotations" / "label.csv"
+    annotations_b = source_b / "Annotations" / "label.csv"
+    annotations_a.write_text("\n".join(rows_a), encoding="utf-8")
+    annotations_b.write_text("\n".join(rows_b), encoding="utf-8")
+
+    sources = discover_fashionai_training_sources(tmp_path)
+    payload = prepare_fashionai_source_splits(
+        sources=sources,
+        dataset_name="test full FashionAI",
+        supervision="training_label_csv",
+        output_dir=tmp_path / "splits",
+        split_fractions={"train": 0.6, "validation": 0.2, "test": 0.2},
+        seed=42,
+        label_map=None,
+        validate_images=True,
+        content_hash_images=True,
+    )
+
+    assert [source[0] for source in sources] == ["train1", "train2"]
+    assert payload["num_records_before_deduplication"] == 16
+    assert payload["num_duplicate_records"] == 2
+    assert payload["num_unique_records"] == 14
+    assert payload["image_identity_strategy"] == "sha256_file_content"
+    assert set(payload["split_overlap_counts"].values()) == {0}
+
+
 def test_masked_region_crop_uses_tight_padded_mask_box():
     image = np.full((12, 16, 3), 255, dtype=np.uint8)
     image[4:9, 5:11] = (255, 0, 0)
@@ -337,6 +402,32 @@ def test_resnet_attribute_model_outputs_schema_shapes(backbone_name: str):
 
     assert outputs["collar_design_labels"].shape == (1, 3)
     assert outputs["sleeve_length_labels"].shape == (1, 4)
+
+
+def test_attribute_attention_model_outputs_schema_shapes():
+    model = FashionAttributeClassifier(
+        _test_schema(),
+        backbone_name="tiny_cnn",
+        pretrained=False,
+        pooling="attribute_attention",
+        attention_reduction=8,
+    ).eval()
+
+    with torch.inference_mode():
+        outputs = model(torch.zeros((2, 3, 32, 32)))
+
+    assert outputs["collar_design_labels"].shape == (2, 3)
+    assert outputs["sleeve_length_labels"].shape == (2, 4)
+
+
+def test_attribute_model_rejects_unknown_pooling():
+    with pytest.raises(ValueError, match="Unsupported attribute pooling"):
+        FashionAttributeClassifier(
+            _test_schema(),
+            backbone_name="tiny_cnn",
+            pretrained=False,
+            pooling="unknown",
+        )
 
 
 def test_attribute_optimizer_supports_separate_backbone_learning_rate():
@@ -456,6 +547,28 @@ def test_attribute_evaluation_reports_per_head_metrics_and_latency(tmp_path):
     }
     assert metrics["model_inference_time_ms"] >= 0.0
     assert metrics["avg_model_inference_time_ms"] >= 0.0
+    assert 0.0 <= metrics["official_map"] <= 1.0
+    assert 0.0 <= metrics["official_basic_precision"] <= 1.0
+    assert all(
+        0.0 <= values["official_ap"] <= 1.0
+        for values in metrics["by_attribute"].values()
+    )
+
+
+def test_fashionai_official_metrics_ignore_ambiguous_precision_outcomes():
+    predictions = [
+        (0.9, True),
+        (0.8, False),
+        (0.7, None),
+        (0.6, True),
+    ]
+
+    assert fashionai_official_average_precision(predictions) == pytest.approx(
+        2.0 / 3.0
+    )
+    assert fashionai_official_basic_precision(predictions) == pytest.approx(
+        2.0 / 3.0
+    )
 
 
 def test_attribute_predictor_runs_mask_to_structured_predictions(tmp_path):
@@ -498,6 +611,48 @@ def test_attribute_predictor_runs_mask_to_structured_predictions(tmp_path):
         "sleeve_length_labels",
     }
     assert all(0.0 <= item["confidence"] <= 1.0 for item in payload["attributes"])
+
+
+def test_attribute_predictor_loads_attribute_attention_checkpoint(tmp_path):
+    schema = _test_schema()
+    model = FashionAttributeClassifier(
+        schema,
+        backbone_name="tiny_cnn",
+        pretrained=False,
+        pooling="attribute_attention",
+        attention_reduction=8,
+    )
+    checkpoint_path = tmp_path / "attention_attributes.pt"
+    torch.save(
+        {
+            "model_state_dict": model.state_dict(),
+            "schema": schema.to_dict(),
+            "model_config": {
+                "backbone": "tiny_cnn",
+                "image_size": 32,
+                "input_mode": "crop",
+                "dropout": 0.2,
+                "pooling": "attribute_attention",
+                "attention_reduction": 8,
+                "top_k": 2,
+                "confidence_threshold": 0.0,
+                "mask_padding_fraction": 0.0,
+            },
+        },
+        checkpoint_path,
+    )
+    image_path = tmp_path / "attention_image.jpg"
+    Image.new("RGB", (24, 20), "blue").save(image_path)
+    mask = np.ones((20, 24), dtype=np.uint8)
+
+    predictor = FashionAttributePredictor(checkpoint_path, device="cpu")
+    result = predictor.predict(image_path, mask)
+
+    assert predictor.model.pooling == "attribute_attention"
+    assert result.status == "ok"
+    assert result.backend == (
+        "fashionai_multi_head_tiny_cnn_attribute_attention"
+    )
 
 
 def test_fashion_visual_pipeline_runs_all_three_prd_stages(tmp_path):

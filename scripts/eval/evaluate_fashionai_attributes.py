@@ -31,6 +31,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--batch-size", type=int, default=128)
     parser.add_argument("--num-workers", type=int, default=8)
     parser.add_argument("--max-records", type=int, default=None)
+    parser.add_argument(
+        "--split-role",
+        choices=("train", "validation", "held_out_test", "external_test"),
+        default="held_out_test",
+        help="Role recorded in the output metadata.",
+    )
     parser.add_argument("--output", required=True)
     return parser.parse_args()
 
@@ -53,6 +59,8 @@ def main() -> None:
         backbone_name=str(model_config.get("backbone", "mobilenet_v3_small")),
         pretrained=False,
         dropout=float(model_config.get("dropout", 0.2)),
+        pooling=str(model_config.get("pooling", "global")),
+        attention_reduction=int(model_config.get("attention_reduction", 16)),
     )
     model.load_state_dict(checkpoint["model_state_dict"])
     model.to(device)
@@ -62,7 +70,7 @@ def main() -> None:
         image_root=args.image_root,
         validate_images=True,
         max_records=args.max_records,
-        source_name="held_out_test",
+        source_name=args.split_role,
     )
     _validate_records_against_schema(records, schema)
     image_size = int(model_config.get("image_size", 224))
@@ -88,7 +96,7 @@ def main() -> None:
         "annotations": str(Path(args.annotations)),
         "checkpoint": str(checkpoint_path),
         "device": str(device),
-        "split_role": "held_out_test",
+        "split_role": args.split_role,
         "metrics": metrics,
     }
     output_path = Path(args.output)

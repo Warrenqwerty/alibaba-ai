@@ -127,6 +127,44 @@ def test_fashionai_resnet50_15_epoch_config_changes_only_epoch_horizon():
     assert candidate["performance_target"] == baseline["performance_target"]
 
 
+def test_fashionai_attention_config_changes_only_pooling():
+    baseline = load_config(
+        ROOT / "configs/model/fashionai_attributes_resnet50_cosine_15ep.yaml"
+    )
+    candidate = load_config(
+        ROOT
+        / "configs/model/fashionai_attributes_resnet50_attention_15ep.yaml"
+    )
+
+    expected_model = {
+        **baseline["model"],
+        "pooling": "attribute_attention",
+        "attention_reduction": 16,
+    }
+    assert candidate["model"] == expected_model
+    assert candidate["training"] == baseline["training"]
+    assert candidate["inference"] == baseline["inference"]
+    assert candidate["performance_target"] == baseline["performance_target"]
+
+
+def test_fashionai_full_dataset_config_uses_content_hashed_splits():
+    config = load_config(ROOT / "configs/dataset/fashionai_full.yaml")
+    dataset = config["fashionai_attributes"]
+
+    assert dataset["train_annotations"] == [
+        "/root/autodl-tmp/outputs/fashionai_full_stratified/train.csv"
+    ]
+    assert dataset["validation_annotations"] == [
+        "/root/autodl-tmp/outputs/fashionai_full_stratified/validation.csv"
+    ]
+    assert dataset["test_annotations"] == [
+        "/root/autodl-tmp/outputs/fashionai_full_stratified/test.csv"
+    ]
+    assert dataset["split_strategy"] == (
+        "content_hashed_stratified_attribute_and_y_class"
+    )
+
+
 def test_local_paths_config_points_to_repo_data_dir():
     config = load_config(ROOT / "configs/paths.yaml")
 

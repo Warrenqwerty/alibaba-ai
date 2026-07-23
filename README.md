@@ -1086,8 +1086,8 @@ pair identity; unpaired cuffs and waist records retain independent selection.
 
 ## 3.1.3 Working Pipeline
 
-The first 3.1.3 milestone is a working, testable path rather than a claimed
-88% model. It accepts an RGB image plus a target-region mask and returns one
+The first 3.1.3 milestone established a working, testable path. It accepts an
+RGB image plus a target-region mask and returns one
 label, confidence, and alternatives for each requested FashionAI attribute
 head. The end-to-end wrapper composes:
 
@@ -1095,7 +1095,7 @@ head. The end-to-end wrapper composes:
 2. The frozen heuristic 3.1.2 local-region policy.
 3. Masked-region crop preprocessing and the 3.1.3 multi-head classifier.
 
-The available supervised corpus is the labeled Round1 test A/B release agreed
+The initial supervised corpus was the labeled Round1 test A/B release agreed
 with the mentor. A has 10,080 rows, B has 15,042, and 5,206 annotations overlap
 with identical labels. The preparation command deduplicates them into 19,916
 unique records, then creates deterministic 80/10/10 train/validation/test
@@ -1167,9 +1167,9 @@ PYTHONPATH=src python scripts/eval/evaluate_fashionai_attributes.py \
     /root/autodl-tmp/outputs/fashionai_attributes_resnet50_cosine_15ep_test_eval.json
 ```
 
-This reports strict top-1, ambiguity-aware top-1, per-attribute accuracy, and
-batched CUDA model latency. It remains separate from single-sample end-to-end
-pipeline latency.
+This reports strict top-1, ambiguity-aware top-1, official FashionAI mAP,
+BasicPrecision, per-attribute metrics, and batched CUDA model latency. It
+remains separate from single-sample end-to-end pipeline latency.
 
 Benchmark the resident model on the image-plus-mask contract after CUDA warmup:
 
@@ -1265,7 +1265,7 @@ ambiguity-aware accuracy `0.6974`, improving the MobileNetV3-small baseline by
 (`+0.1265`) and sleeve length (`+0.1268`). Its resident image-plus-mask
 benchmark also passed the deployment gate with wall-time p95 `15.043 ms`, max
 `16.705 ms`, and model-only mean `1.584 ms`. ResNet-18 is therefore the current
-eligible validation champion, although it remains below the later 88% quality
+eligible validation champion, although it remains below the 88% quality
 target. Keep the held-out test split closed while tuning continues.
 
 The next controlled run retains the winning ResNet-18 model and changes only
@@ -1341,9 +1341,42 @@ validation-to-test difference was only `0.0045`, and test accuracy improved by
 The final image-plus-mask benchmark passed the 20 ms target with wall-time p95
 `12.600 ms` and max `13.245 ms`. The complete 3.1.1 -> 3.1.2 -> 3.1.3 smoke
 test returned `ok` at every stage, saved the region mask and visualization,
-and exactly matched standalone 3.1.3 labels. This completes the operational
-milestone. Test strict accuracy remains `0.0993` below the PRD's 88% quality
-target and must not be represented as satisfying that separate gate.
+and exactly matched standalone 3.1.3 labels. This establishes the operational
+milestone, but not final 3.1.3 acceptance. Test strict accuracy remains
+`0.0993` below the PRD's 88% quality target.
+
+The quality phase is active again. Do not tune on the already-viewed Round1
+test split. First discover and prepare the larger extracted FashionAI training
+releases with content-hash deduplication and a new stratified holdout:
+
+```bash
+PYTHONPATH=src python scripts/data/prepare_fashionai_full_attributes.py \
+  --root /root/autodl-tmp/datasets/FashionAI \
+  --list-sources
+
+PYTHONPATH=src python scripts/data/prepare_fashionai_full_attributes.py \
+  --root /root/autodl-tmp/datasets/FashionAI \
+  --output-dir /root/autodl-tmp/outputs/fashionai_full_stratified
+```
+
+Then run the data-only ResNet-50 control on the new manifests:
+
+```bash
+PYTHONPATH=src python scripts/train/train_fashionai_attributes.py \
+  --dataset-config configs/dataset/fashionai_full.yaml \
+  --model-config \
+    configs/model/fashionai_attributes_resnet50_cosine_15ep.yaml \
+  --device cuda \
+  --output-dir \
+    /root/autodl-tmp/checkpoints/fashionai_full_resnet50_15ep \
+  > /root/autodl-tmp/outputs/fashionai_full_resnet50_15ep.log 2>&1
+```
+
+If validation strict accuracy is still below `0.88`, compare the
+attribute-specific spatial/channel attention config at
+`configs/model/fashionai_attributes_resnet50_attention_15ep.yaml` on the same
+split. Keep the new `test.csv` sealed until one checkpoint and its latency have
+been selected.
 
 Run 3.1.3 directly with a target mask:
 
@@ -1385,6 +1418,7 @@ PYTHONPATH=src python scripts/inference/predict_fashion_visual_pipeline.py \
 Current limitation: FashionAI supervision is image-level while the PRD
 inference contract is mask-conditioned. The final smoke test proves functional
 composition and deterministic contract equivalence, not semantic correctness
-on DeepFashion2. Closing the remaining 88% quality gap requires new
-region-aligned supervision or a separately approved labeled benchmark rather
-than tuning further on the frozen test split.
+on DeepFashion2. Closing the remaining 88% quality gap starts with the full
+FashionAI training corpus and the newly sealed holdout. Region-aligned
+supervision remains a separate requirement for proving semantic correctness
+on masked DeepFashion2 regions.

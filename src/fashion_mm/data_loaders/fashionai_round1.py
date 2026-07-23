@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 from collections import Counter, defaultdict
+from collections.abc import Sequence
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +17,10 @@ from fashion_mm.data_loaders.fashionai_attributes import infer_fashionai_schema
 from fashion_mm.data_loaders.fashionai_attributes import read_fashionai_annotations
 from fashion_mm.data_loaders.fashionai_attributes import stratified_split_records
 from fashion_mm.utils.config import load_yaml
+from fashion_mm.utils.logger import get_logger
+
+
+LOGGER = get_logger(__name__)
 
 
 def prepare_fashionai_round1_splits(
@@ -29,21 +36,101 @@ def prepare_fashionai_round1_splits(
     validate_images: bool,
 ) -> dict[str, Any]:
     """Merge labeled Round1 A/B sources and write leak-free split manifests."""
-    records_a = read_fashionai_annotations(
-        answer_a,
-        image_root=source_a_root,
+    return prepare_fashionai_source_splits(
+        sources=(
+            ("round1_test_a", source_a_root, answer_a),
+            ("round1_test_b", source_b_root, answer_b),
+        ),
+        dataset_name="FashionAI Round1 labeled test A+B",
+        supervision="human_answer_csv",
+        output_dir=output_dir,
+        split_fractions=split_fractions,
+        seed=seed,
+        label_map=label_map,
         validate_images=validate_images,
-        source_name="round1_test_a",
+        content_hash_images=False,
     )
-    records_b = read_fashionai_annotations(
-        answer_b,
-        image_root=source_b_root,
-        validate_images=validate_images,
-        source_name="round1_test_b",
+
+
+def discover_fashionai_training_sources(
+    root: str | Path,
+) -> list[tuple[str, Path, Path]]:
+    """Discover extracted FashionAI training roots with `Annotations/label.csv`."""
+    root_path = Path(root)
+    if not root_path.is_dir():
+        raise NotADirectoryError(f"FashionAI root not found: {root_path}")
+
+    annotation_files = sorted(
+        path
+        for path in root_path.rglob("label.csv")
+        if path.parent.name.lower() == "annotations"
+        and not any(part.startswith("._") for part in path.parts)
     )
-    combined_records, duplicate_count = deduplicate_fashionai_records(
-        [*records_a, *records_b]
-    )
+    sources = []
+    used_names: set[str] = set()
+    for index, annotation_file in enumerate(annotation_files, start=1):
+        source_root = annotation_file.parent.parent
+        try:
+            relative_root = source_root.relative_to(root_path).as_posix()
+        except ValueError:
+            relative_root = source_root.name
+        normalized_name = relative_root.replace("/", "::").strip(":")
+        source_name = normalized_name or f"training_source_{index:02d}"
+        if source_name in used_names:
+            source_name = f"{source_name}_{index:02d}"
+        used_names.add(source_name)
+        sources.append((source_name, source_root, annotation_file))
+    return sources
+
+
+def prepare_fashionai_source_splits(
+    *,
+    sources: Sequence[tuple[str, Path, Path]],
+    dataset_name: str,
+    supervision: str,
+    output_dir: Path,
+    split_fractions: dict[str, float],
+    seed: int,
+    label_map: Path | None,
+    validate_images: bool,
+    content_hash_images: bool,
+) -> dict[str, Any]:
+    """Merge labeled FashionAI sources and write content-safe stratified splits."""
+    if not sources:
+        raise ValueError("At least one FashionAI source is required.")
+    source_names = [name for name, _, _ in sources]
+    if len(source_names) != len(set(source_names)):
+        raise ValueError("FashionAI source names must be unique.")
+
+    records_by_source: dict[str, list[FashionAIAttributeRecord]] = {}
+    all_records: list[FashionAIAttributeRecord] = []
+    content_hash_cache: dict[Path, str] = {}
+    for source_name, source_root, annotation_file in sources:
+        LOGGER.info(
+            "Reading FashionAI source %s from %s",
+            source_name,
+            annotation_file,
+        )
+        records = read_fashionai_annotations(
+            annotation_file,
+            image_root=source_root,
+            validate_images=validate_images,
+            source_name=source_name,
+        )
+        if content_hash_images:
+            LOGGER.info(
+                "Hashing %s referenced images for source %s",
+                len(records),
+                source_name,
+            )
+            records = _replace_image_ids_with_content_hashes(
+                records,
+                cache=content_hash_cache,
+            )
+        records_by_source[source_name] = records
+        all_records.extend(records)
+
+    combined_records, duplicate_count = deduplicate_fashionai_records(all_records)
     value_names = _load_value_names(label_map)
     schema = infer_fashionai_schema(combined_records, value_names=value_names)
     splits = stratified_split_records(
@@ -70,24 +157,26 @@ def prepare_fashionai_round1_splits(
         for right in split_names[left_index + 1 :]
     }
     payload = {
-        "dataset": "FashionAI Round1 labeled test A+B",
-        "supervision": "human_answer_csv",
+        "dataset": dataset_name,
+        "supervision": supervision,
         "seed": seed,
         "split_strategy": "image_grouped_stratified_attribute_and_y_class",
+        "image_identity_strategy": (
+            "sha256_file_content"
+            if content_hash_images
+            else "normalized_relative_image_path"
+        ),
         "split_fractions": split_fractions,
         "source_roots": {
-            "round1_test_a": str(source_a_root),
-            "round1_test_b": str(source_b_root),
+            name: str(source_root) for name, source_root, _ in sources
         },
         "answer_files": {
-            "round1_test_a": str(answer_a),
-            "round1_test_b": str(answer_b),
+            name: str(annotation_file) for name, _, annotation_file in sources
         },
         "source_record_counts": {
-            "round1_test_a": len(records_a),
-            "round1_test_b": len(records_b),
+            name: len(records_by_source[name]) for name in source_names
         },
-        "num_records_before_deduplication": len(records_a) + len(records_b),
+        "num_records_before_deduplication": len(all_records),
         "num_duplicate_records": duplicate_count,
         "num_unique_records": len(combined_records),
         "split_files": split_files,
@@ -109,6 +198,28 @@ def prepare_fashionai_round1_splits(
     )
     payload["summary_file"] = str(summary_path)
     return payload
+
+
+def _replace_image_ids_with_content_hashes(
+    records: Sequence[FashionAIAttributeRecord],
+    *,
+    cache: dict[Path, str],
+) -> list[FashionAIAttributeRecord]:
+    hashed_records = []
+    for index, record in enumerate(records, start=1):
+        image_path = record.image_path.resolve()
+        digest = cache.get(image_path)
+        if digest is None:
+            hasher = hashlib.sha256()
+            with image_path.open("rb") as image_file:
+                for chunk in iter(lambda: image_file.read(1024 * 1024), b""):
+                    hasher.update(chunk)
+            digest = hasher.hexdigest()
+            cache[image_path] = digest
+        hashed_records.append(replace(record, image_id=f"sha256:{digest}"))
+        if index % 10_000 == 0:
+            LOGGER.info("Hashed %s/%s FashionAI records", index, len(records))
+    return hashed_records
 
 
 def _write_records(

@@ -1713,7 +1713,55 @@ visualization artifacts were saved. Full-pipeline time was `478.673 ms`, which
 includes 3.1.1 segmentation and 3.1.2 localization and is separate from the
 3.1.3 20 ms target.
 
-The operational 3.1.3 milestone is complete. Strict test accuracy remains
-`0.0993` below the PRD's 88% quality target. Do not tune further on `test.csv`;
-future accuracy work requires new region-aligned supervision or a separately
-approved labeled benchmark.
+The operational path is working, but 3.1.3 remains open because strict test
+accuracy is `0.0993` below the PRD's 88% target. Do not tune further on the
+already-viewed Round1 `test.csv`.
+
+Inventory the larger extracted FashionAI training releases before the next GPU
+run:
+
+```bash
+PYTHONPATH=src python scripts/data/prepare_fashionai_full_attributes.py \
+  --root /root/autodl-tmp/datasets/FashionAI \
+  --list-sources
+```
+
+After confirming the source list, create a new content-hashed, stratified
+80/10/10 split:
+
+```bash
+PYTHONPATH=src python scripts/data/prepare_fashionai_full_attributes.py \
+  --root /root/autodl-tmp/datasets/FashionAI \
+  --output-dir /root/autodl-tmp/outputs/fashionai_full_stratified
+```
+
+Verify the summary's source counts, unique-image counts, class strata, and zero
+overlap before training. Keep the generated `test.csv` sealed. The first
+controlled comparison changes only the data:
+
+```bash
+PYTHONPATH=src python scripts/train/train_fashionai_attributes.py \
+  --dataset-config configs/dataset/fashionai_full.yaml \
+  --model-config \
+    configs/model/fashionai_attributes_resnet50_cosine_15ep.yaml \
+  --device cuda \
+  --output-dir \
+    /root/autodl-tmp/checkpoints/fashionai_full_resnet50_15ep \
+  > /root/autodl-tmp/outputs/fashionai_full_resnet50_15ep.log 2>&1
+```
+
+Training logs now report validation strict accuracy, ambiguity-aware accuracy,
+and official FashionAI mAP. If the control remains below `0.88` validation
+strict accuracy, run the attribute-attention config on exactly the same
+manifests:
+
+```bash
+PYTHONPATH=src python scripts/train/train_fashionai_attributes.py \
+  --dataset-config configs/dataset/fashionai_full.yaml \
+  --model-config \
+    configs/model/fashionai_attributes_resnet50_attention_15ep.yaml \
+  --device cuda \
+  --output-dir \
+    /root/autodl-tmp/checkpoints/fashionai_full_resnet50_attention_15ep \
+  > /root/autodl-tmp/outputs/fashionai_full_resnet50_attention_15ep.log 2>&1
+```

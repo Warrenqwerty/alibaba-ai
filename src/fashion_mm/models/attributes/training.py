@@ -117,6 +117,10 @@ def run_attribute_epoch(
     by_attribute: dict[str, dict[str, int]] = defaultdict(
         lambda: {"records": 0, "strict_correct": 0, "acceptable_correct": 0}
     )
+    official_predictions: dict[
+        str,
+        list[tuple[float, bool | None]],
+    ] = defaultdict(list)
 
     for step, batch in enumerate(loader, start=1):
         images = batch["images"].to(device, non_blocking=True)
@@ -136,6 +140,11 @@ def run_attribute_epoch(
                 features = model.encode(images)
                 loss_sum = torch.zeros((), device=device)
                 batch_predictions = torch.empty_like(targets)
+                batch_confidences = (
+                    torch.empty_like(targets, dtype=torch.float32)
+                    if not training
+                    else None
+                )
                 for attribute_name in sorted(set(attribute_names)):
                     indices = [
                         index
@@ -156,6 +165,13 @@ def run_attribute_epoch(
                     batch_predictions.index_copy_(
                         0, index_tensor, logits.argmax(dim=-1)
                     )
+                    if batch_confidences is not None:
+                        confidences = torch.softmax(logits, dim=-1).amax(dim=-1)
+                        batch_confidences.index_copy_(
+                            0,
+                            index_tensor,
+                            confidences,
+                        )
                 loss = loss_sum / len(attribute_names)
 
             if training:
@@ -173,6 +189,11 @@ def run_attribute_epoch(
             model_time_seconds += perf_counter() - started_at
 
         predictions = batch_predictions.detach().cpu().tolist()
+        confidences = (
+            batch_confidences.detach().cpu().tolist()
+            if batch_confidences is not None
+            else None
+        )
         target_values = targets.detach().cpu().tolist()
         total_loss += float(loss.detach().cpu()) * len(attribute_names)
         total_records += len(attribute_names)
@@ -187,6 +208,17 @@ def run_attribute_epoch(
             metrics["records"] += 1
             metrics["strict_correct"] += int(strict_hit)
             metrics["acceptable_correct"] += int(acceptable_hit)
+            if confidences is not None:
+                official_outcome = (
+                    True
+                    if strict_hit
+                    else None
+                    if acceptable_hit
+                    else False
+                )
+                official_predictions[attribute_name].append(
+                    (float(confidences[index]), official_outcome)
+                )
 
         if training and log_interval and step % log_interval == 0:
             LOGGER.info(
@@ -213,8 +245,66 @@ def run_attribute_epoch(
         },
     }
     if not training:
+        official_aps = {
+            name: fashionai_official_average_precision(predictions)
+            for name, predictions in sorted(official_predictions.items())
+        }
+        official_basic_precisions = {
+            name: fashionai_official_basic_precision(predictions)
+            for name, predictions in sorted(official_predictions.items())
+        }
+        for name in payload["by_attribute"]:
+            payload["by_attribute"][name]["official_ap"] = official_aps[name]
+            payload["by_attribute"][name]["official_basic_precision"] = (
+                official_basic_precisions[name]
+            )
+        payload["official_map"] = sum(official_aps.values()) / max(
+            len(official_aps),
+            1,
+        )
+        payload["official_basic_precision"] = sum(
+            official_basic_precisions.values()
+        ) / max(len(official_basic_precisions), 1)
         payload["model_inference_time_ms"] = model_time_seconds * 1000.0
         payload["avg_model_inference_time_ms"] = (
             model_time_seconds * 1000.0 / max(total_records, 1)
         )
     return payload
+
+
+def fashionai_official_average_precision(
+    predictions: list[tuple[float, bool | None]],
+) -> float:
+    """Compute FashionAI AP over confidence thresholds for one attribute.
+
+    ``True`` is a strict `y` hit, ``False`` is an `n` error, and ``None`` is
+    an ambiguous `m` prediction that affects coverage but not precision counts.
+    """
+    if not predictions:
+        raise ValueError("FashionAI AP requires at least one prediction.")
+    correct_count = 0
+    evaluated_count = 0
+    precisions = []
+    for _, outcome in sorted(predictions, key=lambda item: item[0], reverse=True):
+        if outcome is True:
+            correct_count += 1
+            evaluated_count += 1
+        elif outcome is False:
+            evaluated_count += 1
+        precisions.append(
+            correct_count / evaluated_count if evaluated_count else 0.0
+        )
+    return sum(precisions) / len(precisions)
+
+
+def fashionai_official_basic_precision(
+    predictions: list[tuple[float, bool | None]],
+) -> float:
+    """Compute FashionAI BasicPrecision at zero confidence threshold."""
+    if not predictions:
+        raise ValueError(
+            "FashionAI BasicPrecision requires at least one prediction."
+        )
+    correct_count = sum(outcome is True for _, outcome in predictions)
+    evaluated_count = sum(outcome is not None for _, outcome in predictions)
+    return correct_count / evaluated_count if evaluated_count else 0.0

@@ -58,6 +58,10 @@ class FashionAttributePredictor:
             backbone_name=str(model_config.get("backbone", "mobilenet_v3_small")),
             pretrained=False,
             dropout=float(model_config.get("dropout", 0.2)),
+            pooling=str(model_config.get("pooling", "global")),
+            attention_reduction=int(
+                model_config.get("attention_reduction", 16)
+            ),
         )
         self.model.load_state_dict(checkpoint["model_state_dict"])
         self.model.to(self.device).eval()
@@ -67,6 +71,8 @@ class FashionAttributePredictor:
             input_mode=self.input_mode,
         )
         self.backend = f"fashionai_multi_head_{self.model.backbone_name}"
+        if self.model.pooling != "global":
+            self.backend = f"{self.backend}_{self.model.pooling}"
         LOGGER.info("Loaded 3.1.3 attribute checkpoint: %s", self.checkpoint_path)
 
     @torch.inference_mode()

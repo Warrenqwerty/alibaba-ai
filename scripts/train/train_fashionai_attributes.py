@@ -144,6 +144,8 @@ def main() -> None:
         backbone_name=str(config["model"].get("backbone", "mobilenet_v3_small")),
         pretrained=bool(config["model"].get("pretrained", True)),
         dropout=float(config["model"].get("dropout", 0.2)),
+        pooling=str(config["model"].get("pooling", "global")),
+        attention_reduction=int(config["model"].get("attention_reduction", 16)),
     ).to(device)
     learning_rate = float(config["training"]["learning_rate"])
     backbone_learning_rate = float(
@@ -192,12 +194,13 @@ def main() -> None:
     best_accuracy = -1.0
     LOGGER.info(
         "FashionAI records: train=%s validation=%s heads=%s values=%s "
-        "input_mode=%s backbone_lr=%g head_lr=%g scheduler=%s",
+        "input_mode=%s pooling=%s backbone_lr=%g head_lr=%g scheduler=%s",
         len(train_records),
         len(validation_records),
         len(schema.definitions),
         sum(definition.num_classes for definition in schema.definitions),
         input_mode,
+        model.pooling,
         backbone_learning_rate,
         learning_rate,
         type(scheduler).__name__ if scheduler is not None else "none",
@@ -223,12 +226,13 @@ def main() -> None:
         )
         LOGGER.info(
             "epoch=%s train_loss=%.4f train_acc=%.4f val_acc=%.4f "
-            "val_acceptable=%.4f learning_rates=%s",
+            "val_acceptable=%.4f val_official_map=%.4f learning_rates=%s",
             epoch + 1,
             train_metrics["loss"],
             train_metrics["strict_accuracy"],
             validation_metrics["strict_accuracy"],
             validation_metrics["acceptable_accuracy"],
+            validation_metrics.get("official_map", float("nan")),
             ",".join(f"{rate:.6g}" for rate in epoch_learning_rates),
         )
 
@@ -248,6 +252,8 @@ def main() -> None:
                 "image_size": image_size,
                 "input_mode": input_mode,
                 "dropout": float(config["model"].get("dropout", 0.2)),
+                "pooling": model.pooling,
+                "attention_reduction": model.attention_reduction,
                 "top_k": int(config["inference"].get("top_k", 3)),
                 "confidence_threshold": float(
                     config["inference"].get("confidence_threshold", 0.0)

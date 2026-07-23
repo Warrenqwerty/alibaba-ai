@@ -13,6 +13,10 @@ from fashion_mm.data_loaders.fashionai_attributes import read_fashionai_annotati
 from fashion_mm.data_loaders.fashionai_attributes import split_records_by_image
 from fashion_mm.data_loaders.fashionai_attributes import stratified_split_records
 from fashion_mm.data_loaders.fashionai_round1 import prepare_fashionai_round1_splits
+from fashion_mm.data_loaders.fashionai_round1 import (
+    discover_fashionai_training_sources,
+)
+from fashion_mm.data_loaders.fashionai_round1 import prepare_fashionai_source_splits
 from fashion_mm.data_loaders.local_region_queries import (
     iter_local_region_candidate_records,
 )
@@ -31,6 +35,7 @@ __all__ = [
     "build_fashionai_transform",
     "collate_fashionai_attributes",
     "deduplicate_fashionai_records",
+    "discover_fashionai_training_sources",
     "discover_fashionai_csvs",
     "infer_fashionai_schema",
     "iter_local_region_candidate_records",
@@ -40,6 +45,7 @@ __all__ = [
     "LocalRegionQueryRecord",
     "parse_fashionai_label",
     "prepare_fashionai_round1_splits",
+    "prepare_fashionai_source_splits",
     "read_fashionai_annotations",
     "split_records_by_image",
     "stratified_split_records",

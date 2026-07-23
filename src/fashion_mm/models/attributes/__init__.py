@@ -8,6 +8,12 @@ from fashion_mm.models.attributes.result import AttributeValuePrediction
 from fashion_mm.models.attributes.result import FineGrainedAttributePrediction
 from fashion_mm.models.attributes.training import build_attribute_optimizer
 from fashion_mm.models.attributes.training import build_attribute_scheduler
+from fashion_mm.models.attributes.training import (
+    fashionai_official_average_precision,
+)
+from fashion_mm.models.attributes.training import (
+    fashionai_official_basic_precision,
+)
 from fashion_mm.models.attributes.training import run_attribute_epoch
 
 __all__ = [
@@ -17,6 +23,8 @@ __all__ = [
     "build_attribute_scheduler",
     "FashionAttributeClassifier",
     "FashionAttributePredictor",
+    "fashionai_official_average_precision",
+    "fashionai_official_basic_precision",
     "FineGrainedAttributePrediction",
     "MaskedRegionCrop",
     "load_region_mask",
