@@ -1160,9 +1160,11 @@ split:
 ```bash
 PYTHONPATH=src python scripts/eval/evaluate_fashionai_attributes.py \
   --annotations /root/autodl-tmp/outputs/fashionai_round1_stratified/test.csv \
-  --checkpoint /root/autodl-tmp/checkpoints/fashionai_attributes/best.pt \
+  --checkpoint \
+    /root/autodl-tmp/checkpoints/fashionai_attributes_resnet50_cosine_15ep/best.pt \
   --device cuda \
-  --output /root/autodl-tmp/outputs/fashionai_attributes_test_eval.json
+  --output \
+    /root/autodl-tmp/outputs/fashionai_attributes_resnet50_cosine_15ep_test_eval.json
 ```
 
 This reports strict top-1, ambiguity-aware top-1, per-attribute accuracy, and
@@ -1174,20 +1176,22 @@ Benchmark the resident model on the image-plus-mask contract after CUDA warmup:
 ```bash
 PYTHONPATH=src python scripts/eval/benchmark_fashionai_attribute_latency.py \
   /root/autodl-tmp/datasets/DeepFashion2/validation/image/000001.jpg \
-  --mask /root/autodl-tmp/outputs/fashion_visual_pipeline_region.png \
-  --checkpoint /root/autodl-tmp/checkpoints/fashionai_attributes/best.pt \
+  --mask /root/autodl-tmp/outputs/fashion_visual_pipeline_final_region.png \
+  --checkpoint \
+    /root/autodl-tmp/checkpoints/fashionai_attributes_resnet50_cosine_15ep/best.pt \
   --device cuda \
   --warmup-runs 10 \
   --runs 30 \
   --target-ms 20 \
-  --output /root/autodl-tmp/outputs/fashionai_attributes_latency.json
+  --output \
+    /root/autodl-tmp/outputs/fashionai_attributes_resnet50_cosine_15ep_latency.json
 ```
 
 The benchmark keeps one predictor resident and includes file loading, masked
-crop preprocessing, model execution, and decoding in `wall_total_ms`. On the
-AutoDL RTX 5090 baseline, all 8 heads reached wall-time p95 `15.578 ms` and max
-`19.098 ms`; model-only mean was `2.439 ms`. Cold process startup is reported
-separately from this steady-state service metric.
+crop preprocessing, model execution, and decoding in `wall_total_ms`. The
+selected ResNet-50 checkpoint reached wall-time p95 `12.600 ms`, max
+`13.245 ms`, and model-only mean `2.736 ms` on AutoDL RTX 5090. Cold process
+startup is reported separately from this steady-state service metric.
 
 The first validation-only accuracy experiment preserves the complete garment
 instead of applying the baseline's aggressive random resized crop. Every other
@@ -1327,15 +1331,35 @@ Run this experiment from pretrained initialization; do not resume the 10-epoch
 checkpoint because its scheduler state has a different horizon. Select against
 `0.7802` on validation only, then freeze model selection.
 
+The fresh 15-epoch run selected epoch 13 with validation strict accuracy
+`0.7852` and ambiguity-aware accuracy `0.7943`. After model selection was
+frozen, its single evaluation on the 1,993-record held-out test split reached
+strict accuracy `0.7807` and ambiguity-aware accuracy `0.7898`. The strict
+validation-to-test difference was only `0.0045`, and test accuracy improved by
+`0.1736` over the original MobileNetV3-small baseline.
+
+The final image-plus-mask benchmark passed the 20 ms target with wall-time p95
+`12.600 ms` and max `13.245 ms`. The complete 3.1.1 -> 3.1.2 -> 3.1.3 smoke
+test returned `ok` at every stage, saved the region mask and visualization,
+and exactly matched standalone 3.1.3 labels. This completes the operational
+milestone. Test strict accuracy remains `0.0993` below the PRD's 88% quality
+target and must not be represented as satisfying that separate gate.
+
 Run 3.1.3 directly with a target mask:
 
 ```bash
 PYTHONPATH=src python scripts/inference/predict_fine_grained_attributes.py \
   product.jpg \
   --mask target_region.png \
-  --checkpoint /root/autodl-tmp/checkpoints/fashionai_attributes/best.pt \
+  --checkpoint \
+    /root/autodl-tmp/checkpoints/fashionai_attributes_resnet50_cosine_15ep/best.pt \
   --device cuda \
-  --output /root/autodl-tmp/outputs/fashionai_attributes_sample.json
+  --attributes \
+    collar_design_labels \
+    lapel_design_labels \
+    neck_design_labels \
+    neckline_design_labels \
+  --output /root/autodl-tmp/outputs/fashion_attributes_final_standalone.json
 ```
 
 Run the complete visual pipeline:
@@ -1346,17 +1370,21 @@ PYTHONPATH=src python scripts/inference/predict_fashion_visual_pipeline.py \
   --segmentation-checkpoint \
     /root/autodl-tmp/checkpoints/deepfashion2_6class_hard_mining/instance_segmentation/epoch_001.pt \
   --attribute-checkpoint \
-    /root/autodl-tmp/checkpoints/fashionai_attributes/best.pt \
+    /root/autodl-tmp/checkpoints/fashionai_attributes_resnet50_cosine_15ep/best.pt \
   --device cuda \
-  --output /root/autodl-tmp/outputs/fashion_visual_pipeline_sample.json \
-  --mask-output /root/autodl-tmp/outputs/fashion_visual_pipeline_region.png \
-  --vis-output /root/autodl-tmp/outputs/fashion_visual_pipeline_vis.jpg
+  --attributes \
+    collar_design_labels \
+    lapel_design_labels \
+    neck_design_labels \
+    neckline_design_labels \
+  --output /root/autodl-tmp/outputs/fashion_visual_pipeline_final.json \
+  --mask-output /root/autodl-tmp/outputs/fashion_visual_pipeline_final_region.png \
+  --vis-output /root/autodl-tmp/outputs/fashion_visual_pipeline_final_vis.jpg
 ```
 
-Current limitation: FashionAI labels are image/attribute labels, while the PRD
-inference contract uses a local-region mask. The first model is therefore a
-pipeline baseline, not proof of the 88% target. After the pipeline smoke test,
-the next evaluation must separate strict top-1 accuracy, ambiguity-aware
-accuracy, masked-region latency, and per-attribute performance. Region-aware
-training crops or predicted FashionAI garment masks should be introduced only
-after the baseline is measured.
+Current limitation: FashionAI supervision is image-level while the PRD
+inference contract is mask-conditioned. The final smoke test proves functional
+composition and deterministic contract equivalence, not semantic correctness
+on DeepFashion2. Closing the remaining 88% quality gap requires new
+region-aligned supervision or a separately approved labeled benchmark rather
+than tuning further on the frozen test split.

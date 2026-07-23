@@ -244,3 +244,44 @@ from that value, this must be a fresh run rather than a resume from the
 10-epoch scheduler state. Compare against `0.7802` using validation only. After
 this ablation, freeze model selection and evaluate only the selected checkpoint
 on `test.csv`.
+
+## 2026-07-23 Final Result
+
+The 15-epoch run selected epoch 13 using the predefined overall validation
+strict metric. Validation strict accuracy was `0.7852`, ambiguity-aware
+accuracy was `0.7943`, and the train/validation strict gap was `0.2112`. The
+single frozen-test evaluation then reached strict accuracy `0.7807` and
+ambiguity-aware accuracy `0.7898`; the strict validation-to-test difference was
+`0.0045`. Relative to the original MobileNetV3-small test result of `0.6071`,
+the selected model gained `0.1736` absolute strict accuracy.
+
+| Attribute head | Test records | Strict | Ambiguity-aware |
+| --- | ---: | ---: | ---: |
+| coat length | 286 | 0.7832 | 0.7867 |
+| collar design | 210 | 0.7952 | 0.7952 |
+| lapel design | 177 | 0.8023 | 0.8079 |
+| neck design | 141 | 0.7447 | 0.7518 |
+| neckline design | 416 | 0.7861 | 0.7909 |
+| pant length | 193 | 0.7617 | 0.7927 |
+| skirt length | 232 | 0.7500 | 0.7716 |
+| sleeve length | 338 | 0.7988 | 0.8047 |
+
+The final resident image-plus-mask benchmark used 10 warmups and 30 measured
+runs on RTX 5090. Wall-time mean was `12.336 ms`, p95 was `12.600 ms`, maximum
+was `13.245 ms`, and model-only mean was `2.736 ms`. Both p95 and observed
+maximum pass the 20 ms 3.1.3 target.
+
+The final 3.1.1 -> 3.1.2 -> 3.1.3 smoke test reported `ok` for the pipeline,
+local region, and attribute stages. It produced region box
+`[209, 180, 278, 205]`, mask area `670`, a saved 475-byte mask, and a 27 KB
+visualization. Standalone image-plus-mask inference exactly matched integrated
+labels for all four requested neckline heads. The complete pipeline took
+`478.673 ms`; this includes segmentation and localization and is intentionally
+reported separately from the 3.1.3 steady-state latency gate.
+
+The operational definition of done is satisfied. The final strict test result
+is still `0.0993` below the PRD's 88% quality target, so that gate remains open.
+FashionAI's image-level supervision also does not establish semantic accuracy
+for mask-conditioned DeepFashion2 regions. Future quality work requires new
+region-aligned labels or a separately approved benchmark; the frozen test set
+must not be used for further tuning.

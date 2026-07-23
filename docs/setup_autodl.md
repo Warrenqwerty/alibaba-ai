@@ -1517,9 +1517,11 @@ After model selection, evaluate the untouched test split once:
 ```bash
 PYTHONPATH=src python scripts/eval/evaluate_fashionai_attributes.py \
   --annotations /root/autodl-tmp/outputs/fashionai_round1_stratified/test.csv \
-  --checkpoint /root/autodl-tmp/checkpoints/fashionai_attributes/best.pt \
+  --checkpoint \
+    /root/autodl-tmp/checkpoints/fashionai_attributes_resnet50_cosine_15ep/best.pt \
   --device cuda \
-  --output /root/autodl-tmp/outputs/fashionai_attributes_test_eval.json
+  --output \
+    /root/autodl-tmp/outputs/fashionai_attributes_resnet50_cosine_15ep_test_eval.json
 ```
 
 Measure warm single-image extraction latency with one resident predictor. This
@@ -1529,17 +1531,19 @@ decoding in the wall-time result:
 ```bash
 PYTHONPATH=src python scripts/eval/benchmark_fashionai_attribute_latency.py \
   /root/autodl-tmp/datasets/DeepFashion2/validation/image/000001.jpg \
-  --mask /root/autodl-tmp/outputs/fashion_visual_pipeline_region.png \
-  --checkpoint /root/autodl-tmp/checkpoints/fashionai_attributes/best.pt \
+  --mask /root/autodl-tmp/outputs/fashion_visual_pipeline_final_region.png \
+  --checkpoint \
+    /root/autodl-tmp/checkpoints/fashionai_attributes_resnet50_cosine_15ep/best.pt \
   --device cuda \
   --warmup-runs 10 \
   --runs 30 \
   --target-ms 20 \
-  --output /root/autodl-tmp/outputs/fashionai_attributes_latency.json
+  --output \
+    /root/autodl-tmp/outputs/fashionai_attributes_resnet50_cosine_15ep_latency.json
 ```
 
-The 2026-07-22 RTX 5090 baseline measured wall-time p95 `15.578 ms`, maximum
-`19.098 ms`, and model-only mean `2.439 ms`, so both p95 and the observed
+The final RTX 5090 checkpoint measured wall-time p95 `12.600 ms`, maximum
+`13.245 ms`, and model-only mean `2.736 ms`, so both p95 and the observed
 maximum passed the 20 ms target. A fresh process can be much slower on its
 first CUDA call and must not be presented as steady-state extraction latency.
 
@@ -1694,3 +1698,22 @@ Start this as a fresh run. Do not pass `--resume`, because the 10-epoch
 checkpoint contains scheduler state for a different cosine horizon. Compare
 the selected checkpoint against `0.7802` on validation only; keep `test.csv`
 closed until this final comparison is complete.
+
+The 15-epoch run selected epoch 13 with validation strict accuracy `0.7852`
+and acceptable accuracy `0.7943`. Model selection was then frozen. The single
+1,993-record test evaluation reached strict accuracy `0.7807` and acceptable
+accuracy `0.7898`, only `0.0045` below validation on both measures. Test strict
+accuracy improved by `0.1736` over the original MobileNetV3-small baseline.
+
+The final resident image-plus-mask benchmark reached wall-time p95
+`12.600 ms`, maximum `13.245 ms`, and model-only mean `2.736 ms`. The final
+integrated smoke test reported `ok` for pipeline, local-region, and attribute
+status; standalone and integrated labels matched exactly, and both mask and
+visualization artifacts were saved. Full-pipeline time was `478.673 ms`, which
+includes 3.1.1 segmentation and 3.1.2 localization and is separate from the
+3.1.3 20 ms target.
+
+The operational 3.1.3 milestone is complete. Strict test accuracy remains
+`0.0993` below the PRD's 88% quality target. Do not tune further on `test.csv`;
+future accuracy work requires new region-aligned supervision or a separately
+approved labeled benchmark.
